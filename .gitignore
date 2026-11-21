@@ -5,3 +5,4 @@ logs/
 /bin/
 *.exe
 .atl/
+/mysqlite.yaml
