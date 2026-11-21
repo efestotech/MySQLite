@@ -90,6 +90,9 @@ var (
 	reCheck   = regexp.MustCompile(`CHECK constraint failed: (.+) \(\d+\)$`)
 	reTable   = regexp.MustCompile(`no such table: (\S+) \(\d+\)$`)
 	reColumn  = regexp.MustCompile(`no such column: (\S+) \(\d+\)$`)
+	// "table p has 6 columns but 1 values were supplied" (no column list) and
+	// "1 values for 2 columns" (column list).
+	reValueCount = regexp.MustCompile(`(has \d+ columns but \d+ values were supplied|\d+ values for \d+ columns) \(\d+\)$`)
 )
 
 // Map converts err to a MySQL error. It returns nil for nil and an *Error unchanged.
@@ -167,6 +170,11 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 			}
 			return newError(1054, "42S22", "Unknown column '%s' in '%s'", m[1], clause)
 		}
+		if reValueCount.MatchString(msg) {
+			// SQLite does not say which row; the dialect layer reports rows whose lengths
+			// differ from each other, so a mismatch reaching here is in every row.
+			return ColumnCount(1)
+		}
 	}
 	return Internal()
 }
@@ -234,6 +242,11 @@ func Unsupported(construct, reason string) *Error {
 	return newError(1235, "42000", "mysqlite: unsupported construct %s: %s", construct, reason)
 }
 
+// EmptyQuery is 1065: the query has no statement, only whitespace or comments.
+func EmptyQuery() *Error {
+	return newError(1065, "42000", "Query was empty")
+}
+
 // UnknownCommand is 1047.
 func UnknownCommand() *Error {
 	return newError(1047, "08S01", "Unknown command")
@@ -251,6 +264,11 @@ func AccessDenied(user, host string, usingPassword bool) *Error {
 // CommandDenied is 1227.
 func CommandDenied(privilege string) *Error {
 	return newError(1227, "42000", "Access denied; you need (at least one of) the %s privilege(s) for this operation", privilege)
+}
+
+// ColumnCount is 1136: an INSERT row has the wrong number of values.
+func ColumnCount(row int) *Error {
+	return newError(1136, "21S01", "Column count doesn't match value count at row %d", row)
 }
 
 // LockWaitTimeout is 1205.

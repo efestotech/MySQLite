@@ -99,6 +99,12 @@ func TestMapSQLiteErrors(t *testing.T) {
 		{"no such column where", "SELECT id FROM p WHERE nope = 1",
 			Hint{Database: "shop", Clause: "where clause"},
 			1054, "42S22", "Unknown column 'nope' in 'where clause'"},
+		{"value count without column list", "INSERT INTO p VALUES (9)",
+			Hint{Database: "shop", Op: OpInsert},
+			1136, "21S01", "Column count doesn't match value count at row 1"},
+		{"value count with column list", "INSERT INTO p (id, u) VALUES (9)",
+			Hint{Database: "shop", Op: OpInsert},
+			1136, "21S01", "Column count doesn't match value count at row 1"},
 		{"other sqlite error", "SELECT * FROM",
 			Hint{Database: "shop"},
 			1105, "HY000", "Unknown error"},
@@ -180,6 +186,8 @@ func TestConstructors(t *testing.T) {
 		{AccessDenied("test", "127.0.0.1", false), 1045, "28000", "Access denied for user 'test'@'127.0.0.1' (using password: NO)"},
 		{CommandDenied("SUPER"), 1227, "42000", "Access denied; you need (at least one of) the SUPER privilege(s) for this operation"},
 		{Internal(), 1105, "HY000", "Unknown error"},
+		{EmptyQuery(), 1065, "42000", "Query was empty"},
+		{ColumnCount(3), 1136, "21S01", "Column count doesn't match value count at row 3"},
 	}
 	for _, tc := range cases {
 		if tc.err.Code != tc.code || tc.err.State != tc.state || tc.err.Message != tc.msg {

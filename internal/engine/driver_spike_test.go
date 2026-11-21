@@ -258,3 +258,24 @@ func TestSpikeErrorCodes(t *testing.T) {
 		}
 	}
 }
+
+// T4: this build has DQS enabled, so an unknown double-quoted identifier silently
+// becomes a string literal. The dialect quotes identifiers with backticks, which fail
+// as they should (docs/agent-notes/rule-order.md, emitter invariants).
+func TestSpikeDoubleQuotedIdentifierFallsBackToString(t *testing.T) {
+	db := openSpikeDB(t)
+	if _, err := db.Exec("CREATE TABLE q (a INTEGER); INSERT INTO q VALUES (1)"); err != nil {
+		t.Fatal(err)
+	}
+	var v any
+	if err := db.QueryRow(`SELECT "nope" FROM q`).Scan(&v); err != nil {
+		t.Fatalf("DQS appears disabled (good news): update the dialect notes. Error: %v", err)
+	}
+	if v != "nope" {
+		t.Fatalf("want the string fallback, got %#v", v)
+	}
+	err := db.QueryRow("SELECT `nope` FROM q").Scan(&v)
+	if code, _, ok := ErrorCode(err); !ok || code != 1 {
+		t.Fatalf("a backtick-quoted unknown column must fail with SQLITE_ERROR, got %v", err)
+	}
+}
