@@ -75,3 +75,40 @@ func TestAccessDeniedMessageShowsHostOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestUseStatement(t *testing.T) {
+	addr := startServer(t, map[string]string{testUser: testPassword})
+	conn := connect(t, addr, testUser, testPassword)
+
+	if _, err := conn.Execute("USE shop"); err != nil {
+		t.Fatalf("USE shop: %v", err)
+	}
+	_, err := conn.Execute("USE `missing`")
+	myErr := requireMyError(t, err, mysql.ER_BAD_DB_ERROR, "42000")
+	if myErr.Message != "Unknown database 'missing'" {
+		t.Fatalf("unexpected message %q", myErr.Message)
+	}
+}
+
+func TestQueriesGoThroughTheParser(t *testing.T) {
+	addr := startServer(t, map[string]string{testUser: testPassword})
+	conn := connect(t, addr, testUser, testPassword)
+
+	_, err := conn.Execute("SELEC 1")
+	myErr := requireMyError(t, err, mysql.ER_PARSE_ERROR, "42000")
+	const want = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'SELEC 1' at line 1"
+	if myErr.Message != want {
+		t.Fatalf("unexpected message %q", myErr.Message)
+	}
+	_, err = conn.Execute("SELECT * FROM t")
+	requireMyError(t, err, mysql.ER_NO_DB_ERROR, "3D000")
+
+	// The M0 constant still answers, now recognized from the AST.
+	res, err := conn.Execute("select  1 ;")
+	if err != nil {
+		t.Fatalf("select 1: %v", err)
+	}
+	if got, _ := res.GetInt(0, 0); got != 1 {
+		t.Fatalf("want 1, got %d", got)
+	}
+}

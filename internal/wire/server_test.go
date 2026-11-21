@@ -199,6 +199,18 @@ func TestUnknownDatabaseAtConnect(t *testing.T) {
 	}
 }
 
+func TestServerVersionMustBeNumeric(t *testing.T) {
+	_, err := NewServer(Config{
+		ServerVersion:    "eight-mysqlite",
+		MaxAllowedPacket: 64 << 20,
+		Users:            map[string]string{testUser: testPassword},
+		Engine:           newEngine(t),
+	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil {
+		t.Fatal("want an error for a server version that is not major.minor.patch")
+	}
+}
+
 func TestCapabilities(t *testing.T) {
 	srv, err := NewServer(Config{
 		ServerVersion:    "8.0.36-mysqlite",

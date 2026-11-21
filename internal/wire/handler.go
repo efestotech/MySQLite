@@ -2,18 +2,18 @@ package wire
 
 import (
 	"log/slog"
-	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 
+	"mysqlite/internal/dialect"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/session"
 )
 
-// handler implements server.Handler for one connection. HandleQuery still answers only
-// SELECT 1; the router and dialect layers replace it in M1 (T4).
+// handler implements server.Handler for one connection.
 type handler struct {
 	sess *session.Session
+	tr   *dialect.Translator
 	log  *slog.Logger
 
 	// go-mysql calls UseDB for the handshake database before checking the password
@@ -24,8 +24,8 @@ type handler struct {
 	pending       string
 }
 
-func newHandler(sess *session.Session, log *slog.Logger) *handler {
-	return &handler{sess: sess, log: log}
+func newHandler(sess *session.Session, tr *dialect.Translator, log *slog.Logger) *handler {
+	return &handler{sess: sess, tr: tr, log: log}
 }
 
 func (h *handler) UseDB(dbName string) error {
@@ -65,16 +65,25 @@ func (h *handler) fail(err error, hint errs.Hint) error {
 }
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
-	// This string comparison is temporary and is removed when the dialect layer parses
-	// every query (T4).
-	if strings.EqualFold(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), ";")), "SELECT 1") {
+	current, _ := h.sess.Database()
+	st, e := h.tr.Translate(query, current)
+	if e != nil {
+		return nil, toMySQL(e)
+	}
+	if st.Kind == dialect.KindUse {
+		return nil, h.use(st.UseDB)
+	}
+	// Executing translated statements arrives with T5-T8 (result metadata, encoding,
+	// transactions, affected rows). Until then only the M0 constant is answered, now
+	// recognized from the AST instead of the query text.
+	if st.Kind == dialect.KindRead && st.Database == "" && st.SQL == "SELECT 1" {
 		rs, err := mysql.BuildSimpleTextResultset([]string{"1"}, [][]any{{int64(1)}})
 		if err != nil {
 			return nil, h.fail(err, errs.Hint{})
 		}
 		return mysql.NewResult(rs), nil
 	}
-	return nil, toMySQL(errs.Unsupported("statement", "only SELECT 1 is implemented"))
+	return nil, toMySQL(errs.Unsupported("statement execution", "arrives with M1 T5-T8"))
 }
 
 func (h *handler) HandleFieldList(string, string) ([]*mysql.Field, error) {

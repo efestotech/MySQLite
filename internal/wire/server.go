@@ -15,6 +15,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
 
+	"mysqlite/internal/dialect"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/session"
 )
@@ -34,10 +35,11 @@ type Config struct {
 
 // Server accepts MySQL client connections.
 type Server struct {
-	cfg  Config
-	log  *slog.Logger
-	conf *server.Server
-	auth *authHandler
+	cfg     Config
+	version int // ServerVersion as a number, for /*!NNNNN */ comments
+	log     *slog.Logger
+	conf    *server.Server
+	auth    *authHandler
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -60,6 +62,10 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 	if cfg.Engine == nil {
 		return nil, errors.New("wire: engine is required")
 	}
+	version, err := dialect.VersionNumber(cfg.ServerVersion)
+	if err != nil {
+		return nil, fmt.Errorf("wire: %w", err)
+	}
 
 	auth := newAuthHandler(cfg.Users)
 	conf := server.NewServerWithAuth(cfg.ServerVersion, collationUTF8MB4GeneralCI,
@@ -70,11 +76,12 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 
 	return &Server{
-		cfg:   cfg,
-		log:   log,
-		conf:  conf,
-		auth:  auth,
-		conns: make(map[net.Conn]struct{}),
+		cfg:     cfg,
+		version: version,
+		log:     log,
+		conf:    conf,
+		auth:    auth,
+		conns:   make(map[net.Conn]struct{}),
 	}, nil
 }
 
@@ -171,7 +178,8 @@ func (s *Server) serveConn(raw net.Conn) {
 			s.log.Error("connection panic", "remote", remote, "panic", fmt.Sprint(r))
 		}
 	}()
-	h := newHandler(session.New(s.cfg.Engine), s.log.With("remote", remote))
+	tr := dialect.New(dialect.Config{ServerVersion: s.version})
+	h := newHandler(session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {
