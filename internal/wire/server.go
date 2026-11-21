@@ -14,6 +14,9 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
+
+	"mysqlite/internal/engine"
+	"mysqlite/internal/session"
 )
 
 // collationUTF8MB4GeneralCI is the default collation id (docs/00-brief.md section 6).
@@ -25,6 +28,8 @@ type Config struct {
 	MaxAllowedPacket int
 	// Users maps user name to plaintext password. An empty password is allowed.
 	Users map[string]string
+	// Engine serves the databases; each connection gets its own session on it.
+	Engine *engine.Engine
 }
 
 // Server accepts MySQL client connections.
@@ -51,6 +56,9 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 	if len(cfg.Users) == 0 {
 		return nil, errors.New("wire: at least one user is required")
+	}
+	if cfg.Engine == nil {
+		return nil, errors.New("wire: engine is required")
 	}
 
 	auth := newAuthHandler(cfg.Users)
@@ -163,14 +171,15 @@ func (s *Server) serveConn(raw net.Conn) {
 			s.log.Error("connection panic", "remote", remote, "panic", fmt.Sprint(r))
 		}
 	}()
-	h := &handler{}
-	guarded := newPacketGuard(raw, s.cfg.MaxAllowedPacket)
-	conn, err := s.conf.NewCustomizedConn(guarded, s.auth, h)
+	h := newHandler(session.New(s.cfg.Engine), s.log.With("remote", remote))
+	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
+	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {
 		s.log.Info("handshake failed", "remote", remote, "error", err.Error())
 		return
 	}
 	log := s.log.With("conn_id", conn.ConnectionID(), "user", conn.GetUser(), "remote", remote)
+	h.log = log
 	log.Info("connection opened")
 	for !conn.Closed() {
 		if err := conn.HandleCommand(); err != nil {

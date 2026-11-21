@@ -5,11 +5,15 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
+
+	"mysqlite/internal/engine"
 )
 
 const (
@@ -27,8 +31,30 @@ func startServer(t *testing.T, users map[string]string) string {
 	})
 }
 
+// newEngine opens an engine on a temporary data directory with one database, "shop".
+func newEngine(t *testing.T) *engine.Engine {
+	t.Helper()
+	e, err := engine.Open(engine.Options{
+		DataDir:      filepath.Join(t.TempDir(), "data"),
+		MaxReadConns: 1,
+		BusyTimeout:  50 * time.Millisecond,
+		Synchronous:  "NORMAL",
+	}, engine.Extensions{})
+	if err != nil {
+		t.Fatalf("engine: %v", err)
+	}
+	t.Cleanup(func() { _ = e.Close() })
+	if err := e.CreateDatabase("shop"); err != nil {
+		t.Fatalf("create shop: %v", err)
+	}
+	return e
+}
+
 func startServerWith(t *testing.T, cfg Config) string {
 	t.Helper()
+	if cfg.Engine == nil {
+		cfg.Engine = newEngine(t)
+	}
 	srv, err := NewServer(cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -60,7 +86,7 @@ func connect(t *testing.T, addr, user, password string) *client.Conn {
 	return conn
 }
 
-func requireMyError(t *testing.T, err error, code uint16, state string) {
+func requireMyError(t *testing.T, err error, code uint16, state string) *mysql.MyError {
 	t.Helper()
 	var myErr *mysql.MyError
 	if !errors.As(err, &myErr) {
@@ -69,6 +95,7 @@ func requireMyError(t *testing.T, err error, code uint16, state string) {
 	if myErr.Code != code || myErr.State != state {
 		t.Fatalf("want %d/%s, got %d/%s (%s)", code, state, myErr.Code, myErr.State, myErr.Message)
 	}
+	return myErr
 }
 
 func TestSelectOneReturnsOne(t *testing.T) {
@@ -166,7 +193,10 @@ func TestUnknownDatabaseAtConnect(t *testing.T) {
 	addr := startServer(t, map[string]string{testUser: testPassword})
 
 	_, err := client.Connect(addr, testUser, testPassword, "missing")
-	requireMyError(t, err, mysql.ER_BAD_DB_ERROR, "42000")
+	myErr := requireMyError(t, err, mysql.ER_BAD_DB_ERROR, "42000")
+	if myErr.Message != "Unknown database 'missing'" {
+		t.Fatalf("unexpected message %q", myErr.Message)
+	}
 }
 
 func TestCapabilities(t *testing.T) {
@@ -174,6 +204,7 @@ func TestCapabilities(t *testing.T) {
 		ServerVersion:    "8.0.36-mysqlite",
 		MaxAllowedPacket: 64 << 20,
 		Users:            map[string]string{testUser: testPassword},
+		Engine:           newEngine(t),
 	}, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)

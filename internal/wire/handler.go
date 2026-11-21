@@ -1,30 +1,76 @@
 package wire
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/session"
 )
 
-// handler implements server.Handler for M0: a hardcoded SELECT 1 and nothing else.
-// The real router and dialect layers replace HandleQuery from M1 on.
-type handler struct{}
+// handler implements server.Handler for one connection. HandleQuery still answers only
+// SELECT 1; the router and dialect layers replace it in M1 (T4).
+type handler struct {
+	sess *session.Session
+	log  *slog.Logger
+
+	// go-mysql calls UseDB for the handshake database before checking the password
+	// (docs/agent-notes/api-go-mysql.md, W2). Until authenticated, the name is only
+	// recorded here and validated by connAuth.OnAuthSuccess, so a client without
+	// credentials cannot learn which databases exist.
+	authenticated bool
+	pending       string
+}
+
+func newHandler(sess *session.Session, log *slog.Logger) *handler {
+	return &handler{sess: sess, log: log}
+}
 
 func (h *handler) UseDB(dbName string) error {
-	// M0 has no databases. From M1, the name requested during the handshake must be
-	// validated only after authentication (docs/agent-notes/api-go-mysql.md, W2).
-	return toMySQL(errs.UnknownDatabase(dbName))
+	if !h.authenticated {
+		h.pending = dbName
+		return nil
+	}
+	return h.use(dbName)
+}
+
+// afterAuth runs once the password is verified and applies the handshake database.
+func (h *handler) afterAuth() error {
+	h.authenticated = true
+	if h.pending == "" {
+		return nil
+	}
+	name := h.pending
+	h.pending = ""
+	return h.use(name)
+}
+
+func (h *handler) use(name string) error {
+	return h.fail(h.sess.Use(name), errs.Hint{DatabaseArg: name})
+}
+
+// fail maps err to the MySQL error sent to the client. The original of an unmapped
+// error is logged, because the client only sees 1105.
+func (h *handler) fail(err error, hint errs.Hint) error {
+	e := errs.Map(err, hint)
+	if e == nil {
+		return nil
+	}
+	if e.Code == errs.Internal().Code {
+		h.log.Error("internal error", "error", err.Error())
+	}
+	return toMySQL(e)
 }
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
-	// M0 scope is a hardcoded result (docs/08-milestones.md). This string comparison is
-	// temporary and is removed when the dialect layer parses every query.
+	// This string comparison is temporary and is removed when the dialect layer parses
+	// every query (T4).
 	if strings.EqualFold(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), ";")), "SELECT 1") {
 		rs, err := mysql.BuildSimpleTextResultset([]string{"1"}, [][]any{{int64(1)}})
 		if err != nil {
-			return nil, toMySQL(errs.Internal())
+			return nil, h.fail(err, errs.Hint{})
 		}
 		return mysql.NewResult(rs), nil
 	}

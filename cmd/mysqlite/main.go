@@ -75,6 +75,7 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		ServerVersion:    cfg.ServerVersion,
 		MaxAllowedPacket: cfg.MaxAllowedPacket,
 		Users:            cfg.UserPasswords(),
+		Engine:           eng,
 	}, log)
 	if err != nil {
 		return err

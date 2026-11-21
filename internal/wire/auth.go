@@ -68,11 +68,25 @@ func (a *authHandler) GetCredential(username string) (server.Credential, bool, e
 	}, true, nil
 }
 
-func (a *authHandler) OnAuthSuccess(conn *server.Conn) error {
+func (a *authHandler) OnAuthSuccess(*server.Conn) error { return nil }
+
+func (a *authHandler) OnAuthFailure(*server.Conn, error) {}
+
+// connAuth is the per-connection authentication handler: credentials come from the
+// shared authHandler, the post-authentication steps need the connection's handler.
+type connAuth struct {
+	*authHandler
+	h *handler
+}
+
+func (c connAuth) OnAuthSuccess(conn *server.Conn) error {
+	// An error here is written to the client and ends the handshake, which is how MySQL
+	// rejects an unknown handshake database: 1049 after a successful password check.
+	if err := c.h.afterAuth(); err != nil {
+		return err
+	}
 	// go-mysql starts every connection with status 0; clients read AUTOCOMMIT from
 	// OK/EOF packets to decide whether to send COMMIT (W3, docs/03-protocol.md section 7).
 	conn.SetStatus(mysql.SERVER_STATUS_AUTOCOMMIT)
 	return nil
 }
-
-func (a *authHandler) OnAuthFailure(*server.Conn, error) {}
