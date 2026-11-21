@@ -2,10 +2,11 @@ module mysqlite
 
 go 1.27.4
 
+require github.com/go-mysql-org/go-mysql v1.16.0
+
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect
 	github.com/coreos/go-semver v0.3.1 // indirect
-	github.com/go-mysql-org/go-mysql v1.16.0 // indirect
 	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.18.6 // indirect
