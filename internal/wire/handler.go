@@ -4,6 +4,8 @@ import (
 	"strings"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+
+	"mysqlite/internal/errs"
 )
 
 // handler implements server.Handler for M0: a hardcoded SELECT 1 and nothing else.
@@ -13,7 +15,7 @@ type handler struct{}
 func (h *handler) UseDB(dbName string) error {
 	// M0 has no databases. From M1, the name requested during the handshake must be
 	// validated only after authentication (docs/agent-notes/api-go-mysql.md, W2).
-	return mysql.NewDefaultError(mysql.ER_BAD_DB_ERROR, dbName)
+	return toMySQL(errs.UnknownDatabase(dbName))
 }
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
@@ -22,11 +24,11 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	if strings.EqualFold(strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(query), ";")), "SELECT 1") {
 		rs, err := mysql.BuildSimpleTextResultset([]string{"1"}, [][]any{{int64(1)}})
 		if err != nil {
-			return nil, mysql.NewError(mysql.ER_UNKNOWN_ERROR, "internal error building result")
+			return nil, toMySQL(errs.Internal())
 		}
 		return mysql.NewResult(rs), nil
 	}
-	return nil, mysql.NewDefaultError(mysql.ER_NOT_SUPPORTED_YET, "this statement")
+	return nil, toMySQL(errs.Unsupported("statement", "only SELECT 1 is implemented"))
 }
 
 func (h *handler) HandleFieldList(string, string) ([]*mysql.Field, error) {
@@ -51,5 +53,5 @@ func (h *handler) HandleOtherCommand(byte, []byte) error {
 
 // unknownCommand is ER_UNKNOWN_COM_ERROR (1047 / 08S01), docs/03-protocol.md section 4.
 func unknownCommand() error {
-	return mysql.NewDefaultError(mysql.ER_UNKNOWN_COM_ERROR)
+	return toMySQL(errs.UnknownCommand())
 }
