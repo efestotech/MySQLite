@@ -42,6 +42,21 @@ func TestDefaultsApplyWhenOnlyUsersAreSet(t *testing.T) {
 	if len(cfg.Users) != 1 || cfg.Users[0].Name != "test" || cfg.Users[0].Password != "test" {
 		t.Errorf("unexpected users: %+v", cfg.Users)
 	}
+	// docs/06-transactions.md sections 1, 5, 7.
+	if cfg.MaxReadConns != 4 || cfg.BusyTimeoutMS != 5000 || cfg.Synchronous != "NORMAL" {
+		t.Errorf("want max_read_conns 4, busy_timeout_ms 5000, synchronous NORMAL, got %d, %d, %q",
+			cfg.MaxReadConns, cfg.BusyTimeoutMS, cfg.Synchronous)
+	}
+}
+
+func TestEngineKeysFromFile(t *testing.T) {
+	cfg, err := Load([]string{"--config", writeFile(t, minimal+"max_read_conns: 8\nbusy_timeout_ms: 250\nsynchronous: FULL\n")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.MaxReadConns != 8 || cfg.BusyTimeoutMS != 250 || cfg.Synchronous != "FULL" {
+		t.Errorf("unexpected engine keys: %d, %d, %q", cfg.MaxReadConns, cfg.BusyTimeoutMS, cfg.Synchronous)
+	}
 }
 
 func TestPrecedenceFlagsOverFileOverDefaults(t *testing.T) {
@@ -87,6 +102,10 @@ func TestInvalidConfigurationsFailWithClearMessage(t *testing.T) {
 		{"bad log files", minimal + "log:\n  max_files: 0\n", nil, "log.max_files"},
 		{"remote bind not allowed", minimal + "listen: 0.0.0.0\n", nil, "allow_remote"},
 		{"bad flag", minimal, []string{"--port", "abc"}, "port"},
+		{"zero readers", minimal + "max_read_conns: 0\n", nil, "max_read_conns"},
+		{"too many readers", minimal + "max_read_conns: 65\n", nil, "max_read_conns"},
+		{"negative busy timeout", minimal + "busy_timeout_ms: -1\n", nil, "busy_timeout_ms"},
+		{"bad synchronous", minimal + "synchronous: OFF\n", nil, "synchronous"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

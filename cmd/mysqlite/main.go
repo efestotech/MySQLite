@@ -10,8 +10,10 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"mysqlite/internal/config"
+	"mysqlite/internal/engine"
 	"mysqlite/internal/obs"
 	"mysqlite/internal/wire"
 )
@@ -48,6 +50,26 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		log.Warn("listening on a non-loopback address: no TLS, no privilege model, single user",
 			"listen", cfg.Listen)
 	}
+
+	eng, err := engine.Open(engine.Options{
+		DataDir:      cfg.DataDir,
+		MaxReadConns: cfg.MaxReadConns,
+		BusyTimeout:  time.Duration(cfg.BusyTimeoutMS) * time.Millisecond,
+		Synchronous:  cfg.Synchronous,
+	}, engine.Extensions{})
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := eng.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close engine: %w", cerr)
+		}
+	}()
+	sqliteVersion, err := eng.SQLiteVersion(ctx)
+	if err != nil {
+		return err
+	}
+	log.Info("sqlite engine ready", "sqlite_version", sqliteVersion, "data_dir", cfg.DataDir)
 
 	srv, err := wire.NewServer(wire.Config{
 		ServerVersion:    cfg.ServerVersion,

@@ -55,6 +55,11 @@ type Config struct {
 	// privilege model (docs/09-conventions.md section 8).
 	AllowRemote bool `yaml:"allow_remote"`
 	Log         Log  `yaml:"log"`
+
+	// Engine keys (docs/06-transactions.md).
+	MaxReadConns  int    `yaml:"max_read_conns"`
+	BusyTimeoutMS int    `yaml:"busy_timeout_ms"`
+	Synchronous   string `yaml:"synchronous"`
 }
 
 // Defaults returns the configuration used for every key the file and flags leave unset.
@@ -65,6 +70,9 @@ func Defaults() Config {
 		DataDir:          "data",
 		ServerVersion:    "8.0.36-mysqlite",
 		MaxAllowedPacket: 64 << 20,
+		MaxReadConns:     4,
+		BusyTimeoutMS:    5000,
+		Synchronous:      "NORMAL",
 		Log: Log{
 			Level:     "info",
 			Dir:       "logs",
@@ -170,6 +178,15 @@ func (c Config) Validate() error {
 			return fmt.Errorf("config: duplicate user %q", u.Name)
 		}
 		seen[u.Name] = true
+	}
+	if c.MaxReadConns < 1 || c.MaxReadConns > 64 {
+		return fmt.Errorf("config: max_read_conns %d is out of range 1-64", c.MaxReadConns)
+	}
+	if c.BusyTimeoutMS < 0 {
+		return fmt.Errorf("config: busy_timeout_ms %d must not be negative", c.BusyTimeoutMS)
+	}
+	if c.Synchronous != "NORMAL" && c.Synchronous != "FULL" {
+		return fmt.Errorf("config: synchronous %q must be NORMAL or FULL", c.Synchronous)
 	}
 	switch c.Log.Level {
 	case "debug", "info", "warn", "error":
