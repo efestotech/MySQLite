@@ -1,0 +1,6 @@
+.reference/
+data/
+logs/
+*.pcap
+/bin/
+*.exe
