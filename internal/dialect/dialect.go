@@ -1,0 +1,216 @@
+// Package dialect translates MySQL statements to SQLite (docs/05-dialect.md).
+//
+// Every query is parsed with the TiDB parser (ADR 0001) and SQLite SQL is emitted from
+// the AST; the parser's Restore output is never used. Anything outside the supported
+// whitelist is an error (strict mode, docs/05-dialect.md section 2): a statement is
+// either fully translated or rejected.
+//
+// Emitter invariants, which are conventions rather than rules:
+//   - identifiers are quoted with backticks, never double quotes: SQLite treats an
+//     unknown double-quoted identifier as a string literal (DQS), which would turn an
+//     unknown column into a value instead of error 1054;
+//   - every operator is parenthesized, so MySQL and SQLite precedence never matter;
+//   - floating-point literals keep an exponent, so SQLite reads them as REAL.
+package dialect
+
+import (
+	"fmt"
+	"reflect"
+	"regexp"
+	"strconv"
+	"strings"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/pingcap/tidb/pkg/parser"
+	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/mysql"
+	// Registers the value-expression implementation the parser needs (ADR 0001).
+	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
+
+	"mysqlite/internal/errs"
+)
+
+// defaultSQLMode is the MySQL 8.0 default. SET sql_mode arrives with M2.
+const defaultSQLMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+
+// Config configures a Translator.
+type Config struct {
+	// ServerVersion is the advertised version as a number, 8.0.36 -> 80036, which gates
+	// /*!NNNNN ... */ comments.
+	ServerVersion int
+}
+
+// Kind says how a translated statement is executed.
+type Kind int
+
+const (
+	// KindRead runs on a read connection (SELECT).
+	KindRead Kind = iota + 1
+	// KindWrite runs on the writer (INSERT, UPDATE, DELETE).
+	KindWrite
+	// KindUse changes the session's current database (USE db).
+	KindUse
+)
+
+// Statement is a fully translated statement.
+type Statement struct {
+	Kind Kind
+	// Database is the database the statement runs in: the table's qualifier, else the
+	// current database. Empty for a SELECT without FROM.
+	Database string
+	SQL      string
+	Args     []any
+	Op       errs.Op
+	// Rules lists the IDs of the rules applied, in registry order (journal tags).
+	Rules []string
+	// UseDB is the target of KindUse.
+	UseDB string
+}
+
+// Hint returns what the error mapper needs to know about this statement.
+func (s *Statement) Hint() errs.Hint {
+	return errs.Hint{Database: s.Database, Op: s.Op}
+}
+
+// Translator translates the statements of one connection. The parser it holds is not
+// safe for concurrent use, so each connection needs its own Translator.
+type Translator struct {
+	cfg  Config
+	p    *parser.Parser
+	mode mysql.SQLMode
+}
+
+// New returns a Translator using the MySQL 8.0 default sql_mode.
+func New(cfg Config) *Translator {
+	mode, err := mysql.GetSQLMode(defaultSQLMode)
+	if err != nil {
+		panic(fmt.Sprintf("dialect: default sql_mode: %v", err))
+	}
+	p := parser.New()
+	p.SetSQLMode(mode)
+	return &Translator{cfg: cfg, p: p, mode: mode}
+}
+
+// Translate translates one COM_QUERY text. currentDB is the session's database, or "".
+func (t *Translator) Translate(query, currentDB string) (*Statement, *errs.Error) {
+	gated, gatedAny := gateVersionComments(query, t.cfg.ServerVersion, t.mode.HasNoBackslashEscapesMode())
+	stmts, _, err := t.p.ParseSQL(gated)
+	if err != nil {
+		return nil, parseError(err, gated)
+	}
+	switch len(stmts) {
+	case 0:
+		return nil, errs.EmptyQuery()
+	case 1:
+	default:
+		// CLIENT_MULTI_STATEMENTS is not advertised (docs/03-protocol.md section 2), so
+		// MySQL rejects the second statement as a syntax error.
+		return nil, parseErrorAt(gated, secondStatementOffset(gated, stmts))
+	}
+
+	e := &emitter{query: gated, current: currentDB, rules: map[string]bool{}}
+	if gatedAny {
+		e.apply(ruleVersionComment)
+	}
+	st := e.statement(stmts[0])
+	if e.err != nil {
+		return nil, e.err
+	}
+	for _, r := range rules {
+		if e.rules[r.ID] {
+			st.Rules = append(st.Rules, r.ID)
+		}
+	}
+	return st, nil
+}
+
+// VersionNumber converts "8.0.36-mysqlite" to 80036.
+func VersionNumber(version string) (int, error) {
+	base, _, _ := strings.Cut(version, "-")
+	parts := strings.Split(base, ".")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("dialect: version %q is not major.minor.patch", version)
+	}
+	n := 0
+	for i, p := range parts {
+		v, err := strconv.Atoi(p)
+		if err != nil || v < 0 || (i > 0 && v > 99) {
+			return 0, fmt.Errorf("dialect: version %q is not major.minor.patch", version)
+		}
+		n = n*100 + v
+	}
+	return n, nil
+}
+
+// TiDB reports syntax errors as `line 1 column 13 near "FROM t" `.
+var reParseError = regexp.MustCompile(`(?s)^line (\d+) column \d+ near "(.*)"\s*$`)
+
+func parseError(err error, query string) *errs.Error {
+	if m := reParseError.FindStringSubmatch(err.Error()); m != nil {
+		line, _ := strconv.Atoi(m[1])
+		return errs.Parse(truncateNear(m[2]), line)
+	}
+	// Errors without a position (an unknown character set in an introducer, for
+	// example) are reported from the start of the query.
+	return errs.Parse(truncateNear(query), 1)
+}
+
+// parseErrorAt is a syntax error at a byte offset of the query.
+func parseErrorAt(query string, offset int) *errs.Error {
+	if offset < 0 || offset > len(query) {
+		offset = 0
+	}
+	line := 1 + strings.Count(query[:offset], "\n")
+	return errs.Parse(truncateNear(query[offset:]), line)
+}
+
+// secondStatementOffset finds where the second statement starts. The parser does not
+// record node offsets (OriginTextPosition is 0), but each statement keeps its text.
+func secondStatementOffset(query string, stmts []ast.StmtNode) int {
+	first := stmts[0].Text()
+	start := strings.Index(query, first)
+	if start < 0 {
+		return 0
+	}
+	from := start + len(first)
+	i := strings.Index(query[from:], stmts[1].Text())
+	if i < 0 {
+		return 0
+	}
+	// The statement text may start with the whitespace after ';'; MySQL's "near" text
+	// starts at the token.
+	off := from + i
+	for off < len(query) && strings.ContainsRune(" \t\r\n", rune(query[off])) {
+		off++
+	}
+	return off
+}
+
+// truncateNear keeps the first 80 bytes, as MySQL's "%-.80s", without splitting a
+// UTF-8 sequence.
+func truncateNear(s string) string {
+	const limit = 80
+	if len(s) <= limit {
+		return s
+	}
+	cut := limit
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
+}
+
+// statementName turns *ast.CreateTableStmt into "CREATE TABLE".
+func statementName(n ast.Node) string {
+	name := reflect.TypeOf(n).Elem().Name()
+	name = strings.TrimSuffix(name, "Stmt")
+	var b strings.Builder
+	for i, r := range name {
+		if i > 0 && unicode.IsUpper(r) {
+			b.WriteByte(' ')
+		}
+		b.WriteRune(unicode.ToUpper(r))
+	}
+	return b.String()
+}

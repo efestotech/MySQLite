@@ -4,6 +4,7 @@ go 1.27.4
 
 require (
 	github.com/go-mysql-org/go-mysql v1.16.0
+	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17
 	go.yaml.in/yaml/v3 v3.0.6
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	modernc.org/sqlite v1.62.0
@@ -19,8 +20,8 @@ require (
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
 	github.com/pingcap/errors v0.11.5-0.20260310054046-9c8b3586e4b2 // indirect
+	github.com/pingcap/failpoint v0.0.0-20260406204437-bbc9d102c19e // indirect
 	github.com/pingcap/log v1.1.1-0.20260227082333-572e590d08f1 // indirect
-	github.com/pingcap/tidb/pkg/parser v0.0.0-20260504140133-511dba1dbe17 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
