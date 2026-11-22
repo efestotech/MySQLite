@@ -69,3 +69,25 @@ func constInt(x *Expr) (int, bool) {
 	}
 	return n, true
 }
+
+// temporalResult is the type of a function returning DATETIME, DATE or TIME, with the
+// precision its first argument gives.
+func temporalResult(x *Expr) (ColumnDef, *errs.Error) {
+	fsp := 0
+	if len(x.Args) > 0 {
+		fsp, _ = constInt(x.Args[0])
+	}
+	decl := map[FuncRet]string{RetDatetime: "DATETIME", RetDate: "DATE", RetTime: "TIME"}[x.Ret]
+	if x.Ret != RetDate && fsp > 0 {
+		decl += "(" + strconv.Itoa(fsp) + ")"
+	}
+	ti, ok := ParseType(decl)
+	if !ok {
+		return ColumnDef{}, errs.Internal()
+	}
+	d := ColumnDef{Type: ti.Type, Charset: ti.Charset, Length: ti.Length, Flags: ti.Flags, Decimals: ti.Decimals}
+	if x.NotNull {
+		d.Flags |= FlagNotNull
+	}
+	return d, nil
+}

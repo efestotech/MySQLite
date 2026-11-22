@@ -71,6 +71,11 @@ const (
 	RetGroupConcat
 	// RetRound is ROUND and TRUNCATE: integer, DECIMAL with the places given, or DOUBLE.
 	RetRound
+	// RetDatetime, RetDate and RetTime are DATETIME, DATE and TIME; an argument is the
+	// fractional seconds precision (NOW(3)).
+	RetDatetime
+	RetDate
+	RetTime
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -220,10 +225,17 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			}
 			args[i] = d
 		}
-		if x.Ret == RetRound {
+		switch x.Ret {
+		case RetRound:
 			return roundResult(x, args)
+		case RetDatetime, RetDate, RetTime:
+			return temporalResult(x)
 		}
-		return funcResult(x.Ret, args)
+		d, e := funcResult(x.Ret, args)
+		if e == nil && x.NotNull {
+			d.Flags |= FlagNotNull
+		}
+		return d, e
 	case ExprArith:
 		l, e := s.infer(x.Args[0], clause)
 		if e != nil {

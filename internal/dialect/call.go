@@ -1,10 +1,12 @@
 package dialect
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
 	"mysqlite/internal/dialect/functions"
 	"mysqlite/internal/errs"
@@ -27,9 +29,19 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 	e.apply(ruleFunction)
 	switch {
 	case f.Emit == functions.Session || f.Emit == functions.LastInsertID && len(n.Args) == 0:
+		sv := &SessionValue{Name: f.Session}
+		x := &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: f.Ret, NotNull: true}
+		if len(n.Args) > 0 {
+			fsp, ok := e.precision(n, f)
+			if !ok {
+				return nil
+			}
+			sv.Fsp = fsp
+			x.Args = []*meta.Expr{{Kind: meta.ExprLiteral, Literal: &meta.Literal{Kind: meta.LiteralInt, Text: strconv.Itoa(fsp)}}}
+		}
 		e.write("?")
-		e.args = append(e.args, &SessionValue{Name: f.Session})
-		return &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: f.Ret}
+		e.args = append(e.args, sv)
+		return x
 	case f.Emit == functions.LastInsertID:
 		// The sink is bound before the argument's own arguments, in text order.
 		e.write(functions.UDFLastInsertID, "(?, ")
@@ -124,4 +136,33 @@ func (e *emitter) scope() meta.From {
 		return meta.Single(e.wr.Meta, e.wr.Alias)
 	}
 	return meta.From{}
+}
+
+// precision reads the fractional seconds precision of NOW(fsp) and the like: an integer
+// literal up to 6 (1426 above, as MySQL).
+func (e *emitter) precision(n *ast.FuncCallExpr, f functions.Func) (int, bool) {
+	if !f.Fsp {
+		e.fail(errs.WrongParamCount(n.FnName.O))
+		return 0, false
+	}
+	v, ok := n.Args[0].(*test_driver.ValueExpr)
+	if !ok {
+		e.unsupported(strings.ToUpper(n.FnName.L)+" with a computed precision", reasonLater)
+		return 0, false
+	}
+	var fsp int64
+	switch v.Kind() {
+	case test_driver.KindInt64:
+		fsp = v.GetInt64()
+	case test_driver.KindUint64:
+		fsp = int64(min(v.GetUint64(), math.MaxInt64))
+	default:
+		e.unsupported(strings.ToUpper(n.FnName.L)+" with a computed precision", reasonLater)
+		return 0, false
+	}
+	if fsp < 0 || fsp > 6 {
+		e.fail(errs.TooBigPrecision(fsp, n.FnName.L))
+		return 0, false
+	}
+	return int(fsp), true
 }

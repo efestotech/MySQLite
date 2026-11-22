@@ -20,8 +20,12 @@ type statementSink struct {
 	take func() (int64, bool)
 }
 
-func (h *handler) sessionValue(name string) any {
-	switch name {
+func (h *handler) sessionValue(sv *dialect.SessionValue) any {
+	switch name := sv.Name; name {
+	case functions.SessionNow, functions.SessionCurDate, functions.SessionCurTime,
+		functions.SessionUTCNow, functions.SessionUTCDate, functions.SessionUTCTime,
+		functions.SessionUnixTimestamp:
+		return h.clockValue(name, sv.Fsp)
 	case functions.SessionLastInsertID:
 		return h.lastInsertID
 	case functions.SessionRowCount:

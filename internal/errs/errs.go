@@ -580,6 +580,11 @@ func DerivedAlias() *Error {
 	return newError(1248, "42000", "Every derived table must have its own alias")
 }
 
+// TooBigPrecision is 1426: a fractional seconds precision above 6.
+func TooBigPrecision(fsp int64, function string) *Error {
+	return newError(1426, "42000", "Too-big precision %d specified for '%s'. Maximum is 6.", fsp, function)
+}
+
 // UnionColumns is 1222: SELECTs of a UNION with different column counts.
 func UnionColumns() *Error {
 	return newError(1222, "21000", "The used SELECT statements have a different number of columns")

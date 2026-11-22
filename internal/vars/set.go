@@ -77,7 +77,7 @@ var rules = map[string]rule{
 	"sql_mode":                        {write: Writable},
 	"sql_require_primary_key":         {write: Writable, advisory: "tables without a primary key are accepted"},
 	"sql_select_limit":                {write: Writable, fixed: "SELECT returns every row"},
-	"time_zone":                       {write: Writable, advisory: "TIMESTAMP values are not converted between time zones"},
+	"time_zone":                       {write: Writable},
 	"timestamp":                       {write: Writable},
 	"transaction_isolation":           {write: Writable, values: []string{"READ-COMMITTED", "REPEATABLE-READ", "SERIALIZABLE"}},
 	"transaction_read_only":           {write: Writable},

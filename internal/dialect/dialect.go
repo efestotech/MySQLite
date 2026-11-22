@@ -89,6 +89,8 @@ func (k Kind) String() string {
 // LAST_INSERT_ID(expr) writes to (functions.SessionSink).
 type SessionValue struct {
 	Name string
+	// Fsp is the fractional seconds precision of a current-time value.
+	Fsp int
 }
 
 // Variable is a statement argument that stands for a system variable (@@name). The

@@ -36,6 +36,14 @@ const (
 	SessionVersion      = "VERSION"
 	// SessionSink is the sink number LAST_INSERT_ID(expr) writes to (udf.NewSink).
 	SessionSink = "LAST_INSERT_ID sink"
+	// The statement's time (ADR 0007): in the session time zone, or in UTC.
+	SessionNow           = "NOW"
+	SessionCurDate       = "CURDATE"
+	SessionCurTime       = "CURTIME"
+	SessionUTCNow        = "UTC_TIMESTAMP"
+	SessionUTCDate       = "UTC_DATE"
+	SessionUTCTime       = "UTC_TIME"
+	SessionUnixTimestamp = "UNIX_TIMESTAMP"
 )
 
 // Func is one table entry.
@@ -54,6 +62,8 @@ type Func struct {
 	TextArgs bool
 	// Session is the session value of a Session call.
 	Session string
+	// Fsp makes the argument of a Session call its fractional seconds precision.
+	Fsp bool
 }
 
 // UDF names registered by package udf.
@@ -93,6 +103,15 @@ func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
 
 func session(name string, ret meta.FuncRet) Func {
 	return Func{Emit: Session, Session: name, Ret: ret}
+}
+
+// clock is a current-time function; fsp allows the precision argument.
+func clock(name string, ret meta.FuncRet, fsp bool) Func {
+	f := Func{Emit: Session, Session: name, Ret: ret, Fsp: fsp}
+	if fsp {
+		f.MaxArgs = 1
+	}
+	return f
 }
 
 func text(f Func) Func {
@@ -159,6 +178,21 @@ var table = map[string]Func{
 	"SYSTEM_USER":    session(SessionUser, meta.RetAccount),
 	"CURRENT_USER":   session(SessionCurrentUser, meta.RetAccount),
 	"VERSION":        session(SessionVersion, meta.RetVersion),
+
+	// Current time (ADR 0007). SYSDATE is the statement time too (MySQL: per call).
+	"NOW":               clock(SessionNow, meta.RetDatetime, true),
+	"CURRENT_TIMESTAMP": clock(SessionNow, meta.RetDatetime, true),
+	"LOCALTIME":         clock(SessionNow, meta.RetDatetime, true),
+	"LOCALTIMESTAMP":    clock(SessionNow, meta.RetDatetime, true),
+	"SYSDATE":           clock(SessionNow, meta.RetDatetime, true),
+	"CURDATE":           clock(SessionCurDate, meta.RetDate, false),
+	"CURRENT_DATE":      clock(SessionCurDate, meta.RetDate, false),
+	"CURTIME":           clock(SessionCurTime, meta.RetTime, true),
+	"CURRENT_TIME":      clock(SessionCurTime, meta.RetTime, true),
+	"UTC_TIMESTAMP":     clock(SessionUTCNow, meta.RetDatetime, true),
+	"UTC_DATE":          clock(SessionUTCDate, meta.RetDate, false),
+	"UTC_TIME":          clock(SessionUTCTime, meta.RetTime, true),
+	"UNIX_TIMESTAMP":    clock(SessionUnixTimestamp, meta.RetInt, false),
 }
 
 // Lookup returns the entry of a function by its MySQL name, in any case.

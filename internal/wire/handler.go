@@ -65,6 +65,8 @@ type handler struct {
 	lastInsertID int64
 	rowCount     int64
 	sink         *statementSink
+	// clock is the running statement's time (ADR 0007).
+	clock statementClock
 }
 
 func newHandler(eng *engine.Engine, sess *session.Session, tr *dialect.Translator, log *slog.Logger) *handler {
@@ -144,6 +146,7 @@ func (h *handler) close() {
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	defer h.syncStatus()
 	start := time.Now()
+	h.clock = statementClock{}
 	current, _ := h.sess.Database()
 	h.beginDiagnostics()
 	h.procs.begin(h.proc, current, query)
@@ -200,7 +203,7 @@ func (h *handler) bindVariables(st *dialect.Statement) *errs.Error {
 	bind := func(args []any) *errs.Error {
 		for i, a := range args {
 			if sv, ok := a.(*dialect.SessionValue); ok {
-				args[i] = h.sessionValue(sv.Name)
+				args[i] = h.sessionValue(sv)
 				continue
 			}
 			v, ok := a.(*dialect.Variable)
