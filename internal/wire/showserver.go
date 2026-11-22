@@ -2,12 +2,12 @@ package wire
 
 import (
 	"strconv"
-	"strings"
 	"time"
 
 	"mysqlite/internal/charset"
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/errs"
+	"mysqlite/internal/infoschema"
 	"mysqlite/internal/meta"
 )
 
@@ -50,24 +50,13 @@ func (h *handler) showServer(s *dialect.Show) ([]meta.ColumnDef, [][]any, error)
 			if c.Default {
 				def = "Yes"
 			}
-			rows = append(rows, []any{c.Name, c.Charset, int64(c.ID), def, "Yes", sortLen(c.Name), c.PadAttribute})
+			rows = append(rows, []any{c.Name, c.Charset, int64(c.ID), def, "Yes", infoschema.SortLen(c.Name), c.PadAttribute})
 		}
 		return defs, rows, nil
 	case dialect.ShowProcessList:
 		return processDefs(s), h.processRows(s), nil
 	}
 	return h.showGrants(s)
-}
-
-// sortLen is MySQL's Sortlen: 1 for the simple collations, 8 for unicode_ci, 0 for 0900.
-func sortLen(collation string) int64 {
-	switch {
-	case strings.HasSuffix(collation, "_unicode_ci"):
-		return 8
-	case strings.Contains(collation, "_0900_"):
-		return 0
-	}
-	return 1
 }
 
 func (h *handler) statusRows(s *dialect.Show) [][]any {

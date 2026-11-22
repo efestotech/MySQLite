@@ -450,6 +450,16 @@ func NoSuchGrant(user, host string) *Error {
 	return newError(1141, "42000", "There is no such grant defined for user '%s' on host '%s'", user, host)
 }
 
+// UnknownTableIn is 1109, a table information_schema does not have.
+func UnknownTableIn(table, database string) *Error {
+	return newError(1109, "42S02", "Unknown table '%s' in %s", table, database)
+}
+
+// DBAccessDenied is 1044, e.g. a write to information_schema.
+func DBAccessDenied(user, host, database string) *Error {
+	return newError(1044, "42000", "Access denied for user '%s'@'%s' to database '%s'", user, host, database)
+}
+
 // UnknownTable is 1051, for a qualifier that names no table of the statement (t.*).
 func UnknownTable(table string) *Error {
 	return newError(1051, "42S02", "Unknown table '%s'", table)

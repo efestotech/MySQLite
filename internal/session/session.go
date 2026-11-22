@@ -11,6 +11,7 @@ import (
 
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
+	"mysqlite/internal/infoschema"
 )
 
 // Session is the state of one client connection.
@@ -44,6 +45,11 @@ func (s *Session) Use(name string) error {
 	if name == "" {
 		// MySQL answers an empty COM_INIT_DB with 1046.
 		return errs.NoDatabaseSelected()
+	}
+	if infoschema.Is(name) {
+		// information_schema has no file; statements on it never reach the engine.
+		s.name, s.db = infoschema.Name, nil
+		return nil
 	}
 	db, err := s.eng.Database(name)
 	switch {

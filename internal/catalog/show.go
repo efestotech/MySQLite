@@ -230,3 +230,32 @@ func stringLiteral(s string) string {
 	s = strings.ReplaceAll(s, `\`, `\\`)
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }
+
+// Stats are a table's size figures.
+type Stats struct{ Rows, Data, Index int64 }
+
+// TableStats counts the rows and measures the table and its indexes with SQLite's
+// dbstat table. Rows is exact, where InnoDB's is an estimate.
+func TableStats(ctx context.Context, conn *sql.Conn, table string) (Stats, error) {
+	var st Stats
+	q := "SELECT count(*) FROM " + quoteName(table)
+	if err := conn.QueryRowContext(ctx, q).Scan(&st.Rows); err != nil {
+		return st, fmt.Errorf("catalog: count rows of %s: %w", table, err)
+	}
+	err := conn.QueryRowContext(ctx,
+		"SELECT coalesce(sum(pgsize), 0) FROM dbstat WHERE name = ?", table).Scan(&st.Data)
+	if err != nil {
+		return st, fmt.Errorf("catalog: size of %s: %w", table, err)
+	}
+	err = conn.QueryRowContext(ctx,
+		"SELECT coalesce(sum(pgsize), 0) FROM dbstat WHERE name IN (SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ?)",
+		table).Scan(&st.Index)
+	if err != nil {
+		return st, fmt.Errorf("catalog: index size of %s: %w", table, err)
+	}
+	return st, nil
+}
+
+func quoteName(name string) string {
+	return "\"" + strings.ReplaceAll(name, "\"", "\"\"") + "\""
+}

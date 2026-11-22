@@ -13,6 +13,7 @@ import (
 	"mysqlite/internal/collate"
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/errs"
+	"mysqlite/internal/infoschema"
 	"mysqlite/internal/meta"
 )
 
@@ -76,6 +77,9 @@ func (h *handler) showDatabases(s *dialect.Show) ([]meta.ColumnDef, [][]any, err
 // showCatalog runs the SHOW statements that read one database. It reads through the
 // open transaction when it uses that database, so it sees the transaction's tables.
 func (h *handler) showCatalog(ctx context.Context, s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
+	if infoschema.Is(s.Database) {
+		return showInfoSchema(s)
+	}
 	conn, release, err := h.sess.CatalogConn(ctx, s.Database)
 	if err != nil {
 		return nil, nil, h.fail(err, errs.Hint{DatabaseArg: s.Database})
@@ -112,6 +116,33 @@ func (h *handler) showCatalog(ctx context.Context, s *dialect.Show) ([]meta.Colu
 	}
 	defs := []meta.ColumnDef{textCol("Table", 64), textCol("Create Table", 1024)}
 	return defs, [][]any{{t.Name, catalog.CreateTableSQL(t, next)}}, nil
+}
+
+// showInfoSchema lists information_schema's tables and describes their columns. Its
+// other SHOW forms are refused: its tables have no storage to report.
+func showInfoSchema(s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
+	switch s.Type {
+	case dialect.ShowTables:
+		var entries []catalog.TableEntry
+		for _, n := range infoschema.Names() {
+			entries = append(entries, catalog.TableEntry{Name: n})
+		}
+		defs, rows, err := showTables(s, entries)
+		for _, r := range rows {
+			if len(r) > 1 {
+				r[1] = "SYSTEM VIEW"
+			}
+		}
+		return defs, rows, err
+	case dialect.ShowColumns:
+		t, ok := infoschema.Lookup(s.Table)
+		if !ok {
+			return nil, nil, toMySQL(errs.UnknownTableIn(s.Table, infoschema.Name))
+		}
+		defs, rows := showColumns(s, t)
+		return defs, rows, nil
+	}
+	return nil, nil, toMySQL(errs.Unsupported("SHOW on information_schema", "it has no stored tables"))
 }
 
 func showTables(s *dialect.Show, tables []catalog.TableEntry) ([]meta.ColumnDef, [][]any, error) {
@@ -224,7 +255,7 @@ func (h *handler) showTableStatus(ctx context.Context, conn *sql.Conn, s *dialec
 		if err != nil {
 			return nil, nil, h.fail(err, errs.Hint{Database: s.Database})
 		}
-		st, err := tableStats(ctx, conn, t.Name)
+		st, err := catalog.TableStats(ctx, conn, t.Name)
 		if err != nil {
 			return nil, nil, h.fail(err, errs.Hint{})
 		}
@@ -237,8 +268,8 @@ func (h *handler) showTableStatus(ctx context.Context, conn *sql.Conn, s *dialec
 			auto = next
 		}
 		avg := int64(0)
-		if st.rows > 0 {
-			avg = st.data / st.rows
+		if st.Rows > 0 {
+			avg = st.Data / st.Rows
 		}
 		rowFormat := "Dynamic"
 		if rf := t.Options[catalog.SidecarKeyRowFormat]; rf != "" {
@@ -246,36 +277,12 @@ func (h *handler) showTableStatus(ctx context.Context, conn *sql.Conn, s *dialec
 		}
 		rows = append(rows, []any{
 			t.Name, catalog.Engine(t), int64(10), rowFormat,
-			st.rows, avg, st.data, int64(0), st.index, int64(0), auto,
+			st.Rows, avg, st.Data, int64(0), st.Index, int64(0), auto,
 			nil, nil, nil,
 			catalog.TableCollation(t), nil, "", t.Options[catalog.SidecarKeyComment],
 		})
 	}
 	return defs, rows, nil
-}
-
-type stats struct{ rows, data, index int64 }
-
-// tableStats counts the rows and measures the table and its indexes with SQLite's
-// dbstat table. Rows is exact, where InnoDB's is an estimate.
-func tableStats(ctx context.Context, conn *sql.Conn, table string) (stats, error) {
-	var st stats
-	q := "SELECT count(*) FROM " + quoteName(table)
-	if err := conn.QueryRowContext(ctx, q).Scan(&st.rows); err != nil {
-		return st, fmt.Errorf("wire: count rows of %s: %w", table, err)
-	}
-	err := conn.QueryRowContext(ctx,
-		"SELECT coalesce(sum(pgsize), 0) FROM dbstat WHERE name = ?", table).Scan(&st.data)
-	if err != nil {
-		return st, fmt.Errorf("wire: size of %s: %w", table, err)
-	}
-	err = conn.QueryRowContext(ctx,
-		"SELECT coalesce(sum(pgsize), 0) FROM dbstat WHERE name IN (SELECT name FROM sqlite_schema WHERE type = 'index' AND tbl_name = ?)",
-		table).Scan(&st.index)
-	if err != nil {
-		return st, fmt.Errorf("wire: index size of %s: %w", table, err)
-	}
-	return st, nil
 }
 
 // filterRows applies LIKE (on the first column) or WHERE. For WHERE the rows become a

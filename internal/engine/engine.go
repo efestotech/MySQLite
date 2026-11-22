@@ -105,6 +105,8 @@ type Engine struct {
 	closed bool
 	// scratch serves statements that read no table, opened on first use.
 	scratch *sql.DB
+	// ephemeral serves information_schema, opened on first use.
+	ephemeral *sql.DB
 }
 
 // DataDir is the directory that holds the database files.
@@ -244,6 +246,35 @@ func (e *Engine) Scratch(ctx context.Context) (*sql.Conn, error) {
 	return c, nil
 }
 
+// Ephemeral returns a writable connection to a new, empty in-memory database with the
+// same functions and collations as every database connection. The database is
+// discarded when the connection is closed: the pool keeps no idle connection. mysqlite
+// builds information_schema tables in it (ADR 0005). The caller must close it.
+func (e *Engine) Ephemeral(ctx context.Context) (*sql.Conn, error) {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, errors.New("engine: closed")
+	}
+	if e.ephemeral == nil {
+		d, err := newDriver(e.ext, nil, nil)
+		if err != nil {
+			e.mu.Unlock()
+			return nil, err
+		}
+		e.ephemeral = sql.OpenDB(connector{driver: d, dsn: ":memory:"})
+		e.ephemeral.SetMaxOpenConns(e.opts.MaxReadConns)
+		e.ephemeral.SetMaxIdleConns(0)
+	}
+	db := e.ephemeral
+	e.mu.Unlock()
+	c, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("engine: ephemeral connection: %w", err)
+	}
+	return c, nil
+}
+
 // Close closes every open database.
 func (e *Engine) Close() error {
 	e.mu.Lock()
@@ -257,6 +288,9 @@ func (e *Engine) Close() error {
 		errs = append(errs, db.close())
 	}
 	e.dbs = nil
+	if e.ephemeral != nil {
+		errs = append(errs, e.ephemeral.Close())
+	}
 	if e.scratch != nil {
 		errs = append(errs, e.scratch.Close())
 	}

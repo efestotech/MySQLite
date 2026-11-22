@@ -2,6 +2,7 @@ package wire
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
+	"mysqlite/internal/infoschema"
 	"mysqlite/internal/meta"
 	"mysqlite/internal/obs"
 	"mysqlite/internal/session"
@@ -154,14 +156,22 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 		err = h.transaction(st.Tx)
 	case dialect.KindRead:
 		res, err = h.read(st)
+	case dialect.KindWrite, dialect.KindDDL:
+		if infoschema.Is(st.Database) {
+			err = h.infoSchemaDenied()
+			break
+		}
+		if st.Kind == dialect.KindDDL {
+			res, err = h.createTable(st)
+		} else {
+			res, err = h.write(st)
+		}
 	case dialect.KindShow:
 		res, err = h.show(st.Show)
 	case dialect.KindSet:
 		res, err = h.set(st.Set)
-	case dialect.KindDDL:
-		res, err = h.createTable(st)
 	default:
-		res, err = h.write(st)
+		err = h.fail(fmt.Errorf("wire: statement kind %v not dispatched", st.Kind), errs.Hint{})
 	}
 	return st, res, err
 }
@@ -284,22 +294,31 @@ func (h *handler) transaction(tx *dialect.Transaction) error {
 // The column definitions come from the catalog, not from the values (docs/04 section 3).
 func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	ctx := context.Background()
-	conn, release, err := h.sess.Conn(ctx, st.Database, false)
-	if err != nil {
-		return nil, h.fail(err, errs.Hint{DatabaseArg: st.Database})
-	}
-	defer release()
-	defer func() {
-		if err != nil {
-			h.sess.StatementFailed(ctx)
-		}
-	}()
-
+	var conn *sql.Conn
 	var table *meta.Table
-	if st.Shape.Table != "" {
-		table, err = h.catalog.Table(ctx, conn, st.Database, st.Shape.Table)
+	if infoschema.Is(st.Database) {
+		conn, table, err = h.infoSchemaConn(ctx, st.Shape.Table)
 		if err != nil {
-			return nil, h.fail(err, st.Hint())
+			return nil, err
+		}
+		defer conn.Close()
+	} else {
+		var release func()
+		conn, release, err = h.sess.Conn(ctx, st.Database, false)
+		if err != nil {
+			return nil, h.fail(err, errs.Hint{DatabaseArg: st.Database})
+		}
+		defer release()
+		defer func() {
+			if err != nil {
+				h.sess.StatementFailed(ctx)
+			}
+		}()
+		if st.Shape.Table != "" {
+			table, err = h.catalog.Table(ctx, conn, st.Database, st.Shape.Table)
+			if err != nil {
+				return nil, h.fail(err, st.Hint())
+			}
 		}
 	}
 	defs, e := meta.Columns(st.Shape.Items, table, st.Shape.Alias)

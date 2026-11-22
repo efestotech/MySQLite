@@ -351,3 +351,26 @@ func TestScratchAfterCloseFails(t *testing.T) {
 		t.Fatal("want an error after Close")
 	}
 }
+
+// An ephemeral connection is a new, writable, empty database each time, with the
+// extensions registered.
+func TestEphemeralIsDiscardedOnClose(t *testing.T) {
+	e := openEngine(t, testOptions(t))
+	ctx := context.Background()
+	for i := range 3 {
+		c, err := e.Ephemeral(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := c.ExecContext(ctx, "CREATE TABLE x (a TEXT COLLATE t1_ci)"); err != nil {
+			t.Fatalf("round %d: %v", i, err)
+		}
+		var v string
+		if err := c.QueryRowContext(ctx, "SELECT t1_udf(1)").Scan(&v); err != nil || v != "udf:1" {
+			t.Fatalf("round %d: %q %v", i, v, err)
+		}
+		if err := c.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
