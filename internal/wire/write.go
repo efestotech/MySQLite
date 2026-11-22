@@ -66,6 +66,9 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 
 func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
 	w := st.Write
+	if w.Replace {
+		return h.replace(ctx, conn, st, table, hint)
+	}
 	if w.Select != nil {
 		return h.insertSelect(ctx, conn, st, table, hint)
 	}
@@ -74,7 +77,13 @@ func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statem
 		NoAutoValueOnZero: vars.HasMode(mode.Text, "NO_AUTO_VALUE_ON_ZERO"),
 	})
 	if e != nil {
+		if w.Ignore && adjustedByIgnore(e) {
+			return nil, toMySQL(ignoreAdjusts(e))
+		}
 		return nil, toMySQL(e)
+	}
+	if w.Ignore {
+		return h.insertIgnore(ctx, conn, st, table, hint, info)
 	}
 	hint.Entry = func(_ string, cols []string) string { return insertEntry(ctx, conn, table, info, cols) }
 
@@ -373,5 +382,130 @@ func (h *handler) insertSelect(ctx context.Context, conn *sql.Conn, st *dialect.
 		}
 	}
 	res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: 0  Warnings: 0", res.AffectedRows)
+	return res, nil
+}
+
+// adjustedByIgnore reports an error MySQL's IGNORE turns into a warning while it
+// stores an adjusted value (NULL as the implicit default, a clipped number, a cut
+// string). Unknown columns, repeated columns and row widths stay errors.
+func adjustedByIgnore(e *errs.Error) bool {
+	switch e.Code {
+	case 1054, 1110, 1136, 1235:
+		return false
+	}
+	return true
+}
+
+// ignoreAdjusts refuses an INSERT IGNORE whose row MySQL would store adjusted: mysqlite
+// does not compute the adjusted value.
+func ignoreAdjusts(e *errs.Error) *errs.Error {
+	return errs.Unsupported("INSERT IGNORE of a value MySQL adjusts with a warning", "without IGNORE the row fails with: "+e.Message)
+}
+
+// insertIgnore runs INSERT IGNORE one row at a time: a row that hits a unique key is
+// rolled back and reported as warning 1062, the others are inserted. Any other failure
+// undoes the whole statement.
+func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint, info meta.InsertInfo) (res *mysql.Result, err error) {
+	w := st.Write
+	if _, err := conn.ExecContext(ctx, "SAVEPOINT mysqlite_stmt"); err != nil {
+		return nil, h.fail(err, hint)
+	}
+	defer func() {
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK TO mysqlite_stmt")
+		}
+		_, _ = conn.ExecContext(ctx, "RELEASE mysqlite_stmt")
+	}()
+
+	var ids, explicit []int64
+	duplicates := 0
+	for i, q := range w.RowSQL {
+		if _, err := conn.ExecContext(ctx, "SAVEPOINT mysqlite_row"); err != nil {
+			return nil, h.fail(err, hint)
+		}
+		row := meta.InsertInfo{Auto: info.Auto, Values: info.Values[i : i+1]}
+		rowHint := hint
+		rowHint.Entry = func(_ string, cols []string) string { return insertEntry(ctx, conn, table, row, cols) }
+		var rowIDs []int64
+		var execErr error
+		if info.Auto == "" {
+			_, execErr = conn.ExecContext(ctx, q, w.RowArgs[i]...)
+		} else {
+			rowIDs, execErr = returning(ctx, conn, q+" RETURNING "+ident(info.Auto), w.RowArgs[i])
+		}
+		if execErr != nil {
+			m := errs.Map(execErr, rowHint)
+			_, _ = conn.ExecContext(ctx, "ROLLBACK TO mysqlite_row")
+			_, _ = conn.ExecContext(ctx, "RELEASE mysqlite_row")
+			if m.Code != 1062 {
+				if adjustedByIgnore(m) {
+					return nil, toMySQL(ignoreAdjusts(m))
+				}
+				return nil, h.fail(execErr, rowHint)
+			}
+			h.warn(m)
+			duplicates++
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, "RELEASE mysqlite_row"); err != nil {
+			return nil, h.fail(err, hint)
+		}
+		ids = append(ids, rowIDs...)
+		if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && v != nil && v.Kind != meta.LiteralNull && len(rowIDs) == 1 {
+			explicit = append(explicit, rowIDs[0])
+		}
+	}
+
+	res = &mysql.Result{AffectedRows: uint64(len(w.RowSQL) - duplicates)}
+	if info.Auto != "" {
+		res.AffectedRows = uint64(len(ids))
+		id, generated := insertID(ids, explicit)
+		res.InsertId = uint64(id)
+		if generated {
+			h.lastInsertID = id
+		}
+	}
+	if len(w.RowSQL) > 1 {
+		res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: %d  Warnings: %d", len(w.RowSQL), duplicates, duplicates)
+	}
+	return res, nil
+}
+
+// replace runs REPLACE. SQLite's changes() leaves out the rows REPLACE deletes, which
+// MySQL counts as affected, so they come from the row count before and after.
+func (h *handler) replace(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
+	w := st.Write
+	count := func() (int64, error) {
+		var n int64
+		err := conn.QueryRowContext(ctx, "SELECT count(*) FROM "+ident(table.Name)).Scan(&n)
+		return n, err
+	}
+	before, err := count()
+	if err != nil {
+		return nil, h.fail(err, hint)
+	}
+	plain := *st
+	wr := *w
+	wr.Replace = false
+	plain.Write = &wr
+	var res *mysql.Result
+	if w.Select != nil {
+		res, err = h.insertSelect(ctx, conn, &plain, table, hint)
+	} else {
+		res, err = h.insert(ctx, conn, &plain, table, hint)
+	}
+	if err != nil {
+		return nil, err
+	}
+	after, err := count()
+	if err != nil {
+		return nil, h.fail(err, hint)
+	}
+	deleted := uint64(before + int64(res.AffectedRows) - after)
+	records := res.AffectedRows
+	res.AffectedRows += deleted
+	if res.StatusMessage != "" {
+		res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: %d  Warnings: 0", records, deleted)
+	}
 	return res, nil
 }

@@ -533,10 +533,10 @@ func (e *emitter) limit(l *ast.Limit) {
 
 func (e *emitter) insertStmt(n *ast.InsertStmt) {
 	switch {
-	case n.IsReplace:
-		e.unsupported("REPLACE", reasonLater)
-	case n.IgnoreErr:
-		e.unsupported("INSERT IGNORE", reasonLater)
+	case n.IgnoreErr && n.Select != nil:
+		e.unsupported("INSERT IGNORE ... SELECT", "MySQL reports each skipped row with its key value")
+	case n.IgnoreErr && n.IsReplace:
+		e.fail(errs.Internal())
 	case len(n.OnDuplicate) > 0:
 		e.unsupported("ON DUPLICATE KEY UPDATE", reasonLater)
 	case len(n.PartitionNames) > 0:
@@ -550,7 +550,7 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		return
 	}
 
-	e.wr = &Write{Table: name, Meta: e.lookup(name)}
+	e.wr = &Write{Table: name, Meta: e.lookup(name), Replace: n.IsReplace, Ignore: n.IgnoreErr}
 	e.changes = true
 	for _, c := range n.Columns {
 		e.wr.Columns = append(e.wr.Columns, c.Name.O)
@@ -567,10 +567,14 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		e.insertSelect(n, name)
 		return
 	}
-	e.write("INSERT INTO ", quoteIdent(name))
+	e.write(insertVerb(n), quoteIdent(name))
 	if len(n.Columns) == 0 && len(n.Lists) == 1 && len(n.Lists[0]) == 0 {
 		e.apply(ruleDefaultValues)
 		e.write(" DEFAULT VALUES")
+		if e.wr.Ignore {
+			e.wr.RowSQL = []string{e.b.String()}
+			e.wr.RowArgs = [][]any{e.args}
+		}
 		return
 	}
 	width := len(n.Columns)
@@ -599,21 +603,39 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		e.write(")")
 	}
 	e.write(" VALUES ")
+	prefix, prefixArgs := e.b.String(), e.args
 	e.inValues = true
 	for i, row := range n.Lists {
+		text, args := e.sub(func() {
+			e.write("(")
+			for j, v := range row {
+				if j > 0 {
+					e.write(", ")
+				}
+				e.writeValue(e.insertColumn(n, j), v)
+			}
+			e.write(")")
+		})
 		if i > 0 {
 			e.write(", ")
 		}
-		e.write("(")
-		for j, v := range row {
-			if j > 0 {
-				e.write(", ")
-			}
-			e.writeValue(e.insertColumn(n, j), v)
+		e.write(text)
+		e.args = append(e.args, args...)
+		if e.wr.Ignore {
+			e.wr.RowSQL = append(e.wr.RowSQL, prefix+text)
+			e.wr.RowArgs = append(e.wr.RowArgs, append(append([]any(nil), prefixArgs...), args...))
 		}
-		e.write(")")
 	}
 	e.inValues = false
+}
+
+// insertVerb starts an INSERT or REPLACE. SQLite's REPLACE deletes the rows the new row
+// conflicts with, as MySQL's does.
+func insertVerb(n *ast.InsertStmt) string {
+	if n.IsReplace {
+		return "REPLACE INTO "
+	}
+	return "INSERT INTO "
 }
 
 // insertColumn is the column the j-th value of an INSERT row goes to: the column list's,
@@ -1230,7 +1252,7 @@ func (e *emitter) insertSelect(n *ast.InsertStmt, table string) {
 		list = " (" + identList(targets) + ")"
 	}
 	if !zoned {
-		e.write("INSERT INTO ", quoteIdent(table), list, " ", text)
+		e.write(insertVerb(n), quoteIdent(table), list, " ", text)
 		e.args = append(e.args, args...)
 		return
 	}
@@ -1240,7 +1262,7 @@ func (e *emitter) insertSelect(n *ast.InsertStmt, table string) {
 	}
 	e.write("WITH `__mysqlite_rows`(", identList(names), ") AS (", text, ") ")
 	e.args = append(e.args, args...)
-	e.write("INSERT INTO ", quoteIdent(table), " (", identList(targets), ") SELECT ")
+	e.write(insertVerb(n), quoteIdent(table), " (", identList(targets), ") SELECT ")
 	for i, c := range targets {
 		if i > 0 {
 			e.write(", ")

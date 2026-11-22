@@ -151,6 +151,12 @@ type Write struct {
 	Rows    [][]*meta.Literal
 	// INSERT ... SELECT: the SELECT, for meta.CheckSelect/CheckUnion (Rows is nil).
 	Select *Shape
+	// Replace is REPLACE; Ignore is INSERT IGNORE, which runs one row at a time
+	// (RowSQL and RowArgs: a single-row INSERT per VALUES row).
+	Replace bool
+	Ignore  bool
+	RowSQL  []string
+	RowArgs [][]any
 	// UPDATE: the literal assigned to each column, by lower-case name (nil for an
 	// expression).
 	Set map[string]*meta.Literal
