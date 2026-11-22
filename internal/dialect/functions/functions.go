@@ -16,6 +16,23 @@ const (
 	Bytes
 	// Concat is CONCAT: || over the arguments' string forms, NULL if any is NULL.
 	Concat
+	// Session is a value the executor binds from the session (Func.Session names it).
+	Session
+	// LastInsertID is LAST_INSERT_ID(): a Session value without an argument; with one,
+	// UDFLastInsertID, which also hands the value to the executor.
+	LastInsertID
+)
+
+// Session values the executor binds (dialect.SessionValue).
+const (
+	SessionLastInsertID = "LAST_INSERT_ID"
+	SessionRowCount     = "ROW_COUNT"
+	SessionConnectionID = "CONNECTION_ID"
+	SessionUser         = "USER"
+	SessionCurrentUser  = "CURRENT_USER"
+	SessionVersion      = "VERSION"
+	// SessionSink is the sink number LAST_INSERT_ID(expr) writes to (udf.NewSink).
+	SessionSink = "LAST_INSERT_ID sink"
 )
 
 // Func is one table entry.
@@ -32,6 +49,8 @@ type Func struct {
 	// TextArgs converts numeric arguments to MySQL's string form first, so a DECIMAL
 	// keeps its scale and a DOUBLE prints as MySQL prints it.
 	TextArgs bool
+	// Session is the session value of a Session call.
+	Session string
 }
 
 // UDF names registered by package udf.
@@ -50,10 +69,17 @@ const (
 	UDFXor = "mysqlite_xor"
 	// UDFLike is LIKE under MySQL's collations; SQLite's LIKE folds ASCII only.
 	UDFLike = "mysqlite_like"
+	// UDFLastInsertID(sink, x) is LAST_INSERT_ID(x): x as an integer, also written to
+	// the sink.
+	UDFLastInsertID = "mysqlite_last_insert_id"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
 	return Func{MinArgs: minArgs, MaxArgs: maxArgs, Emit: Rename, SQLite: name, Ret: ret}
+}
+
+func session(name string, ret meta.FuncRet) Func {
+	return Func{Emit: Session, Session: name, Ret: ret}
 }
 
 func text(f Func) Func {
@@ -107,6 +133,16 @@ var table = map[string]Func{
 	"CONCAT":           {MinArgs: 1, MaxArgs: -1, Emit: Concat, Ret: meta.RetString, TextArgs: true},
 	// concat_ws skips NULL arguments and is NULL for a NULL separator, as in MySQL.
 	"CONCAT_WS": text(rename("concat_ws", 2, -1, meta.RetString)),
+
+	// Session.
+	"LAST_INSERT_ID": {MinArgs: 0, MaxArgs: 1, Emit: LastInsertID, Session: SessionLastInsertID, Ret: meta.RetUint},
+	"ROW_COUNT":      session(SessionRowCount, meta.RetInt),
+	"CONNECTION_ID":  session(SessionConnectionID, meta.RetUint),
+	"USER":           session(SessionUser, meta.RetAccount),
+	"SESSION_USER":   session(SessionUser, meta.RetAccount),
+	"SYSTEM_USER":    session(SessionUser, meta.RetAccount),
+	"CURRENT_USER":   session(SessionCurrentUser, meta.RetAccount),
+	"VERSION":        session(SessionVersion, meta.RetVersion),
 }
 
 // Lookup returns the entry of a function by its MySQL name, in any case.

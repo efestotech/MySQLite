@@ -84,6 +84,13 @@ func (k Kind) String() string {
 	return fmt.Sprintf("Kind(%d)", int(k))
 }
 
+// SessionValue is an argument the executor binds from the session: the value of a
+// session function (Name is one of the functions.Session* names), or the sink number
+// LAST_INSERT_ID(expr) writes to (functions.SessionSink).
+type SessionValue struct {
+	Name string
+}
+
 // Variable is a statement argument that stands for a system variable (@@name). The
 // executor replaces it with the session's value before running the statement, so a
 // variable is a value anywhere an expression is.

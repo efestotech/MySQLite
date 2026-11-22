@@ -25,6 +25,22 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 		return nil
 	}
 	e.apply(ruleFunction)
+	switch {
+	case f.Emit == functions.Session || f.Emit == functions.LastInsertID && len(n.Args) == 0:
+		e.write("?")
+		e.args = append(e.args, &SessionValue{Name: f.Session})
+		return &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: f.Ret}
+	case f.Emit == functions.LastInsertID:
+		// The sink is bound before the argument's own arguments, in text order.
+		e.write(functions.UDFLastInsertID, "(?, ")
+		e.args = append(e.args, &SessionValue{Name: functions.SessionSink})
+		x := e.expr(n.Args[0])
+		e.write(")")
+		if x == nil {
+			return nil
+		}
+		return &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: f.Ret, Args: []*meta.Expr{x}}
+	}
 	texts := make([]string, len(n.Args))
 	nodes := make([]*meta.Expr, len(n.Args))
 	for i, a := range n.Args {

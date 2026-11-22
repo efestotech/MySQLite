@@ -93,7 +93,12 @@ func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statem
 			return nil, h.fail(err, hint)
 		}
 		res.AffectedRows = uint64(len(ids))
-		res.InsertId = uint64(insertID(ids, info.Explicit))
+		id, generated := insertID(ids, info.Explicit)
+		res.InsertId = uint64(id)
+		if generated {
+			// LAST_INSERT_ID() changes only when the statement generated an id.
+			h.lastInsertID = id
+		}
 	}
 	if len(w.Rows) > 1 {
 		res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: 0  Warnings: 0", res.AffectedRows)
@@ -161,8 +166,8 @@ func returning(ctx context.Context, conn *sql.Conn, query string, args []any) ([
 // insertID is the id MySQL puts in the OK packet: the first generated value of the
 // statement; without one, the explicit value of the last row (sql_insert.cc).
 // Generated values grow within a statement, so the first is the smallest of the ids
-// that were not given explicitly.
-func insertID(ids, explicit []int64) int64 {
+// that were not given explicitly. generated reports that the id was generated.
+func insertID(ids, explicit []int64) (id int64, generated bool) {
 	given := map[int64]int{}
 	for _, v := range explicit {
 		given[v]++
@@ -179,11 +184,11 @@ func insertID(ids, explicit []int64) int64 {
 	}
 	switch {
 	case found:
-		return first
+		return first, true
 	case len(explicit) > 0:
-		return explicit[len(explicit)-1]
+		return explicit[len(explicit)-1], false
 	}
-	return 0
+	return 0, false
 }
 
 // insertEntry finds the value MySQL reports in 1062: the key of the first row that

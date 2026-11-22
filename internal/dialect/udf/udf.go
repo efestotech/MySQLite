@@ -21,7 +21,7 @@ func Extensions() engine.Extensions {
 	return engine.Extensions{Collations: collate.Collations(), Functions: Functions()}
 }
 
-// Functions returns the scalar functions, all deterministic.
+// Functions returns the scalar functions.
 func Functions() []engine.ScalarFunction {
 	return []engine.ScalarFunction{
 		{Name: functions.UDFUpper, NumArgs: 1, Deterministic: true, Fn: caseMap(strings.ToUpper)},
@@ -33,6 +33,8 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFIntDiv, NumArgs: 3, Deterministic: true, Fn: intDiv},
 		{Name: functions.UDFXor, NumArgs: 2, Deterministic: true, Fn: xor},
 		{Name: functions.UDFLike, NumArgs: 4, Deterministic: true, Fn: like},
+		// Not deterministic: it writes to the sink on every call.
+		{Name: functions.UDFLastInsertID, NumArgs: 2, Fn: lastInsertID},
 	}
 }
 

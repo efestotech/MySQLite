@@ -50,6 +50,12 @@ const (
 	RetMod
 	// RetString is VAR_STRING in the connection collation (UPPER, CONCAT).
 	RetString
+	// RetUint is BIGINT UNSIGNED (LAST_INSERT_ID, CONNECTION_ID).
+	RetUint
+	// RetAccount is a user@host string in the system character set (USER).
+	RetAccount
+	// RetVersion is the server version string (VERSION).
+	RetVersion
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -422,6 +428,17 @@ func funcResult(ret FuncRet, args []ColumnDef) (ColumnDef, *errs.Error) {
 		return d, nil
 	case RetMod:
 		return arith("%", args[0], args[1])
+	case RetUint:
+		d := numeric(TypeLongLong)
+		d.Length = maxIntLength
+		d.Flags |= FlagUnsigned | FlagNotNull
+		return d, nil
+	case RetAccount:
+		// (USERNAME_CHAR_LENGTH + HOSTNAME_LENGTH + 1) characters of utf8mb3.
+		return ColumnDef{Type: TypeVarString, Charset: CollationUTF8MB3, Length: (32 + 255 + 1) * 3, Flags: FlagNotNull}, nil
+	case RetVersion:
+		// SERVER_VERSION_LENGTH characters of utf8mb3.
+		return ColumnDef{Type: TypeVarString, Charset: CollationUTF8MB3, Length: 60 * 3, Flags: FlagNotNull}, nil
 	case RetString:
 		n := 0
 		for _, a := range args {

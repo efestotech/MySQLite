@@ -210,6 +210,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
+	h.version = s.cfg.ServerVersion
 	h.catalog = s.catalog
 	h.procs = s.procs
 	h.users = s.cfg.Users

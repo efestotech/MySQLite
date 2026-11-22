@@ -57,6 +57,14 @@ type handler struct {
 	// conn carries the status flags of every OK and EOF packet; set after
 	// authentication.
 	conn *server.Conn
+
+	// Session function state (sessionfn.go): version is VERSION(); lastInsertID and
+	// rowCount are what LAST_INSERT_ID() and ROW_COUNT() return; sink is the open
+	// LAST_INSERT_ID(expr) sink of the running statement.
+	version      string
+	lastInsertID int64
+	rowCount     int64
+	sink         *statementSink
 }
 
 func newHandler(eng *engine.Engine, sess *session.Session, tr *dialect.Translator, log *slog.Logger) *handler {
@@ -140,6 +148,7 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	h.beginDiagnostics()
 	h.procs.begin(h.proc, current, query)
 	st, res, err := h.query(query, current)
+	h.endStatement(st, res, err)
 	db, _ := h.sess.Database()
 	h.procs.end(h.proc, db)
 	h.endDiagnostics(st, res, err)
@@ -190,6 +199,10 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 func (h *handler) bindVariables(st *dialect.Statement) *errs.Error {
 	bind := func(args []any) *errs.Error {
 		for i, a := range args {
+			if sv, ok := a.(*dialect.SessionValue); ok {
+				args[i] = h.sessionValue(sv.Name)
+				continue
+			}
 			v, ok := a.(*dialect.Variable)
 			if !ok {
 				continue
