@@ -175,6 +175,9 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 	case sqliteBusy, sqliteLocked:
 		return LockWaitTimeout()
 	case sqliteError:
+		if e := fromFunction(msg); e != nil {
+			return e
+		}
 		if m := reTable.FindStringSubmatch(msg); m != nil {
 			table := strings.TrimPrefix(m[1], "main.")
 			return NoSuchTable(h.Database, table)
@@ -361,6 +364,39 @@ func BigintOutOfRange(unsigned bool, expr string) *Error {
 		kind = "BIGINT UNSIGNED"
 	}
 	return newError(1690, "22003", "%s value is out of range in '%s'", kind, expr)
+}
+
+// DivisionByZero is 1365, raised in strict mode with ERROR_FOR_DIVISION_BY_ZERO when an
+// INSERT or UPDATE divides by zero.
+func DivisionByZero() *Error {
+	return newError(1365, "22012", "Division by 0")
+}
+
+// functionMarker prefixes the message of an error a mysqlite SQL function raises: SQLite
+// keeps only the message of a function's error, so the MySQL code travels in it.
+const functionMarker = "mysqlite-error:"
+
+// FunctionError is the error a SQL function returns to raise e. Only the errors
+// fromFunction knows survive the trip through SQLite.
+func FunctionError(e *Error) error {
+	return fmt.Errorf("%s%d", functionMarker, e.Code)
+}
+
+// fromFunction recovers the error FunctionError encoded in a SQLite message.
+func fromFunction(msg string) *Error {
+	i := strings.Index(msg, functionMarker)
+	if i < 0 {
+		return nil
+	}
+	code := msg[i+len(functionMarker):]
+	if j := strings.IndexFunc(code, func(r rune) bool { return r < '0' || r > '9' }); j >= 0 {
+		code = code[:j]
+	}
+	switch code {
+	case "1365":
+		return DivisionByZero()
+	}
+	return Internal()
 }
 
 // OutOfRange is 1264 in strict mode.

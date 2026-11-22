@@ -114,12 +114,22 @@ func compareLen(a, b string) int {
 }
 
 // LikeCI is MySQL's LIKE under mysql_ci: % matches any run of characters, _ one
-// character, and escape makes the next pattern character literal. Characters compare by
-// their mysql_ci weight; unlike =, LIKE does not ignore trailing spaces.
+// character, and escape makes the next pattern character literal (a negative escape is
+// none). Characters compare by their mysql_ci weight; unlike =, LIKE does not ignore
+// trailing spaces.
 func LikeCI(value, pattern string, escape rune) bool {
 	weightsOnce.Do(buildWeights)
+	return like(value, pattern, escape, func(r rune) rune { return rune(weight(r)) })
+}
+
+// LikeBin is MySQL's LIKE under a binary collation: characters compare by code point.
+func LikeBin(value, pattern string, escape rune) bool {
+	return like(value, pattern, escape, func(r rune) rune { return r })
+}
+
+func like(value, pattern string, escape rune, weigh func(rune) rune) bool {
 	type token struct {
-		w    uint16
+		w    rune
 		kind byte // 0 literal, '%' or '_'
 	}
 	var p []token
@@ -127,18 +137,18 @@ func LikeCI(value, pattern string, escape rune) bool {
 	for i := 0; i < len(pr); i++ {
 		r := pr[i]
 		switch {
-		case r == escape && i+1 < len(pr):
+		case escape >= 0 && r == escape && i+1 < len(pr):
 			i++
-			p = append(p, token{w: weight(pr[i])})
+			p = append(p, token{w: weigh(pr[i])})
 		case r == '%' || r == '_':
 			p = append(p, token{kind: byte(r)})
 		default:
-			p = append(p, token{w: weight(r)})
+			p = append(p, token{w: weigh(r)})
 		}
 	}
-	var v []uint16
+	var v []rune
 	for _, r := range value {
-		v = append(v, weight(r))
+		v = append(v, weigh(r))
 	}
 	// Greedy matching with one backtrack point, the last %.
 	vi, pi, star, mark := 0, 0, -1, 0

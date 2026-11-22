@@ -89,3 +89,26 @@ func TestLikeCI(t *testing.T) {
 		}
 	}
 }
+
+func TestLikeBin(t *testing.T) {
+	cases := []struct {
+		value, pattern string
+		escape         rune
+		want           bool
+	}{
+		{"città", "città", '|', true},
+		{"città", "CITTÀ", '|', false},
+		{"città", "citta", '|', false},
+		{"città", "cit_à", '|', true},
+		{"a%b", "a|%b", '|', true},
+		{"axb", "a|%b", '|', false},
+		// A negative escape is none: | is literal.
+		{"a|b", "a|b", -1, true},
+		{"a%b", "a|%b", -1, false},
+	}
+	for _, c := range cases {
+		if got := LikeBin(c.value, c.pattern, c.escape); got != c.want {
+			t.Errorf("LikeBin(%q, %q, %q) = %v, want %v", c.value, c.pattern, c.escape, got, c.want)
+		}
+	}
+}

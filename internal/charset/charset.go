@@ -97,3 +97,14 @@ func LookupCollation(name string) (*Collation, bool) {
 	}
 	return nil, false
 }
+
+// Binary reports a collation that compares by code point or byte: binary and the _bin
+// collations. Unknown IDs are not binary.
+func Binary(id uint16) bool {
+	for _, c := range Collations {
+		if c.ID == id {
+			return c.Name == "binary" || strings.HasSuffix(c.Name, "_bin")
+		}
+	}
+	return false
+}

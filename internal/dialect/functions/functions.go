@@ -43,6 +43,13 @@ const (
 	// UDFMod is MOD and %: exact on integers, fmod otherwise. SQLite's % truncates
 	// REALs to integers and its mod() loses integer precision above 2^53.
 	UDFMod = "mysqlite_mod"
+	// UDFDivide is /, UDFIntDiv is DIV: SQLite's / divides integers as integers.
+	UDFDivide = "mysqlite_divide"
+	UDFIntDiv = "mysqlite_intdiv"
+	// UDFXor is XOR: MySQL converts string operands to numbers, SQLite does not.
+	UDFXor = "mysqlite_xor"
+	// UDFLike is LIKE under MySQL's collations; SQLite's LIKE folds ASCII only.
+	UDFLike = "mysqlite_like"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {

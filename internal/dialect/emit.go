@@ -45,6 +45,11 @@ type emitter struct {
 	// checks collects the arithmetic nodes of the statement for meta.CheckExprs.
 	checks *[]*meta.Expr
 	wr     *Write
+	// mode is the session's sql_mode.
+	mode mysql.SQLMode
+	// changes is set in INSERT and UPDATE, where strict mode turns some NULL results
+	// into errors.
+	changes bool
 }
 
 func (e *emitter) apply(rule string) { e.rules[rule] = true }
@@ -456,6 +461,7 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 	}
 
 	e.wr = &Write{Table: name, Meta: e.lookup(name)}
+	e.changes = true
 	for _, c := range n.Columns {
 		e.wr.Columns = append(e.wr.Columns, c.Name.O)
 	}
@@ -534,6 +540,7 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 	}
 
 	e.wr = &Write{Table: name, Alias: alias, Set: map[string]*meta.Literal{}, Meta: e.lookup(name)}
+	e.changes = true
 	e.refs = &e.wr.Refs
 	e.checks = &e.wr.Exprs
 	e.write("UPDATE ")
@@ -746,9 +753,6 @@ var binaryOps = map[opcode.Op]string{
 // rewrites of docs/05-dialect.md section 4 (M3); the bit operators need unsigned
 // 64-bit arithmetic.
 var refusedOps = map[opcode.Op]string{
-	opcode.Div:        "/",
-	opcode.IntDiv:     "DIV",
-	opcode.LogicXor:   "XOR",
 	opcode.And:        "&",
 	opcode.Or:         "|",
 	opcode.Xor:        "^",
@@ -812,19 +816,29 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			e.unsupported("operator ~", reasonLater)
 		}
 	case *ast.BinaryOperationExpr:
-		if n.Op == opcode.Mod {
+		switch n.Op {
+		case opcode.Mod:
 			// MOD(a, b) and a % b (the parser turns MOD into %).
-			e.apply(ruleFunction)
-			e.write(functions.UDFMod, "(")
-			l := e.expr(n.L)
-			e.write(", ")
-			r := e.expr(n.R)
-			e.write(")")
+			l, r := e.division(functions.UDFMod, n)
 			x := node(meta.ExprFunc, "MOD", l, r)
 			if x != nil {
 				x.Ret = meta.RetMod
 			}
 			return e.check(x)
+		case opcode.Div:
+			l, r := e.division(functions.UDFDivide, n)
+			return e.check(node(meta.ExprArith, "/", l, r))
+		case opcode.IntDiv:
+			l, r := e.division(functions.UDFIntDiv, n)
+			return e.check(node(meta.ExprArith, "DIV", l, r))
+		case opcode.LogicXor:
+			e.apply(ruleFunction)
+			e.write(functions.UDFXor, "(")
+			l := e.expr(n.L)
+			e.write(", ")
+			r := e.expr(n.R)
+			e.write(")")
+			return node(meta.ExprBool, "XOR", l, r)
 		}
 		op, ok := binaryOps[n.Op]
 		if n.Op == opcode.NullEQ {
@@ -898,18 +912,25 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		e.write(")")
 		return node(meta.ExprBool, "BETWEEN", a, l, r)
 	case *ast.IsTruthExpr:
-		name := "IS "
+		// SQLite's IS TRUE takes a string's leading number, as MySQL does.
+		e.write("(")
+		a := e.expr(n.Expr)
+		e.write(" IS ")
 		if n.Not {
-			name += "NOT "
+			e.write("NOT ")
 		}
 		if n.True != 0 {
-			name += "TRUE"
+			e.write("TRUE)")
 		} else {
-			name += "FALSE"
+			e.write("FALSE)")
 		}
-		e.unsupported(name, reasonLater)
+		x := node(meta.ExprBool, "IS TRUE", a)
+		if x != nil {
+			x.NotNull = true
+		}
+		return x
 	case *ast.PatternLikeOrIlikeExpr:
-		e.unsupported("LIKE", "MySQL collations need the custom LIKE of M3")
+		return e.like(n)
 	case *ast.FuncCallExpr:
 		if isCurrentDatabase(n) {
 			e.apply(ruleCurrentDB)
@@ -939,7 +960,7 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		e.args = append(e.args, &Variable{Name: n.Name, Scope: variableScope(n)})
 		return &meta.Expr{Kind: meta.ExprVar, Var: &meta.Variable{Name: n.Name, Scope: variableScope(n)}}
 	case *ast.CaseExpr:
-		e.unsupported("CASE", reasonLater)
+		return e.caseExpr(n)
 	default:
 		e.unsupported(strings.TrimSuffix(statementName(x), " EXPR")+" expression", reasonLater)
 	}

@@ -230,7 +230,7 @@ func (t *Translator) TranslateIn(query, currentDB string, cat Catalog) (*Stateme
 		return nil, parseErrorAt(gated, secondStatementOffset(gated, stmts))
 	}
 
-	e := &emitter{query: gated, current: currentDB, cat: cat, rules: map[string]bool{}}
+	e := &emitter{query: gated, current: currentDB, cat: cat, rules: map[string]bool{}, mode: t.mode}
 	if gatedAny {
 		e.apply(ruleVersionComment)
 	}

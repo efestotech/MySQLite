@@ -17,7 +17,7 @@ const (
 	// ExprBool is a comparison, a logical operator, IS [NOT] NULL, IN or BETWEEN: an
 	// integer 0, 1 or NULL.
 	ExprBool
-	// ExprArith is binary + - * (Op), on Args[0] and Args[1].
+	// ExprArith is binary + - * / DIV (Op), on Args[0] and Args[1].
 	ExprArith
 	// ExprNeg is unary minus on Args[0].
 	ExprNeg
@@ -249,6 +249,9 @@ const (
 	doubleLength     = 22
 	maxDecimalDigits = 65
 	maxDecimalScale  = 30
+	// divPrecisionIncrement is the default of MySQL's div_precision_increment; mysqlite
+	// does not support changing it.
+	divPrecisionIncrement = 4
 )
 
 func numeric(t uint8) ColumnDef {
@@ -291,6 +294,12 @@ func arith(op string, l, r ColumnDef) (ColumnDef, *errs.Error) {
 	}
 	var d ColumnDef
 	switch {
+	case op == "DIV":
+		// The quotient truncated to an integer, whatever the operands.
+		d = numeric(TypeLongLong)
+		p, sc := decimalOf(l)
+		d.Length = uint32(min(p-sc+1, maxIntLength))
+		unsigned = false
 	case lc == classReal || rc == classReal || lc == classNull || rc == classNull:
 		d = numeric(TypeDouble)
 		d.Length, d.Decimals = doubleLength, NotFixedDecimals
@@ -299,9 +308,14 @@ func arith(op string, l, r ColumnDef) (ColumnDef, *errs.Error) {
 		lp, ls := decimalOf(l)
 		rp, rs := decimalOf(r)
 		var p, sc int
-		if op == "*" {
+		switch op {
+		case "*":
 			p, sc = lp+rp, ls+rs
-		} else {
+		case "/":
+			// div_precision_increment (4) more decimals than the dividend.
+			p, sc = lp+rs+divPrecisionIncrement, ls+divPrecisionIncrement
+			unsigned = false
+		default:
 			sc = max(ls, rs)
 			p = max(lp-ls, rp-rs) + 1 + sc
 		}
@@ -310,6 +324,13 @@ func arith(op string, l, r ColumnDef) (ColumnDef, *errs.Error) {
 		d = numeric(TypeNewDecimal)
 		d.Decimals = uint8(sc)
 		d.Length = uint32(decimalLength(p, sc, unsigned))
+	case op == "/":
+		// Integers divide into a DECIMAL too.
+		lp, _ := decimalOf(l)
+		d = numeric(TypeNewDecimal)
+		d.Decimals = divPrecisionIncrement
+		d.Length = uint32(decimalLength(min(lp+divPrecisionIncrement, maxDecimalDigits), divPrecisionIncrement, false))
+		unsigned = false
 	default:
 		d = numeric(TypeLongLong)
 		if op == "*" {
@@ -322,7 +343,9 @@ func arith(op string, l, r ColumnDef) (ColumnDef, *errs.Error) {
 	if unsigned {
 		d.Flags |= FlagUnsigned
 	}
-	if l.Flags&FlagNotNull != 0 && r.Flags&FlagNotNull != 0 {
+	// A division is NULL for a zero divisor.
+	divides := op == "/" || op == "DIV" || op == "%"
+	if l.Flags&FlagNotNull != 0 && r.Flags&FlagNotNull != 0 && !divides {
 		d.Flags |= FlagNotNull
 	}
 	return d, nil
@@ -417,8 +440,8 @@ func double() ColumnDef {
 	return d
 }
 
-// isString is a character or binary string type.
-func isString(d ColumnDef) bool {
+// IsString is a character or binary string type.
+func IsString(d ColumnDef) bool {
 	switch d.Type {
 	case TypeVarString, TypeString, TypeVarchar, TypeBlob, TypeJSON, TypeEnum, TypeSet:
 		return true
@@ -429,7 +452,7 @@ func isString(d ColumnDef) bool {
 // charLength is the length of d in characters: strings carry bytes of their charset,
 // numbers and dates their display width.
 func charLength(d ColumnDef) int {
-	if !isString(d) || d.Charset == CharsetBinary {
+	if !IsString(d) || d.Charset == CharsetBinary {
 		return int(d.Length)
 	}
 	return int(d.Length) / maxLen(d.Charset)
@@ -453,7 +476,7 @@ func merge(args []ColumnDef) ColumnDef {
 	unsigned := true
 	for _, d := range defs {
 		c := classOf(d)
-		str := isString(d)
+		str := IsString(d)
 		allInt = allInt && c == classInt && !str
 		exact = exact && (c == classInt || c == classDecimal) && !str
 		number = number && c != classTemporal && !str
