@@ -149,6 +149,8 @@ type Write struct {
 	// nil when the value is an expression. VALUES () is one empty row.
 	Columns []string
 	Rows    [][]*meta.Literal
+	// INSERT ... SELECT: the SELECT, for meta.CheckSelect/CheckUnion (Rows is nil).
+	Select *Shape
 	// UPDATE: the literal assigned to each column, by lower-case name (nil for an
 	// expression).
 	Set map[string]*meta.Literal

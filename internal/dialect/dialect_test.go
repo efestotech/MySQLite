@@ -258,7 +258,7 @@ func TestUnsupported(t *testing.T) {
 		"REPLACE INTO t VALUES (1)":                              "REPLACE",
 		"INSERT IGNORE INTO t VALUES (1)":                        "INSERT IGNORE",
 		"INSERT INTO t VALUES (1) ON DUPLICATE KEY UPDATE a = 2": "ON DUPLICATE KEY UPDATE",
-		"INSERT INTO t SELECT * FROM u":                          "INSERT ... SELECT",
+		"INSERT INTO t TABLE u":                                  "TABLE or VALUES statement",
 		"UPDATE t SET a = a + 1, b = a":                          "UPDATE assignment order",
 		"UPDATE t SET A = 1, b = a":                              "UPDATE assignment order",
 		"UPDATE t SET a = 1, a = 2":                              "column assigned twice",

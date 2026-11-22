@@ -40,6 +40,12 @@ func (e *emitter) subSelect(q *ast.SubqueryExpr, scalar bool) (string, []any, *m
 // when it failed.
 func (e *emitter) subQuery(q ast.ResultSetNode, scalar bool) (string, []any, *Shape) {
 	e.apply(ruleSubquery)
+	return e.nested(q, scalar)
+}
+
+// nested emits a query inside the statement, with the enclosing queries as its outer
+// scope, and returns its text, arguments and shape.
+func (e *emitter) nested(q ast.ResultSetNode, scalar bool) (string, []any, *Shape) {
 	shape, refs, checks, clause, inAggregate := e.shape, e.refs, e.checks, e.clause, e.inAggregate
 	e.outer = append(e.outer, e.scope())
 	defer func() { e.outer = e.outer[:len(e.outer)-1] }()

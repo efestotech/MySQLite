@@ -66,6 +66,9 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 
 func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
 	w := st.Write
+	if w.Select != nil {
+		return h.insertSelect(ctx, conn, st, table, hint)
+	}
 	mode, _, _ := h.vars.Get("sql_mode", vars.ReadSession)
 	info, e := meta.CheckInsertMode(table, w.Columns, w.Rows, meta.InsertMode{
 		NoAutoValueOnZero: vars.HasMode(mode.Text, "NO_AUTO_VALUE_ON_ZERO"),
@@ -301,4 +304,74 @@ func equalStrings(a, b []string) bool {
 
 func ident(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// insertSelect runs INSERT ... SELECT: the SELECT is checked as a read, its width
+// against the column list (1136), then the list as one row of unknown values (1054,
+// 1110, 1364). Naming the AUTO_INCREMENT column is refused: SQLite does not say which
+// ids it generated, and MySQL's insert id depends on it. MySQL always reports the
+// Records info string here.
+func (h *handler) insertSelect(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
+	w := st.Write
+	sel := w.Select.Select
+	var defs []meta.ColumnDef
+	var e *errs.Error
+	if len(w.Select.Union) > 0 {
+		defs, e = meta.CheckUnion(&sel, w.Select.Union)
+	} else {
+		defs, e = meta.CheckSelect(&sel)
+	}
+	if e != nil {
+		return nil, toMySQL(e)
+	}
+	width := len(w.Columns)
+	if width == 0 {
+		width = len(table.Columns)
+	}
+	if len(defs) != width {
+		return nil, toMySQL(errs.ColumnCount(1))
+	}
+	row := make([]*meta.Literal, width)
+	if table.AutoIncrement != "" {
+		named := len(w.Columns) == 0
+		for _, c := range w.Columns {
+			named = named || strings.EqualFold(c, table.AutoIncrement)
+		}
+		if named {
+			// Columns are checked first, as MySQL does.
+			if _, e := meta.CheckInsertMode(table, w.Columns, nil, meta.InsertMode{}); e != nil {
+				return nil, toMySQL(e)
+			}
+			return nil, toMySQL(errs.Unsupported("INSERT ... SELECT into the AUTO_INCREMENT column",
+				"mysqlite cannot tell generated ids from given ones for the insert id; list the other columns"))
+		}
+	}
+	if _, e := meta.CheckInsertMode(table, w.Columns, [][]*meta.Literal{row}, meta.InsertMode{}); e != nil {
+		return nil, toMySQL(e)
+	}
+
+	res := &mysql.Result{}
+	if table.AutoIncrement == "" {
+		r, err := conn.ExecContext(ctx, st.SQL, st.Args...)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		n, err := r.RowsAffected()
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		res.AffectedRows = uint64(n)
+	} else {
+		ids, err := returning(ctx, conn, st.SQL+" RETURNING "+ident(table.AutoIncrement), st.Args)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		res.AffectedRows = uint64(len(ids))
+		if id, generated := insertID(ids, nil); generated {
+			res.InsertId = uint64(id)
+			h.lastInsertID = id
+		}
+	}
+	res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: 0  Warnings: 0", res.AffectedRows)
+	return res, nil
 }

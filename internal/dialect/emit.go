@@ -539,8 +539,6 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		e.unsupported("INSERT IGNORE", reasonLater)
 	case len(n.OnDuplicate) > 0:
 		e.unsupported("ON DUPLICATE KEY UPDATE", reasonLater)
-	case n.Select != nil:
-		e.unsupported("INSERT ... SELECT", reasonLater)
 	case len(n.PartitionNames) > 0:
 		e.unsupported("PARTITION", reasonSemantics)
 	}
@@ -565,6 +563,10 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		e.wr.Rows = append(e.wr.Rows, values)
 	}
 
+	if n.Select != nil {
+		e.insertSelect(n, name)
+		return
+	}
 	e.write("INSERT INTO ", quoteIdent(name))
 	if len(n.Columns) == 0 && len(n.Lists) == 1 && len(n.Lists[0]) == 0 {
 		e.apply(ruleDefaultValues)
@@ -1185,4 +1187,70 @@ func currentDatabaseArg(current string) any {
 		return nil
 	}
 	return current
+}
+
+// insertSelect emits INSERT ... SELECT. Values for TIMESTAMP columns go through a
+// common table expression that converts them to UTC; the executor checks the SELECT,
+// its width and the column list against the catalog.
+func (e *emitter) insertSelect(n *ast.InsertStmt, table string) {
+	switch n.Select.(type) {
+	case *ast.SelectStmt, *ast.SetOprStmt:
+	default:
+		e.unsupported("INSERT ... TABLE or VALUES statement", reasonLater)
+		return
+	}
+	text, args, shape := e.nested(n.Select, false)
+	if e.err != nil {
+		return
+	}
+	if shape == nil {
+		e.fail(errs.Internal())
+		return
+	}
+	e.wr.Select = shape
+
+	var targets []string
+	for _, c := range n.Columns {
+		e.checkSchema(c.Schema)
+		targets = append(targets, c.Name.O)
+	}
+	if len(targets) == 0 && e.wr.Meta != nil {
+		for _, c := range e.wr.Meta.Columns {
+			targets = append(targets, c.Name)
+		}
+	}
+	zoned := false
+	for _, c := range targets {
+		if e.wr.Meta != nil && e.wr.Meta.IsTimestamp(c) {
+			zoned = true
+		}
+	}
+	list := ""
+	if len(n.Columns) > 0 {
+		list = " (" + identList(targets) + ")"
+	}
+	if !zoned {
+		e.write("INSERT INTO ", quoteIdent(table), list, " ", text)
+		e.args = append(e.args, args...)
+		return
+	}
+	names := make([]string, len(targets))
+	for i := range targets {
+		names[i] = "c" + strconv.Itoa(i)
+	}
+	e.write("WITH `__mysqlite_rows`(", identList(names), ") AS (", text, ") ")
+	e.args = append(e.args, args...)
+	e.write("INSERT INTO ", quoteIdent(table), " (", identList(targets), ") SELECT ")
+	for i, c := range targets {
+		if i > 0 {
+			e.write(", ")
+		}
+		if e.wr.Meta.IsTimestamp(c) {
+			e.write(functions.UDFTzToUTC, "(", quoteIdent(names[i]), ", ?)")
+			e.args = append(e.args, &SessionValue{Name: functions.SessionTimeZone})
+			continue
+		}
+		e.write(quoteIdent(names[i]))
+	}
+	e.write(" FROM `__mysqlite_rows`")
 }
