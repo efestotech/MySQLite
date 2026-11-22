@@ -135,6 +135,8 @@ type Write struct {
 	Refs []meta.Ref
 	// UPDATE and DELETE: arithmetic nodes, for meta.CheckExprs.
 	Exprs []*meta.Expr
+	// Meta is the target table, when the statement was translated with a catalog.
+	Meta *meta.Table
 	// UPDATE: counts the rows the statement matches. Statement.SQL updates only the rows
 	// whose values change, so its changes() is MySQL's affected rows; with
 	// CLIENT_FOUND_ROWS the matched count is reported instead.
@@ -151,6 +153,8 @@ type Shape struct {
 	Refs []meta.Ref
 	// Exprs are the arithmetic nodes of every clause, for meta.CheckExprs.
 	Exprs []*meta.Expr
+	// Meta is the FROM table, when the statement was translated with a catalog.
+	Meta *meta.Table
 }
 
 // Hint returns what the error mapper needs to know about this statement.
@@ -195,7 +199,22 @@ func (t *Translator) SetSQLMode(mode string) {
 }
 
 // Translate translates one COM_QUERY text. currentDB is the session's database, or "".
+// Catalog describes the tables the translator meets (docs/01-architecture.md section 3:
+// the translator's input includes the catalog). The executor implements it over the
+// session, so a statement in an open transaction sees that transaction's schema.
+type Catalog interface {
+	Table(database, table string) (*meta.Table, *errs.Error)
+}
+
+// Translate translates without a catalog: no table metadata is attached. Tests and
+// statements that read no table use it.
 func (t *Translator) Translate(query, currentDB string) (*Statement, *errs.Error) {
+	return t.TranslateIn(query, currentDB, nil)
+}
+
+// TranslateIn translates query, reading the tables it names from cat. A table that does
+// not exist fails the translation with the catalog's error.
+func (t *Translator) TranslateIn(query, currentDB string, cat Catalog) (*Statement, *errs.Error) {
 	gated, gatedAny := gateVersionComments(query, t.cfg.ServerVersion, t.mode.HasNoBackslashEscapesMode())
 	stmts, _, err := t.p.ParseSQL(gated)
 	if err != nil {
@@ -211,7 +230,7 @@ func (t *Translator) Translate(query, currentDB string) (*Statement, *errs.Error
 		return nil, parseErrorAt(gated, secondStatementOffset(gated, stmts))
 	}
 
-	e := &emitter{query: gated, current: currentDB, rules: map[string]bool{}}
+	e := &emitter{query: gated, current: currentDB, cat: cat, rules: map[string]bool{}}
 	if gatedAny {
 		e.apply(ruleVersionComment)
 	}

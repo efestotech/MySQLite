@@ -92,14 +92,20 @@ func (h *handler) use(name string) error {
 // fail maps err to the MySQL error sent to the client. The original of an unmapped
 // error is logged, because the client only sees 1105.
 func (h *handler) fail(err error, hint errs.Hint) error {
-	e := errs.Map(err, hint)
+	e := h.mapErr(err, hint)
 	if e == nil {
 		return nil
 	}
-	if e.Code == errs.Internal().Code {
+	return toMySQL(e)
+}
+
+// mapErr maps err to a MySQL error and logs the internal ones.
+func (h *handler) mapErr(err error, hint errs.Hint) *errs.Error {
+	e := errs.Map(err, hint)
+	if e != nil && e.Code == errs.Internal().Code {
 		h.log.Error("internal error", "error", err.Error())
 	}
-	return toMySQL(e)
+	return e
 }
 
 // syncStatus copies the session's transaction state to the status flags go-mysql puts
@@ -142,7 +148,7 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 }
 
 func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Result, error) {
-	st, e := h.tr.Translate(query, current)
+	st, e := h.tr.TranslateIn(query, current, sessionCatalog{h})
 	if e != nil {
 		return nil, nil, toMySQL(e)
 	}
@@ -318,12 +324,8 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 				h.sess.StatementFailed(ctx)
 			}
 		}()
-		if st.Shape.Table != "" {
-			table, err = h.catalog.Table(ctx, conn, st.Database, st.Shape.Table)
-			if err != nil {
-				return nil, h.fail(err, st.Hint())
-			}
-		}
+		// The translator attached the FROM table, read through the same session.
+		table = st.Shape.Meta
 	}
 	defs, e := meta.Columns(st.Shape.Items, table, st.Shape.Alias)
 	if e != nil {
@@ -414,4 +416,30 @@ func (h *handler) HandleStmtClose(any) error {
 // unknownCommand is ER_UNKNOWN_COM_ERROR (1047 / 08S01), docs/03-protocol.md section 4.
 func unknownCommand() error {
 	return toMySQL(errs.UnknownCommand())
+}
+
+// sessionCatalog is the translator's view of the catalog: tables are read through the
+// session, inside its open transaction when it uses that database, and cached by
+// schema version (catalog.Cache).
+type sessionCatalog struct{ h *handler }
+
+func (c sessionCatalog) Table(database, table string) (*meta.Table, *errs.Error) {
+	if infoschema.Is(database) {
+		t, ok := infoschema.Lookup(table)
+		if !ok {
+			return nil, errs.UnknownTableIn(table, infoschema.Name)
+		}
+		return t, nil
+	}
+	ctx := context.Background()
+	conn, release, err := c.h.sess.CatalogConn(ctx, database)
+	if err != nil {
+		return nil, c.h.mapErr(err, errs.Hint{DatabaseArg: database})
+	}
+	defer release()
+	t, err := c.h.catalog.Table(ctx, conn, database, table)
+	if err != nil {
+		return nil, c.h.mapErr(err, errs.Hint{Database: database})
+	}
+	return t, nil
 }

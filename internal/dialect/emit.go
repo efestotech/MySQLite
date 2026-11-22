@@ -26,9 +26,10 @@ const (
 // emitter writes SQLite SQL for one statement. The first failure is kept in err and
 // the output is discarded, so a statement is never partially translated.
 type emitter struct {
-	query   string // the gated query text, for error offsets
-	current string // the session's database
-	target  string // the database the statement runs in
+	query   string  // the gated query text, for error offsets
+	current string  // the session's database
+	cat     Catalog // nil: translate without table metadata
+	target  string  // the database the statement runs in
 	shape   *Shape
 	b       strings.Builder
 	args    []any
@@ -51,6 +52,20 @@ func (e *emitter) fail(err *errs.Error) {
 	if e.err == nil {
 		e.err = err
 	}
+}
+
+// lookup reads table from the catalog, in the statement's database. It is nil without
+// a catalog or after a failure.
+func (e *emitter) lookup(table string) *meta.Table {
+	if e.cat == nil || table == "" || e.err != nil {
+		return nil
+	}
+	t, err := e.cat.Table(e.target, table)
+	if err != nil {
+		e.fail(err)
+		return nil
+	}
+	return t
 }
 
 func (e *emitter) unsupported(construct, reason string) {
@@ -227,7 +242,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	if n.From != nil {
 		name, alias = e.table(n.From, "JOIN")
 	}
-	e.shape = &Shape{Table: name, Alias: alias}
+	e.shape = &Shape{Table: name, Alias: alias, Meta: e.lookup(name)}
 	e.refs = &e.shape.Refs
 	e.checks = &e.shape.Exprs
 	e.write("SELECT ")
@@ -439,7 +454,7 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		return
 	}
 
-	e.wr = &Write{Table: name}
+	e.wr = &Write{Table: name, Meta: e.lookup(name)}
 	for _, c := range n.Columns {
 		e.wr.Columns = append(e.wr.Columns, c.Name.O)
 	}
@@ -517,7 +532,7 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 		return
 	}
 
-	e.wr = &Write{Table: name, Alias: alias, Set: map[string]*meta.Literal{}}
+	e.wr = &Write{Table: name, Alias: alias, Set: map[string]*meta.Literal{}, Meta: e.lookup(name)}
 	e.refs = &e.wr.Refs
 	e.checks = &e.wr.Exprs
 	e.write("UPDATE ")
@@ -658,7 +673,7 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	if e.err != nil {
 		return
 	}
-	e.wr = &Write{Table: name, Alias: alias}
+	e.wr = &Write{Table: name, Alias: alias, Meta: e.lookup(name)}
 	e.refs = &e.wr.Refs
 	e.checks = &e.wr.Exprs
 	e.write("DELETE FROM ")
