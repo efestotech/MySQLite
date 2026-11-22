@@ -179,7 +179,7 @@ func (s *Server) serveConn(raw net.Conn) {
 		}
 	}()
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
-	h := newHandler(session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
+	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {

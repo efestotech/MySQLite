@@ -103,7 +103,7 @@ func TestQueriesGoThroughTheParser(t *testing.T) {
 	_, err = conn.Execute("SELECT * FROM t")
 	requireMyError(t, err, mysql.ER_NO_DB_ERROR, "3D000")
 
-	// The M0 constant still answers, now recognized from the AST.
+	// Whitespace and the trailing ';' are the parser's business.
 	res, err := conn.Execute("select  1 ;")
 	if err != nil {
 		t.Fatalf("select 1: %v", err)
