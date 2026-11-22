@@ -87,6 +87,7 @@ func (c connAuth) OnAuthSuccess(conn *server.Conn) error {
 	}
 	// go-mysql starts every connection with status 0; clients read AUTOCOMMIT from
 	// OK/EOF packets to decide whether to send COMMIT (W3, docs/03-protocol.md section 7).
-	conn.SetStatus(mysql.SERVER_STATUS_AUTOCOMMIT)
+	c.h.conn = conn
+	c.h.syncStatus()
 	return nil
 }

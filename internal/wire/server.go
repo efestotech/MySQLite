@@ -189,6 +189,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	log := s.log.With("conn_id", conn.ConnectionID(), "user", conn.GetUser(), "remote", remote)
 	h.log = log
 	log.Info("connection opened")
+	defer h.close()
 	for !conn.Closed() {
 		if err := conn.HandleCommand(); err != nil {
 			if !conn.Closed() || !errors.Is(err, net.ErrClosed) {

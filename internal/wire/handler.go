@@ -2,11 +2,11 @@ package wire
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"log/slog"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
+	"github.com/go-mysql-org/go-mysql/server"
 
 	"mysqlite/internal/catalog"
 	"mysqlite/internal/dialect"
@@ -29,6 +29,10 @@ type handler struct {
 	// credentials cannot learn which databases exist.
 	authenticated bool
 	pending       string
+
+	// conn carries the status flags of every OK and EOF packet; set after
+	// authentication.
+	conn *server.Conn
 }
 
 func newHandler(eng *engine.Engine, sess *session.Session, tr *dialect.Translator, log *slog.Logger) *handler {
@@ -71,7 +75,33 @@ func (h *handler) fail(err error, hint errs.Hint) error {
 	return toMySQL(e)
 }
 
+// syncStatus copies the session's transaction state to the status flags go-mysql puts
+// in the response (docs/03-protocol.md section 7), after every command.
+func (h *handler) syncStatus() {
+	if h.conn == nil {
+		return
+	}
+	flag := func(bit uint16, on bool) {
+		if on {
+			h.conn.SetStatus(bit)
+		} else {
+			h.conn.UnsetStatus(bit)
+		}
+	}
+	flag(mysql.SERVER_STATUS_AUTOCOMMIT, h.sess.Autocommit())
+	flag(mysql.SERVER_STATUS_IN_TRANS, h.sess.InTransaction())
+	flag(mysql.SERVER_STATUS_IN_TRANS_READONLY, h.sess.ReadOnlyTransaction())
+}
+
+// close ends the connection's session: an open transaction is rolled back.
+func (h *handler) close() {
+	if err := h.sess.Close(context.Background()); err != nil {
+		h.log.Error("rollback on disconnect", "error", err.Error())
+	}
+}
+
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
+	defer h.syncStatus()
 	current, _ := h.sess.Database()
 	st, e := h.tr.Translate(query, current)
 	if e != nil {
@@ -80,22 +110,47 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	if st.Kind == dialect.KindUse {
 		return nil, h.use(st.UseDB)
 	}
-	if st.Kind == dialect.KindRead {
+	switch st.Kind {
+	case dialect.KindTransaction:
+		return nil, h.transaction(st.Tx)
+	case dialect.KindRead:
 		return h.read(st)
+	}
+	if h.sess.ReadOnlyTransaction() {
+		return nil, toMySQL(errs.ReadOnlyTransaction())
 	}
 	// Writes arrive with T7-T8 (transactions, affected rows).
 	return nil, toMySQL(errs.Unsupported("statement execution", "writes arrive with M1 T7-T8"))
 }
 
+func (h *handler) transaction(tx *dialect.Transaction) error {
+	ctx := context.Background()
+	var err error
+	switch tx.Op {
+	case dialect.TxBegin:
+		err = h.sess.Begin(ctx, session.TxOptions{ReadOnly: tx.ReadOnly, Snapshot: tx.Snapshot})
+	case dialect.TxCommit:
+		err = h.sess.Commit(ctx)
+	case dialect.TxRollback:
+		err = h.sess.Rollback(ctx)
+	}
+	return h.fail(err, errs.Hint{})
+}
+
 // read runs a SELECT on a read connection and encodes the rows with the text protocol.
 // The column definitions come from the catalog, not from the values (docs/04 section 3).
-func (h *handler) read(st *dialect.Statement) (*mysql.Result, error) {
+func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	ctx := context.Background()
-	conn, err := h.readConn(ctx, st.Database)
+	conn, release, err := h.sess.Conn(ctx, st.Database, false)
 	if err != nil {
 		return nil, h.fail(err, errs.Hint{DatabaseArg: st.Database})
 	}
-	defer conn.Close()
+	defer release()
+	defer func() {
+		if err != nil {
+			h.sess.StatementFailed(ctx)
+		}
+	}()
 
 	var table *meta.Table
 	if st.Shape.Table != "" {
@@ -150,19 +205,6 @@ func (h *handler) read(st *dialect.Statement) (*mysql.Result, error) {
 		return nil, h.fail(err, st.Hint())
 	}
 	return mysql.NewResult(rs), nil
-}
-
-// readConn returns a read connection of the named database, or the engine's scratch
-// connection for a statement that reads no table.
-func (h *handler) readConn(ctx context.Context, database string) (*sql.Conn, error) {
-	if database == "" {
-		return h.eng.Scratch(ctx)
-	}
-	db, err := h.eng.Database(database)
-	if err != nil {
-		return nil, err
-	}
-	return db.Read(ctx)
 }
 
 func fields(defs []meta.ColumnDef) []*mysql.Field {

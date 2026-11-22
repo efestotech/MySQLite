@@ -34,6 +34,13 @@ func seed(t *testing.T, e *engine.Engine, name string, stmts ...string) {
 
 func shopServer(t *testing.T, extra ...string) *client.Conn {
 	t.Helper()
+	_, addr := shopSetup(t, extra...)
+	return dial(t, addr)
+}
+
+// shopSetup starts a server whose "shop" database has the items table.
+func shopSetup(t *testing.T, extra ...string) (*engine.Engine, string) {
+	t.Helper()
 	e := newEngine(t)
 	seed(t, e, "shop", append([]string{
 		"CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name VARCHAR(20) NOT NULL, price DECIMAL(10,2), added DATE, note TEXT)",
@@ -45,6 +52,12 @@ func shopServer(t *testing.T, extra ...string) *client.Conn {
 		Users:            map[string]string{testUser: testPassword},
 		Engine:           e,
 	})
+	return e, addr
+}
+
+// dial connects to the shop database.
+func dial(t *testing.T, addr string) *client.Conn {
+	t.Helper()
 	conn, err := client.Connect(addr, testUser, testPassword, "shop")
 	if err != nil {
 		t.Fatalf("connect: %v", err)
