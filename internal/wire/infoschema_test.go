@@ -57,7 +57,7 @@ func TestInfoSchemaColumnsAndKeys(t *testing.T) {
 		"code|3|NULL|YES|varchar|8|32|NULL|NULL|utf8mb4_bin|varchar(8)|MUL|",
 		"qty|4|1|NO|tinyint|NULL|NULL|3|0|NULL|tinyint||",
 		"price|5|NULL|YES|decimal|NULL|NULL|8|2|NULL|decimal(8,2) unsigned||",
-		"note|6|NULL|YES|text|16383|65535|NULL|NULL|utf8mb4_general_ci|text||",
+		"note|6|NULL|YES|text|65535|65535|NULL|NULL|utf8mb4_general_ci|text||",
 		"added|7|2024-01-01|YES|date|NULL|NULL|NULL|NULL|NULL|date||",
 	}
 	if res.RowNumber() != len(want) {

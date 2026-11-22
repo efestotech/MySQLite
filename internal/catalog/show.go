@@ -179,6 +179,10 @@ func columnDDL(t *meta.Table, c meta.Column, tableCS, tableCo string) string {
 	notNull := c.NotNull || auto || ColumnKey(t, c.Name) == "PRI"
 	if notNull {
 		parts = append(parts, "NOT NULL")
+	} else if strings.HasPrefix(strings.ToLower(mysqlType), "timestamp") {
+		// MySQL spells out NULL for a nullable TIMESTAMP, the one type whose columns
+		// were NOT NULL by default before explicit_defaults_for_timestamp.
+		parts = append(parts, "NULL")
 	}
 	switch {
 	case auto:

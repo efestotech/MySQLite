@@ -1,0 +1,262 @@
+# Corpus subset m2: catalog SHOW, DESCRIBE and information_schema
+# (docs/08-milestones.md M2, docs/04-session-catalog.md sections 4 and 5).
+# Fixtures run through the MySQL protocol. oracle: pending (ADR 0002 addendum).
+#
+# The fixture names its collation, so a stock MySQL 8.0 (default utf8mb4_0900_ai_ci)
+# prints the same DDL as mysqlite (default utf8mb4_general_ci).
+
+fixtures:
+  shop: &shop
+    - >-
+      CREATE TABLE items (id INT UNSIGNED NOT NULL AUTO_INCREMENT, name VARCHAR(20) NOT NULL,
+      price DECIMAL(10,2) DEFAULT NULL, qty SMALLINT NOT NULL DEFAULT '0', note TEXT,
+      PRIMARY KEY (id), UNIQUE KEY name (name), KEY by_price (price))
+      ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='stock'
+    - CREATE TABLE tags (code CHAR(4) NOT NULL, label VARCHAR(10) COLLATE utf8mb4_bin, PRIMARY KEY (code)) DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+    - INSERT INTO items (name, price) VALUES ('pen', 1.50), ('ink', 10.00)
+
+cases:
+  - id: catalog.show-tables.001
+    tags: [show]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW TABLES
+    expect:
+      rows: [[items], [tags]]
+      ordered: true
+
+  - id: catalog.show-tables.002
+    tags: [show, full, like]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW FULL TABLES LIKE 'IT%'
+    expect:
+      rows: [[items, BASE TABLE]]
+
+  - id: catalog.show-tables.003
+    tags: [show, where]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW FULL TABLES FROM {{db}} WHERE Table_type = 'BASE TABLE' AND `Tables_in_{{db}}` <> 'items'
+    expect:
+      rows: [[tags, BASE TABLE]]
+
+  - id: catalog.show-tables.004
+    tags: [show, errors, "1049"]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW TABLES FROM missing_db
+    expect:
+      error: {code: 1049, sqlstate: "42000"}
+
+  - id: catalog.show-columns.001
+    tags: [show, columns]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW COLUMNS FROM items
+    expect:
+      columns: [Field, Type, "Null", Key, Default, Extra]
+      types: [VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING]
+      rows:
+        - [id, int unsigned, "NO", PRI, null, auto_increment]
+        - [name, varchar(20), "NO", UNI, null, ""]
+        - [price, "decimal(10,2)", "YES", MUL, null, ""]
+        - [qty, smallint, "NO", "", "0", ""]
+        - [note, text, "YES", "", null, ""]
+      ordered: true
+
+  - id: catalog.show-columns.002
+    tags: [show, columns, full]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW FULL COLUMNS FROM tags
+    expect:
+      columns: [Field, Type, Collation, "Null", Key, Default, Extra, Privileges, Comment]
+      rows:
+        - [code, char(4), utf8mb4_general_ci, "NO", PRI, null, "", "select,insert,update,references", ""]
+        - [label, varchar(10), utf8mb4_bin, "YES", "", null, "", "select,insert,update,references", ""]
+      ordered: true
+
+  - id: catalog.describe.001
+    tags: [describe]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: DESCRIBE items qty
+    expect:
+      rows: [[qty, smallint, "NO", "", "0", ""]]
+
+  - id: catalog.describe.002
+    tags: [describe, where]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW COLUMNS FROM items WHERE `Key` IN ('PRI', 'UNI')
+    expect:
+      rows: [[id, int unsigned, "NO", PRI, null, auto_increment], [name, varchar(20), "NO", UNI, null, ""]]
+
+  - id: catalog.describe.003
+    tags: [describe, errors, "1146"]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: DESCRIBE missing
+    expect:
+      error: {code: 1146, sqlstate: 42S02}
+
+  - id: catalog.show-create-table.001
+    tags: [show, ddl, round-trip]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW CREATE TABLE items
+    expect:
+      columns: [Table, Create Table]
+      rows:
+        - - items
+          - |-
+            CREATE TABLE `items` (
+              `id` int unsigned NOT NULL AUTO_INCREMENT,
+              `name` varchar(20) NOT NULL,
+              `price` decimal(10,2) DEFAULT NULL,
+              `qty` smallint NOT NULL DEFAULT '0',
+              `note` text,
+              PRIMARY KEY (`id`),
+              UNIQUE KEY `name` (`name`),
+              KEY `by_price` (`price`)
+            ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='stock'
+
+  - id: catalog.show-create-table.002
+    tags: [show, ddl, collation]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW CREATE TABLE tags
+    expect:
+      rows:
+        - - tags
+          - |-
+            CREATE TABLE `tags` (
+              `code` char(4) NOT NULL,
+              `label` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL,
+              PRIMARY KEY (`code`)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
+
+  - id: catalog.show-index.001
+    tags: [show, index]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW INDEX FROM items
+    expect:
+      rows:
+        - [items, "0", PRIMARY, "1", id, A, "2", null, null, "", BTREE, "", "", "YES", null]
+        - [items, "0", name, "1", name, A, "2", null, null, "", BTREE, "", "", "YES", null]
+        - [items, "1", by_price, "1", price, A, "2", null, null, "YES", BTREE, "", "", "YES", null]
+      ordered: true
+    known_deviation:
+      reason: Cardinality is NULL in mysqlite (no index statistics); MySQL reports an estimate
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: catalog.show-table-status.001
+    tags: [show, status]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW TABLE STATUS WHERE Name = 'items'
+    expect:
+      columns: [Name, Engine, Version, Row_format, Rows, Avg_row_length, Data_length, Max_data_length, Index_length, Data_free, Auto_increment, Create_time, Update_time, Check_time, Collation, Checksum, Create_options, Comment]
+
+  - id: catalog.show-databases.001
+    tags: [show]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SHOW DATABASES LIKE 'information\_schema'
+    expect:
+      columns: ["Database (information\\_schema)"]
+      rows: [[information_schema]]
+
+  - id: infoschema.tables.001
+    tags: [information_schema]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_COLLATION, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{{db}}' ORDER BY TABLE_NAME
+    expect:
+      rows:
+        - [items, BASE TABLE, InnoDB, utf8mb4_general_ci, stock]
+        - [tags, BASE TABLE, InnoDB, utf8mb4_general_ci, ""]
+      ordered: true
+
+  - id: infoschema.columns.001
+    tags: [information_schema]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: >-
+      SELECT COLUMN_NAME, ORDINAL_POSITION, COLUMN_DEFAULT, IS_NULLABLE, DATA_TYPE,
+      CHARACTER_MAXIMUM_LENGTH, NUMERIC_PRECISION, NUMERIC_SCALE, COLLATION_NAME, COLUMN_TYPE,
+      COLUMN_KEY, EXTRA FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = '{{db}}' AND TABLE_NAME = 'items' ORDER BY ORDINAL_POSITION
+    expect:
+      rows:
+        - [id, "1", null, "NO", int, null, "10", "0", null, int unsigned, PRI, auto_increment]
+        - [name, "2", null, "NO", varchar, "20", null, null, utf8mb4_general_ci, varchar(20), UNI, ""]
+        - [price, "3", null, "YES", decimal, null, "10", "2", null, "decimal(10,2)", MUL, ""]
+        - [qty, "4", "0", "NO", smallint, null, "5", "0", null, smallint, "", ""]
+        - [note, "5", null, "YES", text, "65535", null, null, utf8mb4_general_ci, text, "", ""]
+      ordered: true
+
+  - id: infoschema.statistics.001
+    tags: [information_schema]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = '{{db}}' AND TABLE_NAME = 'items' ORDER BY INDEX_NAME
+    expect:
+      rows: [[by_price, "1", "1", price], [name, "0", "1", name], [PRIMARY, "0", "1", id]]
+      ordered: true
+
+  - id: infoschema.key-column-usage.001
+    tags: [information_schema]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SELECT CONSTRAINT_NAME, COLUMN_NAME, ORDINAL_POSITION FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '{{db}}' AND TABLE_NAME = 'items' ORDER BY CONSTRAINT_NAME
+    expect:
+      rows: [[name, name, "1"], [PRIMARY, id, "1"]]
+      ordered: true
+
+  - id: infoschema.empty.001
+    tags: [information_schema]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = '{{db}}'
+    expect:
+      rows: []
+
+  - id: infoschema.errors.001
+    tags: [information_schema, errors, "1109"]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: SELECT * FROM information_schema.NO_SUCH_TABLE
+    expect:
+      error: {code: 1109, sqlstate: 42S02}
+
+  - id: infoschema.errors.002
+    tags: [information_schema, errors, "1044"]
+    milestone: m2
+    oracle: pending
+    setup: *shop
+    sql: DELETE FROM information_schema.TABLES
+    expect:
+      error: {code: 1044, sqlstate: "42000"}

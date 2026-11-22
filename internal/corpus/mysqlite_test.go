@@ -67,6 +67,20 @@ func (p *inProcess) Prepare(ctx context.Context, c *Case) (string, error) {
 	if err := p.eng.CreateDatabase(name); err != nil {
 		return "", err
 	}
+	if c.Milestone != "m1" {
+		// From M2, mysqlite runs the fixture's DDL itself, as mysql-ref does.
+		conn, err := p.Dial(name, false)
+		if err != nil {
+			return "", err
+		}
+		defer conn.Close()
+		for _, s := range c.Setup {
+			if _, err := conn.Execute(s); err != nil {
+				return "", fmt.Errorf("%q: %w", s, err)
+			}
+		}
+		return name, nil
+	}
 	db, err := p.eng.Database(name)
 	if err != nil {
 		return "", err
@@ -99,6 +113,27 @@ func (p *inProcess) Dial(db string, foundRows bool) (*client.Conn, error) {
 		}
 		return nil
 	})
+}
+
+// TestCorpusM2 runs corpus subset m2 against mysqlite (M2 criteria 2 and 3).
+func TestCorpusM2(t *testing.T) {
+	cases, err := Load(filepath.Join("..", "..", "test", "corpus"), "m2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cases) == 0 {
+		t.Fatal("corpus subset m2 is empty")
+	}
+	rep := Run(context.Background(), startMysqlite(t), cases)
+	for _, r := range rep.Results {
+		switch r.Status {
+		case Failed:
+			t.Errorf("%s (%s): %s", r.Case.ID, r.Case.File, r.Detail)
+		case Deviated:
+			t.Logf("%s deviated: %s (%s)", r.Case.ID, r.Case.KnownDeviation.Reason, r.Case.KnownDeviation.Ref)
+		}
+	}
+	t.Log(rep.Summary())
 }
 
 // TestCorpusM1 runs corpus subset m1 against mysqlite (M1 criterion 1). Its

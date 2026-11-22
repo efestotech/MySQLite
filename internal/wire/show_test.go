@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 )
 
@@ -264,4 +265,69 @@ func TestNumericStringDefaults(t *testing.T) {
 	if got := column(t, execOK(t, conn, "SELECT p FROM d"), 0, "p"); got != "1.50" {
 		t.Errorf("stored default: %s", got)
 	}
+}
+
+// SHOW CREATE TABLE is re-executable for every type and option CREATE TABLE accepts,
+// and prints the same DDL again (docs/04-session-catalog.md section 4).
+func TestShowCreateTableRoundTrip(t *testing.T) {
+	eng, addr := shopSetup(t)
+	conn := dial(t, addr)
+	ddl := []string{
+		"CREATE TABLE ints (a TINYINT, b SMALLINT UNSIGNED, c MEDIUMINT NOT NULL DEFAULT -5, d INT(5) UNSIGNED ZEROFILL, e BIGINT UNSIGNED, f BOOL DEFAULT 1)",
+		"CREATE TABLE nums (a DECIMAL, b NUMERIC(8,2) UNSIGNED DEFAULT 0.5, c REAL, d FLOAT(7,4), e DOUBLE NOT NULL DEFAULT -1.25)",
+		"CREATE TABLE strs (a CHAR, b VARCHAR(10) CHARACTER SET utf8mb3, c VARCHAR(5) COLLATE utf8mb4_bin DEFAULT 'it''s', d BINARY(3), e VARBINARY(4), f TINYTEXT, g TEXT(70), h MEDIUMTEXT, i LONGBLOB, j BLOB COMMENT 'raw\\data')",
+		"CREATE TABLE times (a DATE DEFAULT '2024-02-29', b DATETIME(3), c TIMESTAMP NULL, d TIME DEFAULT '-01:02:03', e YEAR, f JSON)",
+		"CREATE TABLE keyed (a INT NOT NULL, b VARCHAR(8) NOT NULL, c INT, PRIMARY KEY (a, b), UNIQUE KEY uc (c, a), KEY (b), KEY kc (c)) ENGINE=MyISAM ROW_FORMAT=COMPACT COMMENT='k'",
+		"CREATE TABLE autos (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, v INT) AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb3",
+	}
+	for i, q := range ddl {
+		execOK(t, conn, q)
+		name := strings.Fields(q)[2]
+		first := column(t, execOK(t, conn, "SHOW CREATE TABLE "+name), 0, "Create Table")
+		before := catalogSnapshot(t, conn, name)
+
+		copyDB := "rt" + string(rune('a'+i))
+		if err := eng.CreateDatabase(copyDB); err != nil {
+			t.Fatal(err)
+		}
+		execOK(t, conn, "USE "+copyDB)
+		if _, err := conn.Execute(first); err != nil {
+			t.Errorf("%s: re-executing\n%s\n%v", name, first, err)
+			execOK(t, conn, "USE shop")
+			continue
+		}
+		again := column(t, execOK(t, conn, "SHOW CREATE TABLE "+name), 0, "Create Table")
+		if name == "times" && !strings.Contains(first, "`c` timestamp NULL DEFAULT NULL,") {
+			t.Errorf("nullable TIMESTAMP:\n%s", first)
+		}
+		if again != first {
+			t.Errorf("%s: round trip differs\n%s\nvs\n%s", name, first, again)
+		}
+		if after := catalogSnapshot(t, conn, name); after != before {
+			t.Errorf("%s: catalog snapshot differs\n%s\nvs\n%s", name, before, after)
+		}
+		execOK(t, conn, "USE shop")
+	}
+}
+
+// catalogSnapshot is everything the catalog reports about a table: its columns, keys
+// and options, as text.
+func catalogSnapshot(t *testing.T, conn *client.Conn, table string) string {
+	t.Helper()
+	var b strings.Builder
+	for _, q := range []string{"SHOW FULL COLUMNS FROM " + table, "SHOW INDEX FROM " + table, "SHOW TABLE STATUS LIKE '" + table + "'"} {
+		res := execOK(t, conn, q)
+		for i := range res.RowNumber() {
+			for _, f := range res.Fields {
+				switch string(f.Name) {
+				case "Data_length", "Index_length", "Avg_row_length":
+					continue // page counts, not catalog
+				}
+				b.WriteString(column(t, res, i, string(f.Name)))
+				b.WriteString("|")
+			}
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }

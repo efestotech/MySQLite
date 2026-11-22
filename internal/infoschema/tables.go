@@ -361,7 +361,7 @@ func columnRow(db string, t *meta.Table, i int, c meta.Column) []any {
 		cs, co = charsetOf(collation), collation
 	case "tinytext", "text", "mediumtext", "longtext":
 		l := map[string]int64{"tinytext": 255, "text": 65535, "mediumtext": 16777215, "longtext": 4294967295}[dataType]
-		charLen, octetLen = l/maxLen, l
+		charLen, octetLen = l, l
 		cs, co = charsetOf(collation), collation
 	case "binary", "varbinary":
 		if n < 0 {
