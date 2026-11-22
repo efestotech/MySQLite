@@ -133,7 +133,8 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 		}
 		e.unsupported("EXPLAIN", reasonLater)
 	case *ast.SetOprStmt:
-		e.unsupported("UNION, EXCEPT or INTERSECT", reasonLater)
+		e.setOpr(n)
+		return e.result(KindRead, errs.OpOther)
 	case *ast.GrantStmt, *ast.RevokeStmt, *ast.GrantRoleStmt, *ast.RevokeRoleStmt:
 		e.fail(errs.CommandDenied("GRANT OPTION"))
 	case *ast.CreateUserStmt, *ast.AlterUserStmt, *ast.DropUserStmt, *ast.RenameUserStmt, *ast.SetPwdStmt:

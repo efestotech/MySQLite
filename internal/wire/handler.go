@@ -320,8 +320,8 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	var conn *sql.Conn
 	var from meta.From
 	if infoschema.Is(st.Database) {
-		if len(st.Shape.From.Sources) > 1 {
-			return nil, toMySQL(errs.Unsupported("JOIN in information_schema", "information_schema tables are built one at a time"))
+		if len(st.Shape.From.Sources) > 1 || len(st.Shape.Union) > 0 {
+			return nil, toMySQL(errs.Unsupported("JOIN or UNION in information_schema", "information_schema tables are built one at a time"))
 		}
 		var table *meta.Table
 		conn, table, err = h.infoSchemaConn(ctx, st.Shape.Table)
@@ -347,7 +347,13 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	}
 	sel := st.Shape.Select
 	sel.From = from
-	defs, e := meta.CheckSelect(&sel)
+	var defs []meta.ColumnDef
+	var e *errs.Error
+	if len(st.Shape.Union) > 0 {
+		defs, e = meta.CheckUnion(&sel, st.Shape.Union)
+	} else {
+		defs, e = meta.CheckSelect(&sel)
+	}
 	if e != nil {
 		return nil, toMySQL(e)
 	}

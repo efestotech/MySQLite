@@ -250,7 +250,7 @@ func TestUnsupported(t *testing.T) {
 		"SELECT a FROM t WHERE a > ALL (SELECT 1)":               "> ALL subquery",
 		"SELECT a FROM t FOR UPDATE":                             "FOR UPDATE",
 		"SELECT SQL_CALC_FOUND_ROWS a FROM t":                    "SQL_CALC_FOUND_ROWS",
-		"SELECT a FROM t UNION SELECT a FROM u":                  "UNION, EXCEPT or INTERSECT",
+		"SELECT a FROM t INTERSECT ALL SELECT a FROM u":          "INTERSECT ALL",
 		"WITH c AS (SELECT 1) SELECT * FROM c":                   "WITH",
 		"INSERT INTO t (a) VALUES (DEFAULT)":                     "DEFAULT",
 		"INSERT INTO t (a, b) VALUES (1, a)":                     "column reference in VALUES",

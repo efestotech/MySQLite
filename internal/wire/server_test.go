@@ -169,7 +169,7 @@ func TestUnsupportedQueryIsError(t *testing.T) {
 	addr := startServer(t, map[string]string{testUser: testPassword})
 	conn := connect(t, addr, testUser, testPassword)
 
-	_, err := conn.Execute("SELECT 1 UNION SELECT 2")
+	_, err := conn.Execute("SELECT 1 INTERSECT ALL SELECT 2")
 	requireMyError(t, err, mysql.ER_NOT_SUPPORTED_YET, "42000")
 
 	// The connection must stay usable after an error.

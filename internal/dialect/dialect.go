@@ -161,6 +161,8 @@ type Shape struct {
 	Meta *meta.Table
 	// Select is what meta.CheckSelect checks once the catalog is read.
 	meta.Select
+	// Union are the other SELECTs of a UNION, INTERSECT or EXCEPT (meta.CheckUnion).
+	Union []*meta.Select
 }
 
 // Hint returns what the error mapper needs to know about this statement.

@@ -38,7 +38,7 @@ func TestQueriesAreJournalled(t *testing.T) {
 		"SELECT name FROM items WHERE name = 'pen' LIMIT 0, 1",
 		"INSERT INTO items (name) VALUES ('cap'), ('nib')",
 		"SELECT nope FROM missing",
-		"SELECT 1 UNION SELECT 2",
+		"SELECT 1 INTERSECT ALL SELECT 2",
 		"BEGIN",
 	}
 	for _, q := range queries {

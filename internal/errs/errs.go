@@ -575,6 +575,16 @@ func LimitInSubquery() *Error {
 	return newError(1235, "42000", "This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")
 }
 
+// UnionColumns is 1222: SELECTs of a UNION with different column counts.
+func UnionColumns() *Error {
+	return newError(1222, "21000", "The used SELECT statements have a different number of columns")
+}
+
+// GlobalOrderTable is 1250: a table-qualified column in a UNION's ORDER BY.
+func GlobalOrderTable(table string) *Error {
+	return newError(1250, "42000", "Table '%s' from one of the SELECTs cannot be used in global ORDER clause", table)
+}
+
 // AmbiguousColumn is 1052: an unqualified column that more than one table has.
 func AmbiguousColumn(column, clause string) *Error {
 	return newError(1052, "23000", "Column '%s' in %s is ambiguous", column, clause)
