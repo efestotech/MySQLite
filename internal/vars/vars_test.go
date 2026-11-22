@@ -12,7 +12,7 @@ func newSession(t *testing.T, autocommit func() bool) *Session {
 		Version: "8.0.36-mysqlite", MaxAllowedPacket: 64 << 20,
 		DataDir: "/var/lib/mysqlite", Hostname: "host1", Now: func() time.Time { return at },
 	})
-	return srv.NewSession(autocommit)
+	return srv.NewSession(Hooks{Autocommit: autocommit})
 }
 
 func TestMinimumSetIsRegistered(t *testing.T) {

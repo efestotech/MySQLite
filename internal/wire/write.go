@@ -14,6 +14,7 @@ import (
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
+	"mysqlite/internal/vars"
 )
 
 // write runs INSERT, UPDATE or DELETE on the writer (or the session's transaction) and
@@ -63,7 +64,10 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 
 func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
 	w := st.Write
-	info, e := meta.CheckInsert(table, w.Columns, w.Rows)
+	mode, _, _ := h.vars.Get("sql_mode", vars.ReadSession)
+	info, e := meta.CheckInsertMode(table, w.Columns, w.Rows, meta.InsertMode{
+		NoAutoValueOnZero: vars.HasMode(mode.Text, "NO_AUTO_VALUE_ON_ZERO"),
+	})
 	if e != nil {
 		return nil, toMySQL(e)
 	}

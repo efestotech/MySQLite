@@ -23,8 +23,9 @@ const (
 // Transaction describes a KindTransaction statement (docs/06-transactions.md section 4).
 type Transaction struct {
 	Op TxOp
-	// ReadOnly is START TRANSACTION READ ONLY.
-	ReadOnly bool
+	// ReadOnly is START TRANSACTION READ ONLY, ReadWrite is READ WRITE. Without either
+	// the transaction follows transaction_read_only.
+	ReadOnly, ReadWrite bool
 	// Snapshot is WITH CONSISTENT SNAPSHOT: the snapshot starts with the statement, not
 	// with the first read.
 	Snapshot bool
@@ -48,8 +49,11 @@ func (e *emitter) begin(n *ast.BeginStmt) *Statement {
 	// so the SNAPSHOT keyword outside comments identifies the clause.
 	tx := &Transaction{Op: TxBegin, ReadOnly: n.ReadOnly}
 	for _, w := range words(e.query) {
-		if strings.EqualFold(w.text, "SNAPSHOT") {
+		switch {
+		case strings.EqualFold(w.text, "SNAPSHOT"):
 			tx.Snapshot = true
+		case strings.EqualFold(w.text, "WRITE"):
+			tx.ReadWrite = true
 		}
 	}
 	return &Statement{Kind: KindTransaction, Tx: tx}

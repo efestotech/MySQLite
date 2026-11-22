@@ -242,6 +242,62 @@ func WrongVariableScope(name, scope string) *Error {
 	return newError(1238, "HY000", "Variable '%s' is a %s variable", name, scope)
 }
 
+// ReadOnlyVariable is 1238: SET of a read-only system variable.
+func ReadOnlyVariable(name string) *Error {
+	return newError(1238, "HY000", "Variable '%s' is a read only variable", name)
+}
+
+// SessionOnlyVariable is 1228: SET GLOBAL of a SESSION-only variable.
+func SessionOnlyVariable(name string) *Error {
+	return newError(1228, "HY000", "Variable '%s' is a SESSION variable and can't be used with SET GLOBAL", name)
+}
+
+// GlobalOnlyVariable is 1229: SET SESSION of a GLOBAL-only variable.
+func GlobalOnlyVariable(name string) *Error {
+	return newError(1229, "HY000", "Variable '%s' is a GLOBAL variable and should be set with SET GLOBAL", name)
+}
+
+// SessionReadOnlyVariable is 1621: SET SESSION of a variable whose session value is
+// read-only.
+func SessionReadOnlyVariable(name string) *Error {
+	return newError(1621, "HY000", "SESSION variable '%s' is read-only. Use SET GLOBAL to assign the value", name)
+}
+
+// WrongValueForVariable is 1231.
+func WrongValueForVariable(name, value string) *Error {
+	return newError(1231, "42000", "Variable '%s' can't be set to the value of '%s'", name, value)
+}
+
+// WrongTypeForVariable is 1232.
+func WrongTypeForVariable(name string) *Error {
+	return newError(1232, "42000", "Incorrect argument type to variable '%s'", name)
+}
+
+// UnknownCharset is 1115.
+func UnknownCharset(name string) *Error {
+	return newError(1115, "42000", "Unknown character set: '%s'", name)
+}
+
+// UnknownCollation is 1273.
+func UnknownCollation(name string) *Error {
+	return newError(1273, "HY000", "Unknown collation: '%s'", name)
+}
+
+// CollationCharsetMismatch is 1253.
+func CollationCharsetMismatch(collation, charset string) *Error {
+	return newError(1253, "42000", "COLLATION '%s' is not valid for CHARACTER SET '%s'", collation, charset)
+}
+
+// TruncatedValue is 1292 (a warning when a SET value is clamped to the variable's range).
+func TruncatedValue(name, value string) *Error {
+	return newError(1292, "22007", "Truncated incorrect %s value: '%s'", name, value)
+}
+
+// UnknownTimeZone is 1298.
+func UnknownTimeZone(name string) *Error {
+	return newError(1298, "HY000", "Unknown or incorrect time zone: '%s'", name)
+}
+
 // NoDatabaseSelected is 1046.
 func NoDatabaseSelected() *Error {
 	return newError(1046, "3D000", "No database selected")
@@ -272,6 +328,11 @@ func NoDefaultValue(column string) *Error {
 // BadNull is 1048: NULL written to a NOT NULL column.
 func BadNull(column string) *Error {
 	return newError(1048, "23000", "Column '%s' cannot be null", column)
+}
+
+// TransactionInProgress is 1568: SET TRANSACTION without a scope inside a transaction.
+func TransactionInProgress() *Error {
+	return newError(1568, "25001", "Transaction characteristics can't be changed while a transaction is in progress")
 }
 
 // ReadOnlyTransaction is 1792: a write inside START TRANSACTION READ ONLY.

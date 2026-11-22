@@ -266,7 +266,7 @@ func TestUnsupported(t *testing.T) {
 		"UPDATE IGNORE t SET a = 1":                              "UPDATE IGNORE",
 		"DELETE t FROM t JOIN u ON t.a = u.a":                    "multi-table DELETE",
 		"DELETE IGNORE FROM t":                                   "DELETE IGNORE",
-		"SET @a = 1":                                             "SET",
+		"SET @a = 1":                                             "user variable",
 		"LOCK TABLES t READ":                                     "LOCK TABLES",
 		"SHOW TABLES":                                            "SHOW",
 		"CREATE TABLE x (a INT)":                                 "CREATE TABLE",
@@ -405,7 +405,7 @@ func TestTransactionStatements(t *testing.T) {
 	}{
 		{"BEGIN", Transaction{Op: TxBegin}},
 		{"start transaction", Transaction{Op: TxBegin}},
-		{"START TRANSACTION READ WRITE", Transaction{Op: TxBegin}},
+		{"START TRANSACTION READ WRITE", Transaction{Op: TxBegin, ReadWrite: true}},
 		{"START TRANSACTION READ ONLY", Transaction{Op: TxBegin, ReadOnly: true}},
 		{"START TRANSACTION WITH CONSISTENT SNAPSHOT", Transaction{Op: TxBegin, Snapshot: true}},
 		// mysqldump --single-transaction sends the clause in a version comment.
@@ -518,5 +518,43 @@ func TestSystemVariables(t *testing.T) {
 
 	if _, e := tr.Translate("SELECT @x", "shop"); e == nil || e.Code != 1235 {
 		t.Fatalf("user variable: want 1235, got %v", e)
+	}
+}
+
+func TestSetStatements(t *testing.T) {
+	tr := newTranslator(t)
+	cases := []struct {
+		query string
+		want  []Assignment
+	}{
+		{"SET autocommit = OFF, @@session.sql_mode = 'ANSI'", []Assignment{
+			{Kind: AssignVariable, Name: "autocommit", Value: SetValue{Word: "OFF"}},
+			{Kind: AssignVariable, Name: "sql_mode", Value: SetValue{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ANSI"}}},
+		}},
+		{"SET GLOBAL wait_timeout = DEFAULT", []Assignment{
+			{Kind: AssignVariable, Name: "wait_timeout", Global: true, Value: SetValue{Default: true}},
+		}},
+		{"SET NAMES utf8mb4 COLLATE utf8mb4_bin", []Assignment{
+			{Kind: AssignNames, Collation: "utf8mb4_bin", Value: SetValue{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "utf8mb4"}}},
+		}},
+		{"SET TRANSACTION READ ONLY", []Assignment{
+			{Kind: AssignVariable, Name: "transaction_read_only", OneShot: true, Value: SetValue{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "1"}}},
+		}},
+		{"SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED", []Assignment{
+			{Kind: AssignVariable, Name: "transaction_isolation", Value: SetValue{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "READ-COMMITTED"}}},
+		}},
+	}
+	for _, c := range cases {
+		st, e := tr.Translate(c.query, "shop")
+		if e != nil {
+			t.Errorf("%s: %v", c.query, e)
+			continue
+		}
+		if st.Kind != KindSet || !reflect.DeepEqual(st.Set, c.want) {
+			t.Errorf("%s:\n got %+v\nwant %+v", c.query, st.Set, c.want)
+		}
+	}
+	if _, e := tr.Translate("SET NAMES klingon", "shop"); e == nil || e.Code != 1115 {
+		t.Errorf("SET NAMES klingon: got %v", e)
 	}
 }

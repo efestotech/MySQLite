@@ -18,7 +18,13 @@ type Session struct {
 	eng  *engine.Engine
 	name string
 	db   *engine.Database
-	tx   *tx // the open explicit transaction, or nil
+	tx   *tx // the open transaction, or nil
+	// manual is autocommit=0.
+	manual bool
+	// readOnly is transaction_read_only; nextReadOnly overrides it for the next
+	// transaction only (SET TRANSACTION without a scope).
+	readOnly     bool
+	nextReadOnly *bool
 }
 
 // New returns a session with no current database.

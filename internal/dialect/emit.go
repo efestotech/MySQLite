@@ -91,6 +91,10 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 			return nil
 		}
 		return e.completion(TxRollback, n.CompletionType)
+	case *ast.ShowStmt:
+		return e.show(n)
+	case *ast.SetStmt:
+		return e.set(n)
 	case *ast.SetOprStmt:
 		e.unsupported("UNION, EXCEPT or INTERSECT", reasonLater)
 	case *ast.GrantStmt, *ast.RevokeStmt, *ast.GrantRoleStmt, *ast.RevokeRoleStmt:

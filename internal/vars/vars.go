@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"mysqlite/internal/errs"
@@ -115,6 +116,8 @@ var defs = []Def{
 	{Name: "version_comment", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "version_compile_os", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "wait_timeout", Scope: ScopeBoth, Kind: KindUint},
+	{Name: "warning_count", Scope: ScopeSession, Kind: KindUint},
+	{Name: "error_count", Scope: ScopeSession, Kind: KindUint},
 }
 
 var byName = func() map[string]*Def {
@@ -141,8 +144,8 @@ func Names() []string {
 	return names
 }
 
-// defaultSQLMode is MySQL 8.0's default sql_mode.
-const defaultSQLMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
+// DefaultSQLMode is MySQL 8.0's default sql_mode.
+const DefaultSQLMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
 
 // defaultOptimizerSwitch is MySQL 8.0.36's default optimizer_switch.
 const defaultOptimizerSwitch = "index_merge=on,index_merge_union=on,index_merge_sort_union=on,index_merge_intersection=on,engine_condition_pushdown=on,index_condition_pushdown=on,mrr=on,mrr_cost_based=on,block_nested_loop=on,batched_key_access=off,materialization=on,semijoin=on,loosescan=on,firstmatch=on,duplicateweedout=on,subquery_materialization_cost_based=on,use_index_extensions=on,condition_fanout_filter=on,derived_merge=on,use_invisible_indexes=off,skip_scan=on,hash_join=on,subquery_to_derived=off,prefer_ordering_index=on,hypergraph_optimizer=off,derived_condition_pushdown=on"
@@ -159,9 +162,13 @@ type Config struct {
 	Now func() time.Time
 }
 
-// Server holds the global values, shared by every session.
+// Server holds the global values, shared by every session. SET GLOBAL changes them
+// for sessions that start afterwards, as in MySQL; they are not persisted.
 type Server struct {
-	now     func() time.Time
+	now      func() time.Time
+	defaults map[string]Value // compiled defaults, for SET GLOBAL x = DEFAULT
+
+	mu      sync.RWMutex
 	globals map[string]Value
 }
 
@@ -217,7 +224,7 @@ func NewServer(cfg Config) *Server {
 		"protocol_version":                "10",
 		"socket":                          "",
 		"sql_auto_is_null":                "0",
-		"sql_mode":                        defaultSQLMode,
+		"sql_mode":                        DefaultSQLMode,
 		"sql_require_primary_key":         "0",
 		"sql_select_limit":                "18446744073709551615",
 		"system_time_zone":                zone,
@@ -232,10 +239,12 @@ func NewServer(cfg Config) *Server {
 		"wait_timeout":                    "28800",
 	}
 	globals := make(map[string]Value, len(text))
+	defaults := make(map[string]Value, len(text))
 	for name, t := range text {
 		globals[name] = Value{Text: t}
+		defaults[name] = Value{Text: t}
 	}
-	return &Server{now: now, globals: globals}
+	return &Server{now: now, globals: globals, defaults: defaults}
 }
 
 func sepFor(path string) byte {
@@ -258,24 +267,34 @@ func compileOS() string {
 	return runtime.GOOS
 }
 
+// Hooks supply the variables whose value another layer owns.
+type Hooks struct {
+	// Autocommit reports the session's autocommit mode.
+	Autocommit func() bool
+	// Diagnostics reports the warning_count and error_count of the last statement.
+	Diagnostics func() (warnings, errors int)
+}
+
 // Session is one connection's view of the variables.
 type Session struct {
 	srv    *Server
 	values map[string]Value
-	// autocommit reports the session's autocommit mode, owned by the session layer.
-	autocommit func() bool
+	hooks  Hooks
+	// timestamp is SET timestamp; nil follows the clock.
+	timestamp *Value
 }
 
-// NewSession starts a session whose values are the globals. autocommit, when not nil,
-// supplies @@session.autocommit.
-func (s *Server) NewSession(autocommit func() bool) *Session {
+// NewSession starts a session whose values are the globals.
+func (s *Server) NewSession(hooks Hooks) *Session {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	values := make(map[string]Value, len(s.globals))
 	for _, d := range defs {
 		if d.Scope&ScopeSession != 0 {
 			values[d.Name] = s.globals[d.Name]
 		}
 	}
-	return &Session{srv: s, values: values, autocommit: autocommit}
+	return &Session{srv: s, values: values, hooks: hooks}
 }
 
 // Get reads a variable as `@@[scope.]name` does: 1193 for an unknown name, 1238 when
@@ -305,16 +324,30 @@ func (s *Session) Get(name string, scope ReadScope) (Value, *Def, *errs.Error) {
 }
 
 func (s *Session) global(d *Def) Value {
+	s.srv.mu.RLock()
+	defer s.srv.mu.RUnlock()
 	return s.srv.globals[d.Name]
 }
 
 func (s *Session) session(d *Def) Value {
 	switch d.Name {
 	case "autocommit":
-		if s.autocommit != nil {
-			return boolValue(s.autocommit())
+		if s.hooks.Autocommit != nil {
+			return boolValue(s.hooks.Autocommit())
 		}
+	case "warning_count", "error_count":
+		w, e := 0, 0
+		if s.hooks.Diagnostics != nil {
+			w, e = s.hooks.Diagnostics()
+		}
+		if d.Name == "error_count" {
+			w = e
+		}
+		return Value{Text: strconv.Itoa(w)}
 	case "timestamp":
+		if s.timestamp != nil {
+			return *s.timestamp
+		}
 		t := s.srv.now()
 		return Value{Text: strconv.FormatFloat(float64(t.UnixMicro())/1e6, 'f', 6, 64)}
 	}

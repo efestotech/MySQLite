@@ -42,8 +42,35 @@ type tx struct {
 	conn *sql.Conn // nil until the first statement
 }
 
-// Autocommit reports the autocommit mode. It is always on until SET autocommit (M2).
-func (s *Session) Autocommit() bool { return true }
+// Autocommit reports the autocommit mode (SET autocommit).
+func (s *Session) Autocommit() bool { return !s.manual }
+
+// SetAutocommit changes the autocommit mode. Turning it on commits the open
+// transaction, as MySQL does; turning it off makes the next statement that uses a
+// database start a transaction.
+func (s *Session) SetAutocommit(ctx context.Context, on bool) error {
+	s.manual = !on
+	if on {
+		return s.Commit(ctx)
+	}
+	return nil
+}
+
+// SetReadOnly is SET [SESSION] transaction_read_only: the access mode of the following
+// transactions and of autocommitted statements.
+func (s *Session) SetReadOnly(on bool) { s.readOnly = on }
+
+// SetNextReadOnly is SET TRANSACTION READ ONLY | READ WRITE without a scope: it applies
+// to the next transaction only.
+func (s *Session) SetNextReadOnly(on bool) { s.nextReadOnly = &on }
+
+// DefaultReadOnly is the access mode of a transaction that does not choose one.
+func (s *Session) DefaultReadOnly() bool {
+	if s.nextReadOnly != nil {
+		return *s.nextReadOnly
+	}
+	return s.readOnly
+}
 
 // InTransaction reports an open explicit transaction (SERVER_STATUS_IN_TRANS).
 func (s *Session) InTransaction() bool { return s.tx != nil }
@@ -61,6 +88,7 @@ func (s *Session) Begin(ctx context.Context, opts TxOptions) error {
 	if err := s.Commit(ctx); err != nil {
 		return err
 	}
+	s.nextReadOnly = nil
 	t := &tx{opts: opts}
 	if opts.Snapshot {
 		if err := s.bind(ctx, t, s.name); err != nil {
@@ -118,7 +146,12 @@ func (s *Session) Close(ctx context.Context) error {
 // call when the statement is done. database is "" for a statement without tables.
 // Inside a transaction the connection is the transaction's and release does nothing.
 func (s *Session) Conn(ctx context.Context, database string, write bool) (*sql.Conn, func(), error) {
-	if s.tx != nil && write && s.tx.opts.ReadOnly {
+	if s.tx == nil && s.manual && database != "" {
+		// autocommit=0: the statement starts the transaction it runs in.
+		s.tx = &tx{opts: TxOptions{ReadOnly: s.DefaultReadOnly()}}
+		s.nextReadOnly = nil
+	}
+	if write && (s.tx != nil && s.tx.opts.ReadOnly || s.tx == nil && s.readOnly) {
 		return nil, nil, errs.ReadOnlyTransaction()
 	}
 	if database == "" {

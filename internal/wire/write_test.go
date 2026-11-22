@@ -96,7 +96,7 @@ func TestWriteErrors(t *testing.T) {
 		{"INSERT INTO items (name) VALUES (NULL)", 1048, "23000", "Column 'name' cannot be null"},
 		{"UPDATE items SET name = NULL", 1048, "23000", "Column 'name' cannot be null"},
 		{"INSERT INTO items (id, name) VALUES (0, 'x')", 1235, "42000",
-			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; NO_AUTO_VALUE_ON_ZERO arrives with SET sql_mode (M2)"},
+			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; use NULL, or SET sql_mode with NO_AUTO_VALUE_ON_ZERO to store 0"},
 	}
 	for _, tc := range cases {
 		_, err := conn.Execute(tc.query)

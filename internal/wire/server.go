@@ -205,7 +205,8 @@ func (s *Server) serveConn(raw net.Conn) {
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
-	h.vars = s.vars.NewSession(h.sess.Autocommit)
+	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
+	h.applyGlobals()
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {

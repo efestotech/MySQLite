@@ -33,7 +33,7 @@ import (
 	"mysqlite/internal/vars"
 )
 
-// defaultSQLMode is the MySQL 8.0 default. SET sql_mode arrives with M2.
+// defaultSQLMode is the MySQL 8.0 default; SET sql_mode changes it (SetSQLMode).
 const defaultSQLMode = "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"
 
 // Config configures a Translator.
@@ -55,6 +55,10 @@ const (
 	KindUse
 	// KindTransaction is BEGIN, START TRANSACTION, COMMIT or ROLLBACK (Statement.Tx).
 	KindTransaction
+	// KindShow is a SHOW statement (Statement.Show).
+	KindShow
+	// KindSet is SET (Statement.Set).
+	KindSet
 )
 
 // String is the router decision recorded in the query journal.
@@ -68,6 +72,10 @@ func (k Kind) String() string {
 		return "use"
 	case KindTransaction:
 		return "transaction"
+	case KindShow:
+		return "show"
+	case KindSet:
+		return "set"
 	}
 	return fmt.Sprintf("Kind(%d)", int(k))
 }
@@ -99,6 +107,10 @@ type Statement struct {
 	Tx *Transaction
 	// Write describes INSERT, UPDATE and DELETE.
 	Write *Write
+	// Show describes KindShow.
+	Show *Show
+	// Set lists the assignments of KindSet, in statement order.
+	Set []Assignment
 }
 
 // Write is what the executor needs about INSERT, UPDATE and DELETE beyond the SQL: the
@@ -155,6 +167,23 @@ func New(cfg Config) *Translator {
 	return &Translator{cfg: cfg, p: p, mode: mode}
 }
 
+// SetSQLMode is SET sql_mode: the parser follows the modes that change the grammar
+// (ANSI_QUOTES, PIPES_AS_CONCAT, IGNORE_SPACE, NO_BACKSLASH_ESCAPES, ...). mode is a
+// normalized MySQL sql_mode; names the parser does not know do not affect parsing.
+func (t *Translator) SetSQLMode(mode string) {
+	var m mysql.SQLMode
+	for _, name := range strings.Split(mode, ",") {
+		if name == "" {
+			continue
+		}
+		if bit, err := mysql.GetSQLMode(name); err == nil {
+			m |= bit
+		}
+	}
+	t.mode = m
+	t.p.SetSQLMode(m)
+}
+
 // Translate translates one COM_QUERY text. currentDB is the session's database, or "".
 func (t *Translator) Translate(query, currentDB string) (*Statement, *errs.Error) {
 	gated, gatedAny := gateVersionComments(query, t.cfg.ServerVersion, t.mode.HasNoBackslashEscapesMode())
@@ -209,7 +238,16 @@ func VersionNumber(version string) (int, error) {
 // TiDB reports syntax errors as `line 1 column 13 near "FROM t" `.
 var reParseError = regexp.MustCompile(`(?s)^line (\d+) column \d+ near "(.*)"\s*$`)
 
+var reUnknownCharset = regexp.MustCompile(`\[parser:1115\]Unknown character set: '([^']*)'`)
+
 func parseError(err error, query string) *errs.Error {
+	// The parser checks the character set of SET NAMES / SET CHARACTER SET itself;
+	// MySQL reports it as 1115 too, not as a syntax error.
+	if m := reUnknownCharset.FindStringSubmatch(err.Error()); m != nil {
+		if w := words(query); len(w) > 0 && strings.EqualFold(w[0].text, "SET") {
+			return errs.UnknownCharset(m[1])
+		}
+	}
 	if m := reParseError.FindStringSubmatch(err.Error()); m != nil {
 		line, _ := strconv.Atoi(m[1])
 		return errs.Parse(truncateNear(m[2]), line)

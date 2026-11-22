@@ -63,7 +63,7 @@ func TestCheckInsertErrors(t *testing.T) {
 		{"missing value without default", nil, []string{"price"}, [][]*Literal{{lit(LiteralInt, "1")}}, 1364, "Field 'name' doesn't have a default value"},
 		// MySQL generates a value for 0 unless NO_AUTO_VALUE_ON_ZERO; SQLite stores 0.
 		{"zero for auto increment", nil, []string{"id", "name"}, [][]*Literal{{lit(LiteralInt, "0"), str}}, 1235,
-			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; NO_AUTO_VALUE_ON_ZERO arrives with SET sql_mode (M2)"},
+			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; use NULL, or SET sql_mode with NO_AUTO_VALUE_ON_ZERO to store 0"},
 		{"text for auto increment", nil, []string{"id", "name"}, [][]*Literal{{str, str}}, 1235,
 			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: value conversion on insert arrives with M3"},
 		{"expression for auto increment", nil, []string{"id", "name"}, [][]*Literal{{nil, str}}, 1235,

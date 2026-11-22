@@ -31,6 +31,9 @@ type handler struct {
 	journal *obs.Journal
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
+	// diag is the diagnostics area SHOW WARNINGS reads; pendingDiag collects the
+	// messages of the running statement (diag.go).
+	diag, pendingDiag []diagnostic
 
 	// go-mysql calls UseDB for the handshake database before checking the password
 	// (docs/agent-notes/api-go-mysql.md, W2). Until authenticated, the name is only
@@ -113,7 +116,9 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	defer h.syncStatus()
 	start := time.Now()
 	current, _ := h.sess.Database()
+	h.beginDiagnostics()
 	st, res, err := h.query(query, current)
+	h.endDiagnostics(st, res, err)
 	h.record(query, current, st, res, err, start)
 	return res, err
 }
@@ -135,6 +140,10 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 		err = h.transaction(st.Tx)
 	case dialect.KindRead:
 		res, err = h.read(st)
+	case dialect.KindShow:
+		res, err = h.showDiagnostics(st.Show)
+	case dialect.KindSet:
+		res, err = h.set(st.Set)
 	default:
 		res, err = h.write(st)
 	}
@@ -245,7 +254,8 @@ func (h *handler) transaction(tx *dialect.Transaction) error {
 	var err error
 	switch tx.Op {
 	case dialect.TxBegin:
-		err = h.sess.Begin(ctx, session.TxOptions{ReadOnly: tx.ReadOnly, Snapshot: tx.Snapshot})
+		readOnly := tx.ReadOnly || !tx.ReadWrite && h.sess.DefaultReadOnly()
+		err = h.sess.Begin(ctx, session.TxOptions{ReadOnly: readOnly, Snapshot: tx.Snapshot})
 	case dialect.TxCommit:
 		err = h.sess.Commit(ctx)
 	case dialect.TxRollback:

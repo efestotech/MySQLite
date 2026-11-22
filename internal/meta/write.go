@@ -30,6 +30,17 @@ type InsertInfo struct {
 // rowid for NULL in any INTEGER PRIMARY KEY and stores 0 in an AUTOINCREMENT column,
 // where MySQL generates a value.
 func CheckInsert(t *Table, columns []string, rows [][]*Literal) (InsertInfo, *errs.Error) {
+	return CheckInsertMode(t, columns, rows, InsertMode{})
+}
+
+// InsertMode carries the sql_mode flags that change how an INSERT is checked.
+type InsertMode struct {
+	// NoAutoValueOnZero stores 0 in the AUTO_INCREMENT column instead of refusing it.
+	NoAutoValueOnZero bool
+}
+
+// CheckInsertMode is CheckInsert under the given sql_mode flags.
+func CheckInsertMode(t *Table, columns []string, rows [][]*Literal, mode InsertMode) (InsertInfo, *errs.Error) {
 	info := InsertInfo{Auto: t.AutoIncrement}
 	defaults := len(columns) == 0 && len(rows) == 1 && len(rows[0]) == 0
 
@@ -78,7 +89,7 @@ func CheckInsert(t *Table, columns []string, rows [][]*Literal) (InsertInfo, *er
 			col := t.Columns[idx[j]]
 			values[strings.ToLower(col.Name)] = v
 			if strings.EqualFold(col.Name, t.AutoIncrement) {
-				n, gen, err := autoValue(v)
+				n, gen, err := autoValue(v, mode.NoAutoValueOnZero)
 				if err != nil {
 					return info, err
 				}
@@ -102,8 +113,8 @@ func CheckInsert(t *Table, columns []string, rows [][]*Literal) (InsertInfo, *er
 }
 
 // autoValue reads a value given for the AUTO_INCREMENT column: NULL generates, a
-// non-zero integer is stored as is.
-func autoValue(v *Literal) (n int64, generated bool, err *errs.Error) {
+// non-zero integer is stored as is, and so is 0 under NO_AUTO_VALUE_ON_ZERO.
+func autoValue(v *Literal, zeroIsValue bool) (n int64, generated bool, err *errs.Error) {
 	if v != nil && v.Kind == LiteralNull {
 		return 0, true, nil
 	}
@@ -114,9 +125,9 @@ func autoValue(v *Literal) (n int64, generated bool, err *errs.Error) {
 	if perr != nil {
 		return 0, false, errs.Unsupported("non-integer value for an AUTO_INCREMENT column", "value conversion on insert arrives with M3")
 	}
-	if n == 0 {
+	if n == 0 && !zeroIsValue {
 		return 0, false, errs.Unsupported("value 0 for an AUTO_INCREMENT column",
-			"MySQL generates a value, SQLite would store 0; NO_AUTO_VALUE_ON_ZERO arrives with SET sql_mode (M2)")
+			"MySQL generates a value, SQLite would store 0; use NULL, or SET sql_mode with NO_AUTO_VALUE_ON_ZERO to store 0")
 	}
 	return n, false, nil
 }
