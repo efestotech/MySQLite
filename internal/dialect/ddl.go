@@ -282,7 +282,7 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 		e.apply(ruleCreateIndexes)
 	}
 	for _, k := range keys {
-		sqliteName := table + "__" + k.name
+		sqliteName := IndexSQLiteName(table, k.name)
 		stmt := "CREATE "
 		if k.unique {
 			stmt += "UNIQUE "

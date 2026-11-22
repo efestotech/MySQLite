@@ -162,3 +162,35 @@ func readSidecar(ctx context.Context, conn *sql.Conn, table string) (*sidecar, e
 	}
 	return sc, rows.Err()
 }
+
+// SetSidecarFact creates the sidecar table if needed and replaces one fact of table. It
+// must run in the transaction of the DDL that changes table.
+func SetSidecarFact(ctx context.Context, conn *sql.Conn, table string, f SidecarFact) error {
+	if _, err := conn.ExecContext(ctx, sidecarDDL); err != nil {
+		return fmt.Errorf("catalog: create sidecar: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		"INSERT OR IGNORE INTO "+SidecarTable+" (tbl, col, key, value) VALUES ('', '', ?, ?)",
+		SidecarKeyFormat, sidecarFormat); err != nil {
+		return fmt.Errorf("catalog: sidecar format: %w", err)
+	}
+	if _, err := conn.ExecContext(ctx,
+		"INSERT OR REPLACE INTO "+SidecarTable+" (tbl, col, key, value) VALUES (?, ?, ?, ?)",
+		table, f.Column, f.Key, f.Value); err != nil {
+		return fmt.Errorf("catalog: sidecar %s.%s %s: %w", table, f.Column, f.Key, err)
+	}
+	return nil
+}
+
+// DropSidecarColumn removes the facts of one column or index (col) of table, when the
+// sidecar exists.
+func DropSidecarColumn(ctx context.Context, conn *sql.Conn, table, col string) error {
+	ok, err := hasSidecar(ctx, conn)
+	if err != nil || !ok {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "DELETE FROM "+SidecarTable+" WHERE tbl = ? AND col = ?", table, col); err != nil {
+		return fmt.Errorf("catalog: sidecar of %s.%s: %w", table, col, err)
+	}
+	return nil
+}

@@ -270,7 +270,7 @@ func TestUnsupported(t *testing.T) {
 		"LOCK TABLES t READ":                                     "LOCK TABLES",
 		"SHOW PROCEDURE STATUS":                                  "SHOW",
 		"CREATE TEMPORARY TABLE x (a INT)":                       "CREATE TEMPORARY TABLE",
-		"DROP TABLE x":                                           "DROP TABLE",
+		"RENAME TABLE x TO y":                                    "RENAME TABLE",
 	}
 	tr := newTranslator(t)
 	for q, construct := range cases {

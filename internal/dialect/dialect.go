@@ -59,7 +59,8 @@ const (
 	KindShow
 	// KindSet is SET (Statement.Set).
 	KindSet
-	// KindDDL is CREATE TABLE (Statement.Create).
+	// KindDDL is CREATE TABLE (Statement.Create), DROP TABLE (Drop), TRUNCATE
+	// (Truncate), CREATE INDEX and DROP INDEX (Index).
 	KindDDL
 )
 
@@ -131,6 +132,12 @@ type Statement struct {
 	Set []Assignment
 	// Create is the CREATE TABLE of KindDDL.
 	Create *CreateTable
+	// Drop is the DROP TABLE of KindDDL.
+	Drop *DropTable
+	// Truncate is the table TRUNCATE empties (KindDDL).
+	Truncate string
+	// Index is the CREATE INDEX or DROP INDEX of KindDDL.
+	Index *IndexChange
 }
 
 // Write is what the executor needs about INSERT, UPDATE and DELETE beyond the SQL: the

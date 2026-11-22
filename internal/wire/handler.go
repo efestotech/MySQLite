@@ -182,7 +182,7 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 			break
 		}
 		if st.Kind == dialect.KindDDL {
-			res, err = h.createTable(st)
+			res, err = h.ddlStatement(st)
 		} else {
 			res, err = h.write(st)
 		}

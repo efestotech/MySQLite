@@ -145,7 +145,7 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 		if entry == "" && h.Entry != nil {
 			entry = h.Entry(table, cols)
 		}
-		return newError(1062, "23000", "Duplicate entry '%s' for key '%s.%s'", entry, table, key)
+		return DuplicateEntry(entry, table+"."+key)
 	case sqliteConstraintNotNul:
 		m := reNotNull.FindStringSubmatch(msg)
 		if m == nil {
@@ -469,6 +469,16 @@ func InvalidDefault(column string) *Error {
 // MultiplePrimaryKey is 1068.
 func MultiplePrimaryKey() *Error {
 	return newError(1068, "42000", "Multiple primary key defined")
+}
+
+// DuplicateEntry is 1062; key is table.key as MySQL 8.0 prints it.
+func DuplicateEntry(entry, key string) *Error {
+	return newError(1062, "23000", "Duplicate entry '%s' for key '%s'", entry, key)
+}
+
+// CantDropKey is 1091, DROP INDEX of a key the table does not have.
+func CantDropKey(key string) *Error {
+	return newError(1091, "42000", "Can't DROP '%s'; check that column/key exists", key)
 }
 
 // KeyColumnMissing is 1072.

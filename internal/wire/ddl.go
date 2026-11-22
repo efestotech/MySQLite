@@ -16,23 +16,13 @@ import (
 // and the AUTO_INCREMENT start in one transaction on the writer, so a failure leaves
 // nothing behind (MySQL's DDL is atomic in 8.0).
 func (h *handler) createTable(st *dialect.Statement) (*mysql.Result, error) {
-	ctx := context.Background()
-	ct := st.Create
-	conn, release, err := h.sess.DDLConn(ctx, st.Database)
-	if err != nil {
-		return nil, h.fail(err, errs.Hint{DatabaseArg: st.Database})
-	}
-	defer release()
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return nil, h.fail(fmt.Errorf("wire: begin DDL: %w", err), st.Hint())
-	}
-	done := false
-	defer func() {
-		if !done {
-			_, _ = conn.ExecContext(ctx, "ROLLBACK")
-		}
-	}()
+	return h.ddl(st, func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error) {
+		return h.createTableIn(ctx, conn, st)
+	})
+}
 
+func (h *handler) createTableIn(ctx context.Context, conn *sql.Conn, st *dialect.Statement) (*mysql.Result, error) {
+	ct := st.Create
 	exists, err := tableExists(ctx, conn, ct.Table)
 	if err != nil {
 		return nil, h.fail(err, st.Hint())
@@ -62,10 +52,6 @@ func (h *handler) createTable(st *dialect.Statement) (*mysql.Result, error) {
 			return nil, h.fail(fmt.Errorf("wire: AUTO_INCREMENT start: %w", err), st.Hint())
 		}
 	}
-	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return nil, h.fail(fmt.Errorf("wire: commit DDL: %w", err), st.Hint())
-	}
-	done = true
 	return &mysql.Result{}, nil
 }
 
