@@ -52,6 +52,8 @@ const (
 	KindWrite
 	// KindUse changes the session's current database (USE db).
 	KindUse
+	// KindTransaction is BEGIN, START TRANSACTION, COMMIT or ROLLBACK (Statement.Tx).
+	KindTransaction
 )
 
 // Statement is a fully translated statement.
@@ -69,6 +71,8 @@ type Statement struct {
 	UseDB string
 	// Shape describes the result columns of a SELECT, for internal/meta.
 	Shape *Shape
+	// Tx is the transaction control of KindTransaction.
+	Tx *Transaction
 }
 
 // Shape is the select list of a single-table SELECT.

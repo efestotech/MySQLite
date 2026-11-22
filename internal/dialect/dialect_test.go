@@ -264,7 +264,7 @@ func TestUnsupported(t *testing.T) {
 		"DELETE t FROM t JOIN u ON t.a = u.a":                    "multi-table DELETE",
 		"DELETE IGNORE FROM t":                                   "DELETE IGNORE",
 		"SET @a = 1":                                             "SET",
-		"BEGIN":                                                  "BEGIN",
+		"LOCK TABLES t READ":                                     "LOCK TABLES",
 		"SHOW TABLES":                                            "SHOW",
 		"CREATE TABLE x (a INT)":                                 "CREATE TABLE",
 	}
@@ -392,4 +392,55 @@ func TestSelectShape(t *testing.T) {
 	if st.Shape != nil {
 		t.Fatalf("only SELECT has a result shape, got %+v", st.Shape)
 	}
+}
+
+func TestTransactionStatements(t *testing.T) {
+	tr := newTranslator(t)
+	cases := []struct {
+		query string
+		want  Transaction
+	}{
+		{"BEGIN", Transaction{Op: TxBegin}},
+		{"start transaction", Transaction{Op: TxBegin}},
+		{"START TRANSACTION READ WRITE", Transaction{Op: TxBegin}},
+		{"START TRANSACTION READ ONLY", Transaction{Op: TxBegin, ReadOnly: true}},
+		{"START TRANSACTION WITH CONSISTENT SNAPSHOT", Transaction{Op: TxBegin, Snapshot: true}},
+		// mysqldump --single-transaction sends the clause in a version comment.
+		{"START TRANSACTION /*!40100 WITH CONSISTENT SNAPSHOT */", Transaction{Op: TxBegin, Snapshot: true}},
+		{"START TRANSACTION /* WITH CONSISTENT SNAPSHOT */", Transaction{Op: TxBegin}},
+		{"COMMIT", Transaction{Op: TxCommit}},
+		{"COMMIT AND NO CHAIN", Transaction{Op: TxCommit}},
+		{"COMMIT NO RELEASE", Transaction{Op: TxCommit}},
+		{"ROLLBACK", Transaction{Op: TxRollback}},
+		{"ROLLBACK AND NO CHAIN NO RELEASE", Transaction{Op: TxRollback}},
+	}
+	for _, tc := range cases {
+		for _, current := range []string{"shop", ""} {
+			st, e := tr.Translate(tc.query, current)
+			if e != nil {
+				t.Fatalf("%s: %v", tc.query, e)
+			}
+			if st.Kind != KindTransaction || st.Tx == nil || *st.Tx != tc.want {
+				t.Fatalf("%s: want %+v, got kind %d tx %+v", tc.query, tc.want, st.Kind, st.Tx)
+			}
+		}
+	}
+}
+
+func TestTransactionRefusals(t *testing.T) {
+	const prefix = "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near "
+	runErr(t, []errCase{
+		// TiDB extensions are syntax errors in MySQL.
+		{name: "pessimistic", query: "BEGIN PESSIMISTIC", code: 1064, state: "42000", msg: prefix + "'PESSIMISTIC' at line 1"},
+		{name: "optimistic", query: "begin optimistic", code: 1064, state: "42000", msg: prefix + "'optimistic' at line 1"},
+		{name: "causal", query: "START TRANSACTION WITH CAUSAL CONSISTENCY ONLY", code: 1064, state: "42000",
+			msg: prefix + "'CAUSAL CONSISTENCY ONLY' at line 1"},
+		{name: "as of", query: "START TRANSACTION READ ONLY AS OF TIMESTAMP '2024-01-01'", code: 1064, state: "42000",
+			msg: prefix + "'AS OF TIMESTAMP '2024-01-01'' at line 1"},
+		{name: "chain", query: "COMMIT AND CHAIN", code: 1235, state: "42000", msg: "AND CHAIN", sub: true},
+		{name: "release", query: "ROLLBACK RELEASE", code: 1235, state: "42000", msg: "RELEASE", sub: true},
+		{name: "savepoint", query: "SAVEPOINT a", code: 1235, state: "42000", msg: "SAVEPOINT", sub: true},
+		{name: "rollback to", query: "ROLLBACK TO a", code: 1235, state: "42000", msg: "SAVEPOINT", sub: true},
+		{name: "release savepoint", query: "RELEASE SAVEPOINT a", code: 1235, state: "42000", msg: "SAVEPOINT", sub: true},
+	})
 }

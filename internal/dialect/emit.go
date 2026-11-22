@@ -78,6 +78,16 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 		return e.result(KindWrite, errs.OpDelete)
 	case *ast.UseStmt:
 		return &Statement{Kind: KindUse, UseDB: n.DBName}
+	case *ast.BeginStmt:
+		return e.begin(n)
+	case *ast.CommitStmt:
+		return e.completion(TxCommit, n.CompletionType)
+	case *ast.RollbackStmt:
+		if n.SavepointName != "" {
+			e.unsupported("ROLLBACK TO SAVEPOINT", reasonLater)
+			return nil
+		}
+		return e.completion(TxRollback, n.CompletionType)
 	case *ast.SetOprStmt:
 		e.unsupported("UNION, EXCEPT or INTERSECT", reasonLater)
 	case *ast.GrantStmt, *ast.RevokeStmt, *ast.GrantRoleStmt, *ast.RevokeRoleStmt:
