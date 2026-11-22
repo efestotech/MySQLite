@@ -48,6 +48,8 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFTime, NumArgs: 1, Deterministic: true, Fn: timeOf},
 		{Name: functions.UDFMakeDate, NumArgs: 2, Deterministic: true, Fn: makeDate},
 		{Name: functions.UDFPeriodDiff, NumArgs: 2, Deterministic: true, Fn: periodDiff},
+		{Name: functions.UDFStrToDate, NumArgs: 2, Deterministic: true, Fn: strToDate},
+		{Name: functions.UDFTimeFormat, NumArgs: 2, Deterministic: true, Fn: timeFormat},
 		{Name: functions.UDFTruncate, NumArgs: 3, Deterministic: true, Fn: truncate},
 		{Name: functions.UDFDivide, NumArgs: 3, Deterministic: true, Fn: divide},
 		{Name: functions.UDFIntDiv, NumArgs: 3, Deterministic: true, Fn: intDiv},

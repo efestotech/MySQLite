@@ -83,6 +83,8 @@ const (
 	RetDateAdd
 	// RetTimeOf is TIME(x): TIME with x's fractional digits.
 	RetTimeOf
+	// RetStrToDate is STR_TO_DATE: DATETIME, DATE or TIME by its literal format.
+	RetStrToDate
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -241,6 +243,8 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			return dateAddResult(x, args)
 		case RetTimeOf:
 			return timeOfResult(x, args)
+		case RetStrToDate:
+			return strToDateResult(x)
 		case RetFromUnixtime:
 			if len(args) > 1 {
 				return funcResult(RetString, args)

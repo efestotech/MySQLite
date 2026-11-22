@@ -129,6 +129,8 @@ const (
 	UDFTime          = "mysqlite_time"
 	UDFMakeDate      = "mysqlite_makedate"
 	UDFPeriodDiff    = "mysqlite_period_diff"
+	UDFStrToDate     = "mysqlite_str_to_date"
+	UDFTimeFormat    = "mysqlite_time_format"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
@@ -270,6 +272,9 @@ var table = map[string]Func{
 	"TIME":        rename(UDFTime, 1, 1, meta.RetTimeOf),
 	"MAKEDATE":    rename(UDFMakeDate, 2, 2, meta.RetDate),
 	"PERIOD_DIFF": rename(UDFPeriodDiff, 2, 2, meta.RetInt),
+	// The dialect requires a literal format (meta.StrToDateKind, meta.TimeFormatOK).
+	"STR_TO_DATE": rename(UDFStrToDate, 2, 2, meta.RetStrToDate),
+	"TIME_FORMAT": rename(UDFTimeFormat, 2, 2, meta.RetString),
 }
 
 // Lookup returns the entry of a function by its MySQL name, in any case.

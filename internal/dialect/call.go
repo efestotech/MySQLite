@@ -27,6 +27,9 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 		return nil
 	}
 	e.apply(ruleFunction)
+	if (name == "STR_TO_DATE" || name == "TIME_FORMAT") && !e.dateFormat(name, n.Args[1]) {
+		return nil
+	}
 	switch {
 	case f.Emit == functions.Session && len(n.Args) > 0 && f.ArgUDF != "":
 		f = functions.Func{Emit: functions.Rename, SQLite: f.ArgUDF, Zoned: true, Ret: f.Ret}
@@ -184,4 +187,33 @@ func (e *emitter) precision(n *ast.FuncCallExpr, f functions.Func) (int, bool) {
 		return 0, false
 	}
 	return int(fsp), true
+}
+
+// dateFormat checks the format of STR_TO_DATE and TIME_FORMAT at translation: it must
+// be a string literal mysqlite implements, since STR_TO_DATE's result type depends on
+// it. STR_TO_DATE also needs NO_ZERO_DATE and NO_ZERO_IN_DATE, under which MySQL
+// returns NULL for an incomplete date instead of a value such as 0000-09-00.
+func (e *emitter) dateFormat(name string, arg ast.ExprNode) bool {
+	v, ok := arg.(*test_driver.ValueExpr)
+	if !ok || v.Kind() != test_driver.KindString {
+		e.unsupported(name+" with a computed format", reasonLater)
+		return false
+	}
+	format := v.GetString()
+	if name == "TIME_FORMAT" {
+		if !meta.TimeFormatOK(format) {
+			e.unsupported("TIME_FORMAT with a date specifier", "MySQL documents a NULL value or 0")
+			return false
+		}
+		return true
+	}
+	if _, _, ok := meta.StrToDateKind(format); !ok {
+		e.unsupported("STR_TO_DATE with format '"+format+"'", reasonLater)
+		return false
+	}
+	if !e.mode.HasNoZeroDateMode() || !e.mode.HasNoZeroInDateMode() {
+		e.unsupported("STR_TO_DATE without NO_ZERO_DATE and NO_ZERO_IN_DATE", "MySQL then returns incomplete dates such as 0000-09-00")
+		return false
+	}
+	return true
 }

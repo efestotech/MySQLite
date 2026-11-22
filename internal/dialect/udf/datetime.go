@@ -275,7 +275,7 @@ func formatDate(t temporal, format string) string {
 		hour12 = 12
 	}
 	ampm := "AM"
-	if t.hour >= 12 {
+	if t.hour%24 >= 12 {
 		ampm = "PM"
 	}
 	for i := 0; i < len(format); i++ {

@@ -382,6 +382,12 @@ func FunctionError(e *Error) error {
 	return fmt.Errorf("%s%d", functionMarker, e.Code)
 }
 
+// FunctionUnsupported is the error a SQL function returns to refuse, with 1235, a value
+// whose MySQL result mysqlite does not implement.
+func FunctionUnsupported(construct string) error {
+	return fmt.Errorf("%s1235:%s", functionMarker, construct)
+}
+
 // fromFunction recovers the error FunctionError encoded in a SQLite message.
 func fromFunction(msg string) *Error {
 	i := strings.Index(msg, functionMarker)
@@ -389,6 +395,9 @@ func fromFunction(msg string) *Error {
 		return nil
 	}
 	code := msg[i+len(functionMarker):]
+	if construct, ok := strings.CutPrefix(code, "1235:"); ok {
+		return Unsupported(construct, "MySQL's result for this value is not implemented")
+	}
 	if j := strings.IndexFunc(code, func(r rune) bool { return r < '0' || r > '9' }); j >= 0 {
 		code = code[:j]
 	}
