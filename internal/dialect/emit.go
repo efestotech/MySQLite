@@ -127,11 +127,11 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 	case *ast.CreateTableStmt:
 		return e.createTable(n)
 	case *ast.ExplainStmt:
-		// DESCRIBE t / EXPLAIN t is SHOW COLUMNS; EXPLAIN of a query is M3.
+		// DESCRIBE t / EXPLAIN t is SHOW COLUMNS.
 		if s, ok := n.Stmt.(*ast.ShowStmt); ok && s.Tp == ast.ShowColumns {
 			return e.show(s)
 		}
-		e.unsupported("EXPLAIN", reasonLater)
+		return e.explain(n)
 	case *ast.SetOprStmt:
 		e.setOpr(n)
 		return e.result(KindRead, errs.OpOther)

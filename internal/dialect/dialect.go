@@ -114,6 +114,8 @@ type Statement struct {
 	UseDB string
 	// Shape describes the result columns of a SELECT, for internal/meta.
 	Shape *Shape
+	// Explain is set for EXPLAIN of the read: the executor shows the query's plan.
+	Explain bool
 	// Tx is the transaction control of KindTransaction.
 	Tx *Transaction
 	// Write describes INSERT, UPDATE and DELETE.

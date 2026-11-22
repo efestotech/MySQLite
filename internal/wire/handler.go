@@ -320,6 +320,9 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	var conn *sql.Conn
 	var from meta.From
 	if infoschema.Is(st.Database) {
+		if st.Explain {
+			return nil, toMySQL(errs.Unsupported("EXPLAIN in information_schema", "information_schema tables are built when read"))
+		}
 		if len(st.Shape.From.Sources) > 1 || len(st.Shape.Union) > 0 || len(st.Shape.From.Sources) == 1 && st.Shape.From.Sources[0].Derived != nil {
 			return nil, toMySQL(errs.Unsupported("JOIN, UNION or derived table in information_schema", "information_schema tables are built one at a time"))
 		}
@@ -356,6 +359,9 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	}
 	if e != nil {
 		return nil, toMySQL(e)
+	}
+	if st.Explain {
+		return h.explain(ctx, conn, st, &sel)
 	}
 	for _, d := range defs {
 		if d.Degraded {
