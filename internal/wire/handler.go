@@ -116,11 +116,7 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	case dialect.KindRead:
 		return h.read(st)
 	}
-	if h.sess.ReadOnlyTransaction() {
-		return nil, toMySQL(errs.ReadOnlyTransaction())
-	}
-	// Writes arrive with T7-T8 (transactions, affected rows).
-	return nil, toMySQL(errs.Unsupported("statement execution", "writes arrive with M1 T7-T8"))
+	return h.write(st)
 }
 
 func (h *handler) transaction(tx *dialect.Transaction) error {

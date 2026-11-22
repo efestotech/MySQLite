@@ -55,10 +55,19 @@ func shopSetup(t *testing.T, extra ...string) (*engine.Engine, string) {
 	return e, addr
 }
 
-// dial connects to the shop database.
-func dial(t *testing.T, addr string) *client.Conn {
+// dial connects to the shop database. Like libmysqlclient, it requests
+// CLIENT_SESSION_TRACK, without which go-mysql leaves out the OK info string (ADR 0003,
+// G1).
+func dial(t *testing.T, addr string, flags ...uint32) *client.Conn {
 	t.Helper()
-	conn, err := client.Connect(addr, testUser, testPassword, "shop")
+	conn, err := client.Connect(addr, testUser, testPassword, "shop", func(c *client.Conn) error {
+		for _, f := range append(flags, mysql.CLIENT_SESSION_TRACK) {
+			if err := c.SetCapability(f); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
