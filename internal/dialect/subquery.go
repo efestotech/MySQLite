@@ -41,6 +41,8 @@ func (e *emitter) subSelect(q *ast.SubqueryExpr, scalar bool) (string, []any, *m
 func (e *emitter) subQuery(q ast.ResultSetNode, scalar bool) (string, []any, *Shape) {
 	e.apply(ruleSubquery)
 	shape, refs, checks, clause, inAggregate := e.shape, e.refs, e.checks, e.clause, e.inAggregate
+	e.outer = append(e.outer, e.scope())
+	defer func() { e.outer = e.outer[:len(e.outer)-1] }()
 	text, args := e.sub(func() {
 		e.clause, e.inAggregate, e.aliasFirst = "", false, scalar
 		switch q := q.(type) {

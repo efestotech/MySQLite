@@ -8,6 +8,7 @@ import (
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/dialect/functions"
 	"mysqlite/internal/dialect/udf"
+	"mysqlite/internal/vars"
 )
 
 // Session functions (docs/05-dialect.md section 5): the dialect binds them as
@@ -26,6 +27,11 @@ func (h *handler) sessionValue(sv *dialect.SessionValue) any {
 		functions.SessionUTCNow, functions.SessionUTCDate, functions.SessionUTCTime,
 		functions.SessionUnixTimestamp:
 		return h.clockValue(name, sv.Fsp)
+	case functions.SessionTimeZone:
+		if v, _, e := h.vars.Get("time_zone", vars.ReadSession); e == nil {
+			return v.Text
+		}
+		return "SYSTEM"
 	case functions.SessionLastInsertID:
 		return h.lastInsertID
 	case functions.SessionRowCount:

@@ -622,6 +622,12 @@ func (e *emitter) defaultLiteral(col *ddlColumn, x ast.ExprNode) *meta.Literal {
 			e.unsupported("DEFAULT '"+lit.Text+"' for a temporal column", "temporal conversion and validation arrive with M3")
 			return nil
 		}
+		if col.ft.GetType() == mysql.TypeTimestamp && !strings.HasPrefix(lit.Text, "0000-00-00") {
+			// MySQL converts it from the session zone to UTC (ADR 0007); a SQLite DEFAULT
+			// is fixed text, written as is.
+			e.unsupported("literal DEFAULT for a TIMESTAMP column", "TIMESTAMP is stored in UTC and the default is not converted yet")
+			return nil
+		}
 	case mysql.TypeBit:
 		e.unsupported("DEFAULT for a BIT column", reasonLater)
 		return nil

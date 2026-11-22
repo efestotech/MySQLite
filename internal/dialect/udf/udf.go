@@ -31,6 +31,8 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFDoubleText, NumArgs: 2, Deterministic: true, Fn: doubleText},
 		{Name: functions.UDFMod, NumArgs: 3, Deterministic: true, Fn: mod},
 		{Name: functions.UDFRound, NumArgs: 3, Deterministic: true, Fn: round},
+		{Name: functions.UDFTzFromUTC, NumArgs: 2, Deterministic: true, Fn: tzFromUTC},
+		{Name: functions.UDFTzToUTC, NumArgs: 2, Deterministic: true, Fn: tzToUTC},
 		{Name: functions.UDFTruncate, NumArgs: 3, Deterministic: true, Fn: truncate},
 		{Name: functions.UDFDivide, NumArgs: 3, Deterministic: true, Fn: divide},
 		{Name: functions.UDFIntDiv, NumArgs: 3, Deterministic: true, Fn: intDiv},

@@ -91,3 +91,13 @@ func temporalResult(x *Expr) (ColumnDef, *errs.Error) {
 	}
 	return d, nil
 }
+
+// IsTimestamp reports whether column is a TIMESTAMP column of t (ADR 0007).
+func (t *Table) IsTimestamp(column string) bool {
+	c, ok := t.column(column)
+	if !ok {
+		return false
+	}
+	ti, ok := ParseType(c.MySQLType())
+	return ok && ti.Type == TypeTimestamp
+}

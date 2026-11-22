@@ -54,6 +54,8 @@ type emitter struct {
 	inAggregate bool
 	// decimalReal is set when a DECIMAL takes part in arithmetic (Statement.DecimalAsReal).
 	decimalReal bool
+	// outer are the FROM clauses of the enclosing queries, outermost first.
+	outer []meta.From
 	// aliasFirst makes the next select item a scalar subquery's column: aliased
 	// scalarColumn when it has no alias; scalarName is the name it got.
 	aliasFirst bool
@@ -329,10 +331,14 @@ func (e *emitter) field(f *ast.SelectField) {
 			return
 		}
 		e.checkSchema(w.Schema)
-		if w.Table.O != "" {
-			e.write(quoteIdent(w.Table.O), ".")
+		switch {
+		case e.starNeedsList(w.Table.O):
+			e.starList(w.Table.O)
+		case w.Table.O != "":
+			e.write(quoteIdent(w.Table.O), ".*")
+		default:
+			e.write("*")
 		}
-		e.write("*")
 		e.shape.Items = append(e.shape.Items, meta.Item{Star: true, Qualifier: w.Table.O})
 		return
 	}
@@ -593,11 +599,23 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 			if j > 0 {
 				e.write(", ")
 			}
-			e.expr(v)
+			e.writeValue(e.insertColumn(n, j), v)
 		}
 		e.write(")")
 	}
 	e.inValues = false
+}
+
+// insertColumn is the column the j-th value of an INSERT row goes to: the column list's,
+// else the table's j-th column; "" when unknown.
+func (e *emitter) insertColumn(n *ast.InsertStmt, j int) string {
+	if len(n.Columns) > 0 {
+		return n.Columns[j].Name.O
+	}
+	if e.wr.Meta != nil && j < len(e.wr.Meta.Columns) {
+		return e.wr.Meta.Columns[j].Name
+	}
+	return ""
 }
 
 func (e *emitter) updateStmt(n *ast.UpdateStmt) {
@@ -646,7 +664,7 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 		}
 		e.checkSchema(a.Column.Schema)
 		e.write(quoteIdent(a.Column.Name.O), " = ")
-		e.expr(a.Expr)
+		e.writeValue(a.Column.Name.O, a.Expr)
 		e.wr.Set[col] = valueLiteral(a.Expr)
 	}
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
@@ -662,7 +680,7 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 				e.write(" AND ")
 			}
 			e.write("(", quoteIdent(a.Column.Name.O), " IS (")
-			e.expr(a.Expr)
+			e.writeValue(a.Column.Name.O, a.Expr)
 			e.write(") COLLATE BINARY)")
 		}
 		e.write(")")
@@ -852,10 +870,15 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		if e.clause != "" && e.refs != nil {
 			*e.refs = append(*e.refs, meta.Ref{Qualifier: n.Name.Table.O, Column: n.Name.Name.O, Clause: e.clause})
 		}
+		ref := quoteIdent(n.Name.Name.O)
 		if n.Name.Table.O != "" {
-			e.write(quoteIdent(n.Name.Table.O), ".")
+			ref = quoteIdent(n.Name.Table.O) + "." + ref
 		}
-		e.write(quoteIdent(n.Name.Name.O))
+		if e.timestampRef(n.Name.Table.O, n.Name.Name.O) {
+			e.fromUTC(func() { e.write(ref) })
+		} else {
+			e.write(ref)
+		}
 		return &meta.Expr{Kind: meta.ExprColumn, Qualifier: n.Name.Table.O, Column: n.Name.Name.O}
 	case *test_driver.ParamMarkerExpr:
 		// '?' is not valid in a COM_QUERY text; MySQL reports a syntax error there.

@@ -44,6 +44,8 @@ const (
 	SessionUTCDate       = "UTC_DATE"
 	SessionUTCTime       = "UTC_TIME"
 	SessionUnixTimestamp = "UNIX_TIMESTAMP"
+	// SessionTimeZone is @@time_zone, the zone TIMESTAMP values convert through.
+	SessionTimeZone = "TIME_ZONE"
 )
 
 // Func is one table entry.
@@ -95,6 +97,10 @@ const (
 	// on their decimal digits, DOUBLEs on their binary value.
 	UDFRound    = "mysqlite_round"
 	UDFTruncate = "mysqlite_truncate"
+	// UDFTzFromUTC(v, zone) and UDFTzToUTC(v, zone) convert TIMESTAMP values between
+	// storage (UTC) and the session zone (ADR 0007).
+	UDFTzFromUTC = "mysqlite_tz_from_utc"
+	UDFTzToUTC   = "mysqlite_tz_to_utc"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
