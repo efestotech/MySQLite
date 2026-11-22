@@ -63,6 +63,7 @@ func (e *emitter) dropTable(n *ast.DropTableStmt) *Statement {
 	}
 	dt := &DropTable{IfExists: n.IfExists}
 	var db string
+	seen := map[string]bool{}
 	for _, tn := range n.Tables {
 		d, table, ok := e.ddlTable(tn)
 		if !ok {
@@ -73,6 +74,11 @@ func (e *emitter) dropTable(n *ast.DropTableStmt) *Statement {
 			return nil
 		}
 		db = d
+		if seen[strings.ToLower(table)] {
+			e.fail(errs.NonUniqueTable(table))
+			return nil
+		}
+		seen[strings.ToLower(table)] = true
 		dt.Tables = append(dt.Tables, table)
 	}
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Drop: dt}

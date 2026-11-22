@@ -118,3 +118,27 @@ func TestDropTable(t *testing.T) {
 	}
 	execOK(t, conn, "DROP TABLE shop.gadgets, items")
 }
+
+// SQLite's own tables do not exist for clients: DDL cannot empty or drop them
+// (independent verification of 3ce9709).
+func TestDDLInternalTables(t *testing.T) {
+	conn := gadgetServer(t)
+	for _, q := range []string{"TRUNCATE TABLE sqlite_sequence", "TRUNCATE TABLE SQLITE_SCHEMA", "TRUNCATE shop.`__Mysqlite_Meta`", "SELECT * FROM sqlite_sequence"} {
+		_, err := conn.Execute(q)
+		if _, ok := err.(*mysql.MyError); !ok || err.(*mysql.MyError).Code != 1146 && err.(*mysql.MyError).Code != 1235 {
+			t.Errorf("%s: want 1146 or 1235, got %v", q, err)
+		}
+	}
+	_, err := conn.Execute("DROP TABLE sqlite_sequence")
+	requireMyError(t, err, 1051, "42S02")
+	// The AUTO_INCREMENT counters survived: a deleted id is not reused.
+	execOK(t, conn, "DELETE FROM gadgets WHERE id = 2")
+	if res := execOK(t, conn, "INSERT INTO gadgets (name) VALUES ('new')"); res.InsertId != 3 {
+		t.Errorf("insert id %d, want 3", res.InsertId)
+	}
+	_, err = conn.Execute("DROP TABLE gadgets, GADGETS")
+	if e := requireMyError(t, err, 1066, "42000"); e.Message != "Not unique table/alias: 'GADGETS'" {
+		t.Errorf("1066 message %q", e.Message)
+	}
+	execOK(t, conn, "SELECT * FROM gadgets")
+}

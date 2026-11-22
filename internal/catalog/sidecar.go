@@ -68,9 +68,13 @@ type SidecarFact struct {
 // SidecarIndex is the col value of an index fact.
 func SidecarIndex(sqliteName string) string { return sidecarIndexPrefix + sqliteName }
 
-// Hidden reports one of mysqlite's own tables.
+// Hidden reports one of mysqlite's own tables, or one of SQLite's (sqlite_sequence,
+// sqlite_stat1, ...): SQLite reserves the sqlite_ prefix, so no user table has it.
+// Hidden tables do not exist for MySQL clients: listings skip them and statements
+// that name them get 1146.
 func Hidden(table string) bool {
-	return strings.HasPrefix(strings.ToLower(table), HiddenPrefix)
+	t := strings.ToLower(table)
+	return strings.HasPrefix(t, HiddenPrefix) || strings.HasPrefix(t, "sqlite_")
 }
 
 // WriteSidecar creates the sidecar table if needed and replaces the facts of table. It
