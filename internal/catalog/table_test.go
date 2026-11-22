@@ -72,9 +72,9 @@ func TestReadTable(t *testing.T) {
 		PrimaryKey:    []string{"id"},
 		AutoIncrement: "id",
 		Indexes: []meta.Index{
-			{Name: "code", Columns: []string{"code"}, Unique: true},
-			{Name: "items_ab", Columns: []string{"a", "b"}, Unique: true},
-			{Name: "items_b", Columns: []string{"b"}},
+			{Name: "code", Columns: []string{"code"}, Unique: true, SQLiteName: "sqlite_autoindex_Items_1"},
+			{Name: "items_ab", Columns: []string{"a", "b"}, Unique: true, SQLiteName: "items_ab"},
+			{Name: "items_b", Columns: []string{"b"}, SQLiteName: "items_b"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {

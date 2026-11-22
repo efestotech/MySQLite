@@ -10,7 +10,6 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 
-	"mysqlite/internal/catalog"
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
@@ -34,7 +33,7 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 	}()
 
 	w := st.Write
-	table, err := catalog.ReadTable(ctx, conn, st.Database, w.Table)
+	table, err := h.catalog.Table(ctx, conn, st.Database, w.Table)
 	if err != nil {
 		return nil, h.fail(err, st.Hint())
 	}

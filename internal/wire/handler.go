@@ -31,6 +31,8 @@ type handler struct {
 	journal *obs.Journal
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
+	// catalog describes tables; shared by all connections.
+	catalog *catalog.Cache
 	// diag is the diagnostics area SHOW WARNINGS reads; pendingDiag collects the
 	// messages of the running statement (diag.go).
 	diag, pendingDiag []diagnostic
@@ -281,7 +283,7 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 
 	var table *meta.Table
 	if st.Shape.Table != "" {
-		table, err = catalog.ReadTable(ctx, conn, st.Database, st.Shape.Table)
+		table, err = h.catalog.Table(ctx, conn, st.Database, st.Shape.Table)
 		if err != nil {
 			return nil, h.fail(err, st.Hint())
 		}

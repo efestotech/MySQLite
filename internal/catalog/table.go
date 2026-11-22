@@ -1,7 +1,7 @@
 // Package catalog reads MySQL-shaped table metadata from SQLite.
 //
-// M1 has only ReadTable, uncached: the cache, its invalidation on DDL, the sidecar
-// metadata table and information_schema arrive with M2 (docs/04-session-catalog.md).
+// ReadTable reads one table from SQLite and its sidecar metadata; Cache keeps the
+// results per database until the next DDL (docs/04-session-catalog.md section 3).
 package catalog
 
 import (
@@ -18,6 +18,9 @@ import (
 // ReadTable describes one table of the database conn is connected to. A missing table
 // is error 1146 for database.table.
 func ReadTable(ctx context.Context, conn *sql.Conn, database, table string) (*meta.Table, error) {
+	if Hidden(table) {
+		return nil, errs.NoSuchTable(database, table)
+	}
 	// SQLite resolves table names case-insensitively; report the stored name.
 	var name string
 	var ddl sql.NullString
@@ -31,12 +34,24 @@ func ReadTable(ctx context.Context, conn *sql.Conn, database, table string) (*me
 		return nil, fmt.Errorf("catalog: read table %s: %w", table, err)
 	}
 
+	sc, err := readSidecar(ctx, conn, name)
+	if err != nil {
+		return nil, err
+	}
 	t := &meta.Table{Database: database, Name: name}
 	if err := readColumns(ctx, conn, t); err != nil {
 		return nil, err
 	}
-	if err := readIndexes(ctx, conn, t); err != nil {
+	if err := readIndexes(ctx, conn, t, sc); err != nil {
 		return nil, err
+	}
+	if sc != nil {
+		if len(sc.table) > 0 {
+			t.Options = sc.table
+		}
+		for i := range t.Columns {
+			t.Columns[i].Options = sc.columns[strings.ToLower(t.Columns[i].Name)]
+		}
 	}
 	// SQLite allows AUTOINCREMENT only on an INTEGER PRIMARY KEY, a single column.
 	if len(t.PrimaryKey) == 1 && hasAutoIncrement(ddl.String) {
@@ -87,7 +102,7 @@ func readColumns(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	return nil
 }
 
-func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
+func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table, sc *sidecar) error {
 	// pragma_index_list does not return creation order; sqlite_schema rowids do. The
 	// primary-key index (origin 'pk') is described by PrimaryKey instead.
 	rows, err := conn.QueryContext(ctx, `
@@ -120,11 +135,19 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	// SQLite names a UNIQUE constraint sqlite_autoindex_<table>_<n>. MySQL names an
 	// unnamed key after its first column, adding _2, _3... when the name is taken
 	// (sql_table.cc, make_unique_key_name). A constraint name given in the DDL is not
-	// kept by SQLite; the sidecar metadata will keep it (M2/M3).
+	// kept by SQLite; indexes mysqlite creates carry their MySQL name in the sidecar.
+	mysqlName := func(ix index) string {
+		if sc != nil {
+			if n, ok := sc.indexes[strings.ToLower(ix.name)]; ok {
+				return n
+			}
+		}
+		return ix.name
+	}
 	used := map[string]bool{"primary": true}
 	for _, ix := range list {
 		if ix.origin != "u" {
-			used[strings.ToLower(ix.name)] = true
+			used[strings.ToLower(mysqlName(ix))] = true
 		}
 	}
 	for _, ix := range list {
@@ -136,13 +159,13 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 			// An index on an expression has no MySQL column flags.
 			continue
 		}
-		name := ix.name
-		if ix.origin == "u" {
+		name := mysqlName(ix)
+		if ix.origin == "u" && name == ix.name {
 			name = uniqueName(cols[0], used)
 			used[strings.ToLower(name)] = true
 		}
 		// A partial unique index does not make the column unique for every row.
-		t.Indexes = append(t.Indexes, meta.Index{Name: name, Columns: cols, Unique: ix.unique && !ix.partial})
+		t.Indexes = append(t.Indexes, meta.Index{Name: name, Columns: cols, Unique: ix.unique && !ix.partial, SQLiteName: ix.name})
 	}
 	return nil
 }

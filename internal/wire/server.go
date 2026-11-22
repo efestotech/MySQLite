@@ -17,6 +17,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
 
+	"mysqlite/internal/catalog"
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/obs"
@@ -47,6 +48,7 @@ type Server struct {
 	conf    *server.Server
 	auth    *authHandler
 	vars    *vars.Server
+	catalog *catalog.Cache
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -93,6 +95,7 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 	}
 
 	return &Server{
+		catalog: catalog.NewCache(),
 		vars: vars.NewServer(vars.Config{
 			Version:          cfg.ServerVersion,
 			MaxAllowedPacket: cfg.MaxAllowedPacket,
@@ -205,6 +208,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
+	h.catalog = s.catalog
 	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
 	h.applyGlobals()
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}

@@ -87,6 +87,9 @@ type Table struct {
 	Indexes []Index
 	// AutoIncrement names the AUTO_INCREMENT column, or "".
 	AutoIncrement string
+	// Options are the MySQL table options kept in the sidecar metadata (ENGINE,
+	// COLLATE, COMMENT, ...), by sidecar key; nil for a table mysqlite did not create.
+	Options map[string]string
 }
 
 // Column is one table column.
@@ -95,6 +98,9 @@ type Column struct {
 	DeclType   string // declared type as stored by SQLite
 	NotNull    bool
 	HasDefault bool
+	// Options are the column's sidecar metadata (MySQL type, COLLATE, COMMENT), by
+	// sidecar key; nil when there is none.
+	Options map[string]string
 }
 
 // Index is a non-primary index.
@@ -103,6 +109,9 @@ type Index struct {
 	Name    string
 	Columns []string
 	Unique  bool
+	// SQLiteName is the index name in the database file. SQLite index names are unique
+	// per database, MySQL key names per table; the sidecar maps one to the other.
+	SQLiteName string
 }
 
 // Item is one select-list item, as written in the query.
