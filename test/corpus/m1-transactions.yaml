@@ -1,0 +1,82 @@
+# Corpus subset m1: explicit transactions on one connection (docs/06-transactions.md).
+# Status flags are checked by the Go tests in internal/wire. oracle: pending
+# (ADR 0002 addendum).
+
+fixtures:
+  shop: &shop
+    - CREATE TABLE items (id INTEGER PRIMARY KEY AUTO_INCREMENT, name VARCHAR(20) NOT NULL)
+    - INSERT INTO items (name) VALUES ('pen'), ('ink')
+
+cases:
+  - id: tx.read-own-writes.001
+    tags: [tx, begin]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    session: [BEGIN, "INSERT INTO items (name) VALUES ('t')"]
+    sql: SELECT name FROM items WHERE id = 3
+    expect:
+      rows: [[t]]
+
+  - id: tx.rollback.001
+    tags: [tx, rollback]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    session: [START TRANSACTION, "INSERT INTO items (name) VALUES ('t')", "DELETE FROM items WHERE id = 1", ROLLBACK]
+    sql: SELECT id, name FROM items
+    expect:
+      rows: [["1", pen], ["2", ink]]
+
+  - id: tx.commit.001
+    tags: [tx, commit]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    session: [BEGIN, "UPDATE items SET name = 'nib' WHERE id = 2", COMMIT]
+    sql: SELECT name FROM items WHERE id = 2
+    expect:
+      rows: [[nib]]
+
+  - id: tx.implicit-commit.001
+    tags: [tx, begin]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    # BEGIN commits the open transaction, so ROLLBACK cannot undo the first insert.
+    session: [BEGIN, "INSERT INTO items (name) VALUES ('kept')", BEGIN, ROLLBACK]
+    sql: SELECT name FROM items WHERE id = 3
+    expect:
+      rows: [[kept]]
+
+  - id: tx.read-only.001
+    tags: [tx, read-only, errors, "1792"]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    session: [START TRANSACTION READ ONLY]
+    sql: INSERT INTO items (name) VALUES ('t')
+    expect:
+      error: {code: 1792, sqlstate: "25006"}
+
+  - id: tx.read-only.002
+    tags: [tx, read-only]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    session: [START TRANSACTION READ ONLY]
+    sql: SELECT name FROM items WHERE id = 1
+    expect:
+      rows: [[pen]]
+
+  - id: tx.error-keeps-transaction.001
+    tags: [tx, errors]
+    milestone: m1
+    oracle: pending
+    setup: *shop
+    # A duplicate key fails the statement, not the transaction: the earlier insert is
+    # still visible inside it.
+    session: [BEGIN, "INSERT INTO items (name) VALUES ('t')"]
+    sql: INSERT INTO items (id, name) VALUES (1, 'dup')
+    expect:
+      error: {code: 1062, sqlstate: "23000"}
