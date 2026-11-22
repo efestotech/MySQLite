@@ -71,8 +71,8 @@ const (
 	CollationUTF8MB3 uint16 = 33 // utf8mb3_general_ci, for NATIONAL CHAR/VARCHAR
 )
 
-// notFixedDecimals is MySQL's NOT_FIXED_DEC: FLOAT and DOUBLE without a declared scale.
-const notFixedDecimals = 31
+// NotFixedDecimals is MySQL's NOT_FIXED_DEC: FLOAT and DOUBLE without a declared scale.
+const NotFixedDecimals = 31
 
 // degradedLength is the length reported for a column whose declared type is unknown;
 // it is described as utf8mb4 text (65535 characters).
@@ -412,7 +412,7 @@ func literalColumn(l Literal, name string) ColumnDef {
 	case LiteralInt:
 		d.Type, d.Flags, d.Length = TypeLongLong, numeric, uint32(len(l.Text))
 	case LiteralFloat:
-		d.Type, d.Flags, d.Length, d.Decimals = TypeDouble, numeric, uint32(len(l.Text)), notFixedDecimals
+		d.Type, d.Flags, d.Length, d.Decimals = TypeDouble, numeric, uint32(len(l.Text)), NotFixedDecimals
 	case LiteralDecimal:
 		precision, scale := decimalShape(l.Text)
 		d.Type, d.Flags, d.Decimals = TypeNewDecimal, numeric, uint8(scale)

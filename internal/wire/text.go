@@ -107,7 +107,7 @@ func anyText(v any) string {
 	case int64:
 		return strconv.FormatInt(x, 10)
 	case float64:
-		return shortestFloat(x, 64)
+		return meta.FormatDouble(x, 64)
 	case string:
 		return x
 	case []byte:
@@ -179,42 +179,15 @@ func floatText(d meta.ColumnDef, v any) (string, error) {
 		return strconv.FormatFloat(f, 'f', int(d.Decimals), 64), nil
 	}
 	if d.Type == meta.TypeFloat {
-		return shortestFloat(f, 32), nil
+		return meta.FormatDouble(f, 32), nil
 	}
-	return shortestFloat(f, 64), nil
+	return meta.FormatDouble(f, 64), nil
 }
 
-// shortestFloat prints the shortest representation that reads back as the same value,
-// in plain notation for decimal exponents -6..14 and as "1.5e-7" / "1e20" otherwise.
-func shortestFloat(f float64, bits int) string {
-	if bits == 32 {
-		f = float64(float32(f))
-	}
-	sci := strconv.FormatFloat(f, 'e', -1, bits)
-	mant, expText, _ := strings.Cut(sci, "e")
-	exp, _ := strconv.Atoi(expText)
-	if exp >= -6 && exp < 15 {
-		return strconv.FormatFloat(f, 'f', -1, bits)
-	}
-	return mant + "e" + strconv.Itoa(exp)
-}
-
-// decimalText prints the declared scale. DECIMAL is stored as REAL (docs/05-dialect.md
-// section 9, option a), so rounding follows the binary value.
+// decimalText prints the declared scale (meta.FormatDecimal).
 func decimalText(d meta.ColumnDef, v any) (string, error) {
-	var s string
-	switch x := v.(type) {
-	case int64:
-		s = strconv.FormatInt(x, 10)
-		if d.Decimals > 0 {
-			s += "." + strings.Repeat("0", int(d.Decimals))
-		}
-	case float64:
-		s = strconv.FormatFloat(x, 'f', int(d.Decimals), 64)
-		if strings.Trim(s, "-0.") == "" {
-			s = strings.TrimPrefix(s, "-") // no negative zero
-		}
-	default:
+	s, ok := meta.FormatDecimal(v, int(d.Decimals))
+	if !ok {
 		return "", fmt.Errorf("%T value %q in a DECIMAL column", v, anyText(v))
 	}
 	return s, nil

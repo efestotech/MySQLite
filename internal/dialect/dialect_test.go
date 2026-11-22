@@ -233,7 +233,7 @@ func TestUnsupported(t *testing.T) {
 		"SELECT * FROM (SELECT 1) AS d":                          "derived table",
 		"SELECT a FROM t GROUP BY a":                             "GROUP BY",
 		"SELECT a FROM t HAVING a > 1":                           "HAVING",
-		"SELECT a FROM t WHERE upper(a) = 'X'":                   "function UPPER",
+		"SELECT a FROM t WHERE round(a) = 1":                     "function ROUND",
 		"SELECT count(*) FROM t":                                 "aggregate COUNT",
 		"SELECT a FROM t WHERE a LIKE 'x%'":                      "LIKE",
 		"SELECT a FROM t WHERE a / 2 = 1":                        "operator /",
@@ -315,6 +315,7 @@ func TestRuleOrder(t *testing.T) {
 		"R009 create-table",
 		"R010 create-table-keys",
 		"R011 current-database",
+		"R012 function-table",
 	}
 	var got []string
 	for _, r := range Rules() {

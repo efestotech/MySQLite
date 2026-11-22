@@ -13,7 +13,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/client"
 	"github.com/go-mysql-org/go-mysql/mysql"
 
-	"mysqlite/internal/collate"
+	"mysqlite/internal/dialect/udf"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/wire"
 )
@@ -38,7 +38,7 @@ func startMysqlite(t *testing.T) *inProcess {
 		MaxReadConns: 2,
 		BusyTimeout:  time.Second,
 		Synchronous:  "NORMAL",
-	}, engine.Extensions{Collations: collate.Collations()})
+	}, udf.Extensions())
 	if err != nil {
 		t.Fatalf("engine: %v", err)
 	}

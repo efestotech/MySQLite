@@ -12,8 +12,8 @@ import (
 	"syscall"
 	"time"
 
-	"mysqlite/internal/collate"
 	"mysqlite/internal/config"
+	"mysqlite/internal/dialect/udf"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/obs"
 	"mysqlite/internal/wire"
@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		MaxReadConns: cfg.MaxReadConns,
 		BusyTimeout:  time.Duration(cfg.BusyTimeoutMS) * time.Millisecond,
 		Synchronous:  cfg.Synchronous,
-	}, engine.Extensions{Collations: collate.Collations()})
+	}, udf.Extensions())
 	if err != nil {
 		return err
 	}

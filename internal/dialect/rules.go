@@ -20,6 +20,7 @@ const (
 	ruleCreateTable    = "R009"
 	ruleCreateIndexes  = "R010"
 	ruleCurrentDB      = "R011"
+	ruleFunction       = "R012"
 )
 
 var rules = []Rule{
@@ -34,6 +35,7 @@ var rules = []Rule{
 	{ruleCreateTable, "create-table", "MySQL column types become SQLite declared types with collations and range/length CHECKs; options go to the sidecar"},
 	{ruleCreateIndexes, "create-table-keys", "inline KEY/UNIQUE KEY become CREATE INDEX named <table>__<key>; the MySQL name goes to the sidecar"},
 	{ruleCurrentDB, "current-database", "DATABASE() and SCHEMA() become a parameter holding the current database, or NULL"},
+	{ruleFunction, "function-table", "Function calls and % are translated from the function table: SQLite functions, mysqlite UDFs, MySQL string forms of numeric arguments"},
 }
 
 // Rules returns the registry in application order.

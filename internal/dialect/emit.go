@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/opcode"
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
+	"mysqlite/internal/dialect/functions"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
 	"mysqlite/internal/vars"
@@ -747,7 +748,6 @@ var binaryOps = map[opcode.Op]string{
 var refusedOps = map[opcode.Op]string{
 	opcode.Div:        "/",
 	opcode.IntDiv:     "DIV",
-	opcode.Mod:        "%",
 	opcode.LogicXor:   "XOR",
 	opcode.And:        "&",
 	opcode.Or:         "|",
@@ -812,6 +812,20 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			e.unsupported("operator ~", reasonLater)
 		}
 	case *ast.BinaryOperationExpr:
+		if n.Op == opcode.Mod {
+			// MOD(a, b) and a % b (the parser turns MOD into %).
+			e.apply(ruleFunction)
+			e.write(functions.UDFMod, "(")
+			l := e.expr(n.L)
+			e.write(", ")
+			r := e.expr(n.R)
+			e.write(")")
+			x := node(meta.ExprFunc, "MOD", l, r)
+			if x != nil {
+				x.Ret = meta.RetMod
+			}
+			return e.check(x)
+		}
 		op, ok := binaryOps[n.Op]
 		if n.Op == opcode.NullEQ {
 			e.apply(ruleNullSafeEqual)
@@ -907,7 +921,7 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			}
 			return &meta.Expr{Kind: meta.ExprLiteral, Literal: lit}
 		}
-		e.unsupported("function "+strings.ToUpper(n.FnName.L), reasonLater)
+		return e.call(n)
 	case *ast.AggregateFuncExpr:
 		e.unsupported("aggregate "+strings.ToUpper(n.F), reasonLater)
 	case *ast.SubqueryExpr, *ast.ExistsSubqueryExpr, *ast.CompareSubqueryExpr:

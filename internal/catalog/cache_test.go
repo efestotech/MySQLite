@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"mysqlite/internal/collate"
+	"mysqlite/internal/dialect/udf"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
 )
@@ -17,7 +17,7 @@ func openShop(t *testing.T) *engine.Database {
 	e, err := engine.Open(engine.Options{
 		DataDir: filepath.Join(t.TempDir(), "data"), MaxReadConns: 2,
 		BusyTimeout: time.Second, Synchronous: "NORMAL",
-	}, engine.Extensions{Collations: collate.Collations()})
+	}, udf.Extensions())
 	if err != nil {
 		t.Fatal(err)
 	}

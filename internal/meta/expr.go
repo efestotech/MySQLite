@@ -21,6 +21,35 @@ const (
 	ExprArith
 	// ExprNeg is unary minus on Args[0].
 	ExprNeg
+	// ExprFunc is a function call (Op is its upper-case name) typed by Ret.
+	ExprFunc
+)
+
+// FuncRet is how a function's result type follows from its arguments
+// (docs/04-session-catalog.md section 6 rule 3; the table is internal/dialect/functions).
+type FuncRet int
+
+const (
+	// RetMerge is the merged type of all arguments (IFNULL, COALESCE).
+	RetMerge FuncRet = iota + 1
+	// RetMergeTail is the merged type of the arguments after the first (IF).
+	RetMergeTail
+	// RetFirst is the first argument's type (NULLIF).
+	RetFirst
+	// RetNumeric keeps an integer or DECIMAL argument's type, else DOUBLE (ABS).
+	RetNumeric
+	// RetExactInt is BIGINT for an integer or DECIMAL argument, else DOUBLE (CEIL, FLOOR).
+	RetExactInt
+	// RetInt is BIGINT (SIGN, LENGTH, CHAR_LENGTH).
+	RetInt
+	// RetDouble is DOUBLE (SQRT, LN, POW, trigonometry).
+	RetDouble
+	// RetPi is DOUBLE printed with 6 decimals (PI).
+	RetPi
+	// RetMod is the arithmetic type of MOD and %.
+	RetMod
+	// RetString is VAR_STRING in the connection collation (UPPER, CONCAT).
+	RetString
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -33,6 +62,7 @@ type Expr struct {
 	Qualifier, Column string
 	Literal           *Literal
 	Var               *Variable
+	Ret               FuncRet
 	Args              []*Expr
 	// NotNull is set by the dialect for a node that is never NULL (IS NULL).
 	NotNull bool
@@ -103,6 +133,12 @@ func (s scope) exprColumn(x *Expr, name string) (ColumnDef, *errs.Error) {
 	return d, nil
 }
 
+// Infer types x for the dialect, which needs argument types to translate some functions
+// (CONCAT prints a DECIMAL with its scale). Unknown columns are not reported here.
+func Infer(x *Expr, t *Table, alias string) (ColumnDef, *errs.Error) {
+	return newScope(t, alias).infer(x, "")
+}
+
 // ClauseField is the clause error 1054 names for the select list.
 const ClauseField = "field list"
 
@@ -157,6 +193,16 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			return ColumnDef{}, e
 		}
 		return negate(a)
+	case ExprFunc:
+		args := make([]ColumnDef, len(x.Args))
+		for i, a := range x.Args {
+			d, e := s.infer(a, clause)
+			if e != nil {
+				return ColumnDef{}, e
+			}
+			args[i] = d
+		}
+		return funcResult(x.Ret, args)
 	case ExprArith:
 		l, e := s.infer(x.Args[0], clause)
 		if e != nil {
@@ -228,7 +274,7 @@ func negate(a ColumnDef) (ColumnDef, *errs.Error) {
 		d.Length = uint32(decimalLength(p, sc, false))
 	default:
 		d = numeric(TypeDouble)
-		d.Length, d.Decimals = doubleLength, notFixedDecimals
+		d.Length, d.Decimals = doubleLength, NotFixedDecimals
 	}
 	d.Flags |= a.Flags & FlagNotNull
 	return d, nil
@@ -247,7 +293,7 @@ func arith(op string, l, r ColumnDef) (ColumnDef, *errs.Error) {
 	switch {
 	case lc == classReal || rc == classReal || lc == classNull || rc == classNull:
 		d = numeric(TypeDouble)
-		d.Length, d.Decimals = doubleLength, notFixedDecimals
+		d.Length, d.Decimals = doubleLength, NotFixedDecimals
 		unsigned = false
 	case lc == classDecimal || rc == classDecimal:
 		lp, ls := decimalOf(l)
@@ -301,4 +347,150 @@ func decimalOf(d ColumnDef) (precision, scale int) {
 		precision--
 	}
 	return max(precision, 1), scale
+}
+
+func funcResult(ret FuncRet, args []ColumnDef) (ColumnDef, *errs.Error) {
+	switch ret {
+	case RetMerge:
+		return merge(args), nil
+	case RetMergeTail:
+		return merge(args[1:]), nil
+	case RetFirst:
+		d := args[0]
+		d.Flags &^= FlagNotNull | FlagPriKey | FlagUniqueKey | FlagMultipleKey | FlagPartKey | FlagAutoIncrement | FlagNoDefault
+		return d, nil
+	case RetNumeric:
+		switch classOf(args[0]) {
+		case classTemporal:
+			return ColumnDef{}, refuseTemporal()
+		case classInt:
+			d := numeric(TypeLongLong)
+			d.Length = args[0].Length
+			d.Flags |= args[0].Flags & FlagUnsigned
+			return d, nil
+		case classDecimal:
+			p, sc := decimalOf(args[0])
+			d := numeric(TypeNewDecimal)
+			d.Decimals = uint8(sc)
+			d.Length = uint32(decimalLength(p, sc, false))
+			return d, nil
+		}
+		return double(), nil
+	case RetExactInt:
+		switch classOf(args[0]) {
+		case classTemporal:
+			return ColumnDef{}, refuseTemporal()
+		case classInt, classDecimal:
+			p, sc := decimalOf(args[0])
+			d := numeric(TypeLongLong)
+			d.Length = uint32(min(p-sc+2, maxIntLength))
+			return d, nil
+		}
+		return double(), nil
+	case RetInt:
+		d := numeric(TypeLongLong)
+		d.Length = maxIntLength
+		return d, nil
+	case RetDouble:
+		return double(), nil
+	case RetPi:
+		d := numeric(TypeDouble)
+		d.Length, d.Decimals = 8, 6
+		return d, nil
+	case RetMod:
+		return arith("%", args[0], args[1])
+	case RetString:
+		n := 0
+		for _, a := range args {
+			n += charLength(a)
+		}
+		return ColumnDef{Type: TypeVarString, Charset: CollationDefault, Length: uint32(min(n, maxStringChars) * 4)}, nil
+	}
+	return ColumnDef{}, errs.Internal()
+}
+
+const maxStringChars = 65535
+
+func double() ColumnDef {
+	d := numeric(TypeDouble)
+	d.Length, d.Decimals = doubleLength, NotFixedDecimals
+	return d
+}
+
+// isString is a character or binary string type.
+func isString(d ColumnDef) bool {
+	switch d.Type {
+	case TypeVarString, TypeString, TypeVarchar, TypeBlob, TypeJSON, TypeEnum, TypeSet:
+		return true
+	}
+	return false
+}
+
+// charLength is the length of d in characters: strings carry bytes of their charset,
+// numbers and dates their display width.
+func charLength(d ColumnDef) int {
+	if !isString(d) || d.Charset == CharsetBinary {
+		return int(d.Length)
+	}
+	return int(d.Length) / maxLen(d.Charset)
+}
+
+// merge is MySQL's type aggregation for IFNULL, COALESCE and IF, simplified: NULL
+// arguments do not count; integers stay BIGINT, integers and DECIMAL give DECIMAL, any
+// other number gives DOUBLE, equal temporal types stay, anything else is a string.
+// `oracle: pending`.
+func merge(args []ColumnDef) ColumnDef {
+	var defs []ColumnDef
+	for _, a := range args {
+		if classOf(a) != classNull {
+			defs = append(defs, a)
+		}
+	}
+	if len(defs) == 0 {
+		return ColumnDef{Type: TypeNull, Charset: CharsetBinary, Flags: FlagBinary}
+	}
+	allInt, exact, number, sameTemporal := true, true, true, true
+	unsigned := true
+	for _, d := range defs {
+		c := classOf(d)
+		str := isString(d)
+		allInt = allInt && c == classInt && !str
+		exact = exact && (c == classInt || c == classDecimal) && !str
+		number = number && c != classTemporal && !str
+		sameTemporal = sameTemporal && c == classTemporal && d.Type == defs[0].Type
+		unsigned = unsigned && d.Flags&FlagUnsigned != 0
+	}
+	switch {
+	case allInt:
+		d := numeric(TypeLongLong)
+		for _, a := range defs {
+			d.Length = max(d.Length, a.Length)
+		}
+		if unsigned {
+			d.Flags |= FlagUnsigned
+		}
+		return d
+	case exact:
+		intDigits, scale := 0, 0
+		for _, a := range defs {
+			p, s := decimalOf(a)
+			intDigits, scale = max(intDigits, p-s), max(scale, s)
+		}
+		d := numeric(TypeNewDecimal)
+		d.Decimals = uint8(scale)
+		d.Length = uint32(decimalLength(intDigits+scale, scale, false))
+		return d
+	case number:
+		return double()
+	case sameTemporal:
+		d := defs[0]
+		d.Schema, d.Table, d.OrgTable, d.Name, d.OrgName = "", "", "", "", ""
+		d.Flags &= FlagBinary | FlagTimestamp
+		return d
+	}
+	n := 0
+	for _, a := range defs {
+		n = max(n, charLength(a))
+	}
+	return ColumnDef{Type: TypeVarString, Charset: CollationDefault, Length: uint32(n * 4)}
 }

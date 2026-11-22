@@ -130,14 +130,14 @@ func build(name string, args []int, unsigned, zerofill bool) (TypeInfo, bool) {
 	case "FLOAT":
 		switch len(args) {
 		case 0:
-			return TypeInfo{Type: TypeFloat, Length: 12, Decimals: notFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
+			return TypeInfo{Type: TypeFloat, Length: 12, Decimals: NotFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
 		case 1:
 			// FLOAT(p): single precision up to 24 bits, double up to 53.
 			switch {
 			case args[0] <= 24:
-				return TypeInfo{Type: TypeFloat, Length: 12, Decimals: notFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
+				return TypeInfo{Type: TypeFloat, Length: 12, Decimals: NotFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
 			case args[0] <= 53:
-				return TypeInfo{Type: TypeDouble, Length: 22, Decimals: notFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
+				return TypeInfo{Type: TypeDouble, Length: 22, Decimals: NotFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
 			}
 			return TypeInfo{}, false
 		case 2:
@@ -147,7 +147,7 @@ func build(name string, args []int, unsigned, zerofill bool) (TypeInfo, bool) {
 	case "DOUBLE", "REAL", "FLOAT8":
 		switch len(args) {
 		case 0:
-			return TypeInfo{Type: TypeDouble, Length: 22, Decimals: notFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
+			return TypeInfo{Type: TypeDouble, Length: 22, Decimals: NotFixedDecimals, Charset: CharsetBinary, Flags: numFlags}, true
 		case 2:
 			return fixedFloat(TypeDouble, args, numFlags)
 		}

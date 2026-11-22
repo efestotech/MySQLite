@@ -346,6 +346,12 @@ const (
 	CheckLengthPrefix = "__mysqlite_length_"
 )
 
+// WrongParamCount is 1582: a native function called with the wrong number of
+// arguments. name is as written.
+func WrongParamCount(name string) *Error {
+	return newError(1582, "42000", "Incorrect parameter count in the call to native function '%s'", name)
+}
+
 // BigintOutOfRange is 1690: integer arithmetic left the 64-bit range. expr is the
 // expression as the select list names it; MySQL prints it normalized and qualified
 // (`oracle: pending`).

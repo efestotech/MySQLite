@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"mysqlite/internal/collate"
+	"mysqlite/internal/dialect/udf"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/meta"
 )
@@ -20,7 +20,7 @@ func newConn(t *testing.T, ddl ...string) *sql.Conn {
 		MaxReadConns: 1,
 		BusyTimeout:  50 * time.Millisecond,
 		Synchronous:  "NORMAL",
-	}, engine.Extensions{Collations: collate.Collations()})
+	}, udf.Extensions())
 	if err != nil {
 		t.Fatal(err)
 	}
