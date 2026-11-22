@@ -1,5 +1,5 @@
 // Package obs holds the structured log streams (docs/09-conventions.md section 3).
-// M0 provides the server log; the query journal arrives with M1.
+// The server log and the query journal are separate streams.
 package obs
 
 import (

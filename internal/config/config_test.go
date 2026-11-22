@@ -59,6 +59,25 @@ func TestEngineKeysFromFile(t *testing.T) {
 	}
 }
 
+// The query journal is on by default: it feeds the corpus (docs/09-conventions.md
+// section 3).
+func TestJournalKey(t *testing.T) {
+	cfg, err := Load([]string{"--config", writeFile(t, minimal)})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Log.Journal {
+		t.Error("the journal is enabled by default")
+	}
+	cfg, err = Load([]string{"--config", writeFile(t, minimal+"log:\n  journal: false\n")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Log.Journal || cfg.Log.Level != "info" {
+		t.Errorf("journal: false disables only the journal, got %+v", cfg.Log)
+	}
+}
+
 func TestPrecedenceFlagsOverFileOverDefaults(t *testing.T) {
 	path := writeFile(t, minimal+`
 port: 4000

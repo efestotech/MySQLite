@@ -35,12 +35,15 @@ type User struct {
 	DefaultDB string `yaml:"default_db"`
 }
 
-// Log configures the server log stream.
+// Log configures the server log and the query journal. Both rotate with the same size
+// limit and number of files kept.
 type Log struct {
 	Level     string `yaml:"level"`
 	Dir       string `yaml:"dir"`
 	MaxSizeMB int    `yaml:"max_size_mb"`
 	MaxFiles  int    `yaml:"max_files"`
+	// Journal enables the query journal (docs/09-conventions.md section 3).
+	Journal bool `yaml:"journal"`
 }
 
 // Config is the effective server configuration.
@@ -78,6 +81,7 @@ func Defaults() Config {
 			Dir:       "logs",
 			MaxSizeMB: 100,
 			MaxFiles:  10,
+			Journal:   true,
 		},
 	}
 }
