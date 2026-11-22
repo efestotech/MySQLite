@@ -231,6 +231,17 @@ func UnknownDatabase(name string) *Error {
 	return newError(1049, "42000", "Unknown database '%s'", name)
 }
 
+// UnknownSystemVariable is 1193.
+func UnknownSystemVariable(name string) *Error {
+	return newError(1193, "HY000", "Unknown system variable '%s'", name)
+}
+
+// WrongVariableScope is 1238: @@global on a SESSION-only variable, or @@session on a
+// GLOBAL-only one. scope is the scope the variable has.
+func WrongVariableScope(name, scope string) *Error {
+	return newError(1238, "HY000", "Variable '%s' is a %s variable", name, scope)
+}
+
 // NoDatabaseSelected is 1046.
 func NoDatabaseSelected() *Error {
 	return newError(1046, "3D000", "No database selected")
