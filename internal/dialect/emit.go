@@ -36,8 +36,10 @@ type emitter struct {
 
 	// inValues forbids column references, which SQLite does not allow in VALUES.
 	inValues bool
-	// clause, when set, records column references in the shape (meta.CheckRefs).
+	// clause, when set, records column references in refs (meta.CheckRefs).
 	clause string
+	refs   *[]meta.Ref
+	wr     *Write
 }
 
 func (e *emitter) apply(rule string) { e.rules[rule] = true }
@@ -102,7 +104,7 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 }
 
 func (e *emitter) result(kind Kind, op errs.Op) *Statement {
-	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op, Shape: e.shape}
+	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op, Shape: e.shape, Write: e.wr}
 }
 
 // table resolves the single table of a statement and sets the target database.
@@ -211,6 +213,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		name, alias = e.table(n.From, "JOIN")
 	}
 	e.shape = &Shape{Table: name, Alias: alias}
+	e.refs = &e.shape.Refs
 	e.write("SELECT ")
 	if n.Distinct {
 		e.write("DISTINCT ")
@@ -388,6 +391,18 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		return
 	}
 
+	e.wr = &Write{Table: name}
+	for _, c := range n.Columns {
+		e.wr.Columns = append(e.wr.Columns, c.Name.O)
+	}
+	for _, row := range n.Lists {
+		values := make([]*meta.Literal, 0, len(row))
+		for _, v := range row {
+			values = append(values, valueLiteral(v))
+		}
+		e.wr.Rows = append(e.wr.Rows, values)
+	}
+
 	e.write("INSERT INTO ", quoteIdent(name))
 	if len(n.Columns) == 0 && len(n.Lists) == 1 && len(n.Lists[0]) == 0 {
 		e.apply(ruleDefaultValues)
@@ -454,6 +469,8 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 		return
 	}
 
+	e.wr = &Write{Table: name, Alias: alias, Set: map[string]*meta.Literal{}}
+	e.refs = &e.wr.Refs
 	e.write("UPDATE ")
 	e.writeTable(name, alias)
 	e.write(" SET ")
@@ -480,8 +497,100 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 		e.checkSchema(a.Column.Schema)
 		e.write(quoteIdent(a.Column.Name.O), " = ")
 		e.expr(a.Expr)
+		e.wr.Set[col] = valueLiteral(a.Expr)
 	}
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
+
+	// MySQL's affected rows are the rows whose values change (docs/05-dialect.md
+	// section 6). A row is changed unless every assigned column already holds the new
+	// value, compared byte for byte as MySQL compares records (COLLATE BINARY; IS for
+	// NULL). The expressions read the old row, as the assignments do.
+	pred, predArgs := e.sub(func() {
+		e.write("NOT (")
+		for i, a := range n.List {
+			if i > 0 {
+				e.write(" AND ")
+			}
+			e.write("(", quoteIdent(a.Column.Name.O), " IS (")
+			e.expr(a.Expr)
+			e.write(") COLLATE BINARY)")
+		}
+		e.write(")")
+	})
+	if n.Where != nil || n.Order != nil || n.Limit != nil {
+		e.write(" AND ", pred)
+	} else {
+		e.write(" WHERE ", pred)
+	}
+	e.args = append(e.args, predArgs...)
+
+	e.wr.MatchSQL, e.wr.MatchArgs = e.sub(func() {
+		if n.Order == nil && n.Limit == nil {
+			e.write("SELECT count(*) FROM ")
+			e.writeTable(name, alias)
+			if n.Where != nil {
+				e.write(" WHERE ")
+				e.expr(n.Where)
+			}
+			return
+		}
+		e.write("SELECT count(*) FROM (SELECT rowid FROM ")
+		e.writeTable(name, alias)
+		if n.Where != nil {
+			e.write(" WHERE ")
+			e.expr(n.Where)
+		}
+		e.orderBy(n.Order)
+		e.limit(n.Limit)
+		e.write(")")
+	})
+}
+
+// sub emits into a separate buffer and argument list and returns them. A
+// strings.Builder cannot be copied once written, so the text so far is saved and
+// written back.
+func (e *emitter) sub(f func()) (string, []any) {
+	prefix, args := e.b.String(), e.args
+	e.b.Reset()
+	e.args = nil
+	f()
+	out, outArgs := e.b.String(), e.args
+	e.b.Reset()
+	e.b.WriteString(prefix)
+	e.args = args
+	return out, outArgs
+}
+
+// valueLiteral describes a VALUES or SET value that is a literal, else nil.
+func valueLiteral(x ast.ExprNode) *meta.Literal {
+	sign := ""
+	if u, ok := x.(*ast.UnaryOperationExpr); ok && u.Op == opcode.Minus {
+		sign = "-"
+		x = u.V
+	}
+	v, ok := x.(*test_driver.ValueExpr)
+	if !ok {
+		return nil
+	}
+	switch v.Kind() {
+	case test_driver.KindNull:
+		if sign == "" {
+			return &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}
+		}
+	case test_driver.KindString:
+		if sign == "" {
+			return &meta.Literal{Kind: meta.LiteralString, Text: v.GetString()}
+		}
+	case test_driver.KindInt64:
+		return &meta.Literal{Kind: meta.LiteralInt, Text: sign + strconv.FormatInt(v.GetInt64(), 10)}
+	case test_driver.KindUint64:
+		return &meta.Literal{Kind: meta.LiteralInt, Text: sign + strconv.FormatUint(v.GetUint64(), 10)}
+	case test_driver.KindMysqlDecimal:
+		return &meta.Literal{Kind: meta.LiteralDecimal, Text: sign + v.GetMysqlDecimal().String()}
+	case test_driver.KindFloat64:
+		return &meta.Literal{Kind: meta.LiteralFloat, Text: sign + strconv.FormatFloat(v.GetFloat64(), 'g', -1, 64)}
+	}
+	return nil
 }
 
 func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
@@ -500,6 +609,8 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	if e.err != nil {
 		return
 	}
+	e.wr = &Write{Table: name, Alias: alias}
+	e.refs = &e.wr.Refs
 	e.write("DELETE FROM ")
 	e.writeTable(name, alias)
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
@@ -509,9 +620,11 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 // ... LIMIT in this build (docs/agent-notes/api-sqlite-driver.md), so those select the
 // rows by rowid in a subquery. Tables are created by mysqlite, never WITHOUT ROWID.
 func (e *emitter) filter(name, alias string, where ast.ExprNode, order *ast.OrderByClause, limit *ast.Limit) {
+	defer func() { e.clause = "" }()
 	if order == nil && limit == nil {
 		if where != nil {
 			e.write(" WHERE ")
+			e.clause = meta.ClauseWhere
 			e.expr(where)
 		}
 		return
@@ -521,9 +634,12 @@ func (e *emitter) filter(name, alias string, where ast.ExprNode, order *ast.Orde
 	e.writeTable(name, alias)
 	if where != nil {
 		e.write(" WHERE ")
+		e.clause = meta.ClauseWhere
 		e.expr(where)
 	}
+	e.clause = meta.ClauseOrder
 	e.orderBy(order)
+	e.clause = ""
 	e.limit(limit)
 	e.write(")")
 }
@@ -583,8 +699,8 @@ func (e *emitter) expr(x ast.ExprNode) {
 			return
 		}
 		e.checkSchema(n.Name.Schema)
-		if e.clause != "" && e.shape != nil {
-			e.shape.Refs = append(e.shape.Refs, meta.Ref{Qualifier: n.Name.Table.O, Column: n.Name.Name.O, Clause: e.clause})
+		if e.clause != "" && e.refs != nil {
+			*e.refs = append(*e.refs, meta.Ref{Qualifier: n.Name.Table.O, Column: n.Name.Name.O, Clause: e.clause})
 		}
 		if n.Name.Table.O != "" {
 			e.write(quoteIdent(n.Name.Table.O), ".")

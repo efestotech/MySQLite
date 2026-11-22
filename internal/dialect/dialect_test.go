@@ -164,13 +164,15 @@ func TestInsert(t *testing.T) {
 func TestUpdate(t *testing.T) {
 	runOK(t, []okCase{
 		{name: "simple", query: "UPDATE t SET a = a + 1, b = 'x' WHERE id = 3", kind: KindWrite, tdb: "shop", op: errs.OpUpdate,
-			sql: "UPDATE `t` SET `a` = (`a` + 1), `b` = ? WHERE (`id` = 3)", args: []any{"x"}, rules: []string{"R002"}},
+			sql:  "UPDATE `t` SET `a` = (`a` + 1), `b` = ? WHERE (`id` = 3) AND NOT ((`a` IS ((`a` + 1)) COLLATE BINARY) AND (`b` IS (?) COLLATE BINARY))",
+			args: []any{"x", "x"}, rules: []string{"R002"}},
 		{name: "later column reads itself", query: "UPDATE t SET a = 1, b = b + 1", kind: KindWrite, tdb: "shop", op: errs.OpUpdate,
-			sql: "UPDATE `t` SET `a` = 1, `b` = (`b` + 1)"},
+			sql: "UPDATE `t` SET `a` = 1, `b` = (`b` + 1) WHERE NOT ((`a` IS (1) COLLATE BINARY) AND (`b` IS ((`b` + 1)) COLLATE BINARY))"},
 		{name: "alias", query: "UPDATE t AS x SET x.a = 1 WHERE x.id = 1", kind: KindWrite, tdb: "shop", op: errs.OpUpdate,
-			sql: "UPDATE `t` AS `x` SET `a` = 1 WHERE (`x`.`id` = 1)"},
+			sql: "UPDATE `t` AS `x` SET `a` = 1 WHERE (`x`.`id` = 1) AND NOT ((`a` IS (1) COLLATE BINARY))"},
 		{name: "order and limit", query: "UPDATE t SET a = 1 WHERE b > 0 ORDER BY id DESC LIMIT 2", kind: KindWrite, tdb: "shop", op: errs.OpUpdate,
-			sql: "UPDATE `t` SET `a` = 1 WHERE rowid IN (SELECT rowid FROM `t` WHERE (`b` > 0) ORDER BY `id` DESC LIMIT 2)", rules: []string{"R007"}},
+			sql:   "UPDATE `t` SET `a` = 1 WHERE rowid IN (SELECT rowid FROM `t` WHERE (`b` > 0) ORDER BY `id` DESC LIMIT 2) AND NOT ((`a` IS (1) COLLATE BINARY))",
+			rules: []string{"R007"}},
 	})
 }
 
@@ -443,4 +445,43 @@ func TestTransactionRefusals(t *testing.T) {
 		{name: "rollback to", query: "ROLLBACK TO a", code: 1235, state: "42000", msg: "SAVEPOINT", sub: true},
 		{name: "release savepoint", query: "RELEASE SAVEPOINT a", code: 1235, state: "42000", msg: "SAVEPOINT", sub: true},
 	})
+}
+
+// Write describes INSERT, UPDATE and DELETE for the checks and counts that need the
+// catalog (meta.CheckInsert, meta.CheckRefs, matched rows).
+func TestWriteShape(t *testing.T) {
+	tr := newTranslator(t)
+	l := func(k meta.LiteralKind, text string) *meta.Literal { return &meta.Literal{Kind: k, Text: text} }
+	cases := []struct {
+		query string
+		want  Write
+	}{
+		{"INSERT INTO t (a, b) VALUES (1, 'x'), (-2, NULL), (1 + 1, 2.5)", Write{Table: "t", Columns: []string{"a", "b"},
+			Rows: [][]*meta.Literal{{l(meta.LiteralInt, "1"), l(meta.LiteralString, "x")}, {l(meta.LiteralInt, "-2"), l(meta.LiteralNull, "NULL")}, {nil, l(meta.LiteralDecimal, "2.5")}}}},
+		{"INSERT INTO t VALUES (1)", Write{Table: "t", Rows: [][]*meta.Literal{{l(meta.LiteralInt, "1")}}}},
+		{"INSERT INTO t VALUES ()", Write{Table: "t", Rows: [][]*meta.Literal{{}}}},
+		{"INSERT INTO t SET a = 1, b = 2 + 3", Write{Table: "t", Columns: []string{"a", "b"}, Rows: [][]*meta.Literal{{l(meta.LiteralInt, "1"), nil}}}},
+		{"UPDATE t AS x SET a = 'v', b = b + 1 WHERE x.id = 1 ORDER BY c", Write{Table: "t", Alias: "x",
+			Set:       map[string]*meta.Literal{"a": l(meta.LiteralString, "v"), "b": nil},
+			Refs:      []meta.Ref{{Qualifier: "x", Column: "id", Clause: meta.ClauseWhere}, {Column: "c", Clause: meta.ClauseOrder}},
+			MatchSQL:  "SELECT count(*) FROM (SELECT rowid FROM `t` AS `x` WHERE (`x`.`id` = 1) ORDER BY `c`)",
+			MatchArgs: nil}},
+		{"UPDATE t SET A = 'v' WHERE b = 'w'", Write{Table: "t",
+			Set:       map[string]*meta.Literal{"a": l(meta.LiteralString, "v")},
+			Refs:      []meta.Ref{{Column: "b", Clause: meta.ClauseWhere}},
+			MatchSQL:  "SELECT count(*) FROM `t` WHERE (`b` = ?)",
+			MatchArgs: []any{"w"}}},
+		{"UPDATE t SET a = 1", Write{Table: "t", Set: map[string]*meta.Literal{"a": l(meta.LiteralInt, "1")}, MatchSQL: "SELECT count(*) FROM `t`"}},
+		{"DELETE FROM t AS x WHERE x.a = 1 ORDER BY b LIMIT 1", Write{Table: "t", Alias: "x",
+			Refs: []meta.Ref{{Qualifier: "x", Column: "a", Clause: meta.ClauseWhere}, {Column: "b", Clause: meta.ClauseOrder}}}},
+	}
+	for _, tc := range cases {
+		st, e := tr.Translate(tc.query, "shop")
+		if e != nil {
+			t.Fatalf("%s: %v", tc.query, e)
+		}
+		if st.Write == nil || !reflect.DeepEqual(*st.Write, tc.want) {
+			t.Fatalf("%s:\nwant %+v\ngot  %+v", tc.query, tc.want, st.Write)
+		}
+	}
 }

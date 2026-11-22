@@ -73,6 +73,29 @@ type Statement struct {
 	Shape *Shape
 	// Tx is the transaction control of KindTransaction.
 	Tx *Transaction
+	// Write describes INSERT, UPDATE and DELETE.
+	Write *Write
+}
+
+// Write is what the executor needs about INSERT, UPDATE and DELETE beyond the SQL: the
+// checks that need the catalog and MySQL's affected-rows counts.
+type Write struct {
+	Table string // as written
+	Alias string
+	// INSERT: Columns as written (nil without a column list) and one literal per value,
+	// nil when the value is an expression. VALUES () is one empty row.
+	Columns []string
+	Rows    [][]*meta.Literal
+	// UPDATE: the literal assigned to each column, by lower-case name (nil for an
+	// expression).
+	Set map[string]*meta.Literal
+	// UPDATE and DELETE: WHERE and ORDER BY column references, for meta.CheckRefs.
+	Refs []meta.Ref
+	// UPDATE: counts the rows the statement matches. Statement.SQL updates only the rows
+	// whose values change, so its changes() is MySQL's affected rows; with
+	// CLIENT_FOUND_ROWS the matched count is reported instead.
+	MatchSQL  string
+	MatchArgs []any
 }
 
 // Shape is the select list of a single-table SELECT.

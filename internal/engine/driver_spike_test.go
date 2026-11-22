@@ -279,3 +279,34 @@ func TestSpikeDoubleQuotedIdentifierFallsBackToString(t *testing.T) {
 		t.Fatalf("a backtick-quoted unknown column must fail with SQLITE_ERROR, got %v", err)
 	}
 }
+
+// UPDATE counts MySQL's changed rows with NOT (col IS (new) COLLATE BINARY ...)
+// (docs/agent-notes/rule-order.md). The comparison must apply the column's affinity to
+// the new value, as storing it would, and must ignore the column's own collation:
+// MySQL compares records byte for byte.
+func TestSpikeChangePredicate(t *testing.T) {
+	db := openSpikeDB(t)
+	if _, err := db.Exec("CREATE TABLE c (i INTEGER, r REAL, s TEXT COLLATE NOCASE, d DECIMAL(10,2), n TEXT); INSERT INTO c VALUES (1, 1.5, 'abc', 2, NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]int64{
+		"i IS ('1') COLLATE BINARY":    1, // '1' stored in INTEGER is 1
+		"i IS (1.0) COLLATE BINARY":    1,
+		"r IS (1.5) COLLATE BINARY":    1,
+		"s IS ('ABC') COLLATE BINARY":  0, // NOCASE column, binary comparison
+		"s IS ('abc') COLLATE BINARY":  1,
+		"s IS ('abc ') COLLATE BINARY": 0,
+		"d IS ('2.00') COLLATE BINARY": 1, // NUMERIC affinity turns '2.00' into 2
+		"n IS (NULL) COLLATE BINARY":   1,
+		"n IS ('x') COLLATE BINARY":    0,
+	}
+	for expr, want := range cases {
+		var got int64
+		if err := db.QueryRow("SELECT " + expr + " FROM c").Scan(&got); err != nil {
+			t.Fatalf("%s: %v", expr, err)
+		}
+		if got != want {
+			t.Errorf("%s: want %d, got %d", expr, want, got)
+		}
+	}
+}
