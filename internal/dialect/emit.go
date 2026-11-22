@@ -50,6 +50,8 @@ type emitter struct {
 	// changes is set in INSERT and UPDATE, where strict mode turns some NULL results
 	// into errors.
 	changes bool
+	// inAggregate is set inside an aggregate's arguments.
+	inAggregate bool
 }
 
 func (e *emitter) apply(rule string) { e.rules[rule] = true }
@@ -227,10 +229,6 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		e.unsupported("TABLE or VALUES statement", reasonLater)
 	case n.SelectIntoOpt != nil:
 		e.unsupported("SELECT ... INTO", reasonSemantics)
-	case n.GroupBy != nil:
-		e.unsupported("GROUP BY", reasonLater)
-	case n.Having != nil:
-		e.unsupported("HAVING", reasonLater)
 	case len(n.WindowSpecs) > 0:
 		e.unsupported("WINDOW", reasonLater)
 	}
@@ -256,6 +254,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	}
 
 	e.shape = &Shape{}
+	e.shape.Group.Full = e.mode.HasOnlyFullGroupBy()
 	e.refs = &e.shape.Refs
 	e.checks = &e.shape.Exprs
 	var fromText string
@@ -281,6 +280,13 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		e.write(" WHERE ")
 		e.clause = meta.ClauseWhere
 		e.expr(n.Where)
+	}
+	e.clause = ""
+	if n.GroupBy != nil {
+		e.groupBy(n.GroupBy)
+	}
+	if n.Having != nil {
+		e.having(n.Having)
 	}
 	e.clause = meta.ClauseOrder
 	e.orderBy(n.OrderBy)
@@ -430,10 +436,17 @@ func (e *emitter) orderBy(o *ast.OrderByClause) {
 		if i > 0 {
 			e.write(", ")
 		}
+		var x *meta.Expr
 		if pos := e.selectPosition(item.Expr); pos > 0 {
 			e.write(strconv.Itoa(pos))
 		} else {
-			e.expr(item.Expr)
+			x = e.expr(item.Expr)
+			if c, ok := item.Expr.(*ast.ColumnNameExpr); ok && c.Name.Table.O == "" && e.shape != nil && e.itemPosition(c.Name.Name.O) > 0 {
+				x = nil // a select-list name, checked with its item
+			}
+		}
+		if e.shape != nil && e.wr == nil {
+			e.shape.Group.Order = append(e.shape.Group.Order, x)
 		}
 		if item.Desc {
 			e.write(" DESC")
@@ -986,7 +999,9 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		}
 		return e.call(n)
 	case *ast.AggregateFuncExpr:
-		e.unsupported("aggregate "+strings.ToUpper(n.F), reasonLater)
+		return e.aggregate(n)
+	case *ast.WindowFuncExpr:
+		e.unsupported("window function", reasonLater)
 	case *ast.SubqueryExpr, *ast.ExistsSubqueryExpr, *ast.CompareSubqueryExpr:
 		e.unsupported("subquery", reasonLater)
 	case *ast.DefaultExpr:

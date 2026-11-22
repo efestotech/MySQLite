@@ -8,6 +8,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"mysqlite/internal/collate"
 	"mysqlite/internal/dialect/functions"
@@ -33,6 +34,7 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFIntDiv, NumArgs: 3, Deterministic: true, Fn: intDiv},
 		{Name: functions.UDFXor, NumArgs: 2, Deterministic: true, Fn: xor},
 		{Name: functions.UDFLike, NumArgs: 4, Deterministic: true, Fn: like},
+		{Name: functions.UDFCut, NumArgs: 2, Deterministic: true, Fn: cut},
 		// Not deterministic: it writes to the sink on every call.
 		{Name: functions.UDFLastInsertID, NumArgs: 2, Fn: lastInsertID},
 	}
@@ -243,4 +245,30 @@ func toFloat(v any) float64 {
 		return float64(n)
 	}
 	return v.(float64)
+}
+
+// cut(s, n) is s cut to at most n bytes without splitting a UTF-8 character, as MySQL
+// cuts GROUP_CONCAT at group_concat_max_len. A non-integer n (beyond BIGINT) cuts
+// nothing.
+func cut(args []any) (any, error) {
+	n, ok := args[1].(int64)
+	var s string
+	switch x := args[0].(type) {
+	case nil:
+		return nil, nil
+	case string:
+		s = x
+	case []byte:
+		s = string(x)
+	default:
+		return args[0], nil
+	}
+	if !ok || int64(len(s)) <= n {
+		return s, nil
+	}
+	end := int(n)
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end], nil
 }

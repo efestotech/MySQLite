@@ -235,9 +235,11 @@ func Columns(items []Item, from From) ([]ColumnDef, *errs.Error) {
 
 // Clauses named by error 1054, as MySQL names them.
 const (
-	ClauseWhere = "where clause"
-	ClauseOrder = "order clause"
-	ClauseOn    = "on clause"
+	ClauseWhere  = "where clause"
+	ClauseOrder  = "order clause"
+	ClauseOn     = "on clause"
+	ClauseGroup  = "group statement"
+	ClauseHaving = "having clause"
 )
 
 // Ref is a column reference outside the select list.
@@ -254,11 +256,14 @@ type Ref struct {
 func CheckRefs(refs []Ref, items []Item, from From) *errs.Error {
 	s := newScope(from)
 	for _, r := range refs {
-		// ORDER BY looks a name up in the select list first.
-		if r.Clause == ClauseOrder && r.Qualifier == "" && selectAlias(items, r.Column) {
+		alias := r.Qualifier == "" && selectAlias(items, r.Column)
+		// ORDER BY and HAVING look a name up in the select list first.
+		if alias && (r.Clause == ClauseOrder || r.Clause == ClauseHaving) {
 			continue
 		}
-		if _, _, e := s.resolve(r.Qualifier, r.Column, r.Clause); e != nil {
+		_, _, e := s.resolve(r.Qualifier, r.Column, r.Clause)
+		// GROUP BY looks it up in the tables first.
+		if e != nil && !(alias && r.Clause == ClauseGroup && e.Code == errs.UnknownColumn("", "").Code) {
 			return e
 		}
 	}

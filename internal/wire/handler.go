@@ -355,6 +355,9 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	if e := meta.CheckExprs(st.Shape.Exprs, from); e != nil {
 		return nil, toMySQL(e)
 	}
+	if e := meta.CheckGroup(st.Shape.Items, st.Shape.Group, from); e != nil {
+		return nil, toMySQL(e)
+	}
 	for _, d := range defs {
 		if d.Degraded {
 			h.log.Warn("column metadata degraded to text", "table", d.OrgTable, "column", d.OrgName)

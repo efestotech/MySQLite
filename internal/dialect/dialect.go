@@ -166,6 +166,8 @@ type Shape struct {
 	Meta *meta.Table
 	// From is the FROM clause; a source's Table is nil without a catalog.
 	From meta.From
+	// Group is the grouping of the statement, for meta.CheckGroup.
+	Group meta.Group
 }
 
 // Hint returns what the error mapper needs to know about this statement.

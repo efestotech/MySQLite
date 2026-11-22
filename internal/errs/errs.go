@@ -540,6 +540,24 @@ func UnknownTable(table string) *Error {
 	return newError(1051, "42S02", "Unknown table '%s'", table)
 }
 
+// InvalidGroupFunc is 1111: an aggregate where none is allowed (WHERE, GROUP BY, inside
+// another aggregate, UPDATE).
+func InvalidGroupFunc() *Error {
+	return newError(1111, "HY000", "Invalid use of group function")
+}
+
+// NotInGroupBy is 1055 under ONLY_FULL_GROUP_BY. clause is "SELECT list" or "ORDER BY
+// clause"; column is database.table.column.
+func NotInGroupBy(n int, clause, column string) *Error {
+	return newError(1055, "42000", "Expression #%d of %s is not in GROUP BY clause and contains nonaggregated column '%s' which is not functionally dependent on columns in GROUP BY clause; this is incompatible with sql_mode=only_full_group_by", n, clause, column)
+}
+
+// MixedAggregate is 1140 under ONLY_FULL_GROUP_BY: an aggregate query without GROUP BY
+// that also selects a plain column.
+func MixedAggregate(n int, column string) *Error {
+	return newError(1140, "42000", "In aggregated query without GROUP BY, expression #%d of SELECT list contains nonaggregated column '%s'; this is incompatible with sql_mode=only_full_group_by", n, column)
+}
+
 // AmbiguousColumn is 1052: an unqualified column that more than one table has.
 func AmbiguousColumn(column, clause string) *Error {
 	return newError(1052, "23000", "Column '%s' in %s is ambiguous", column, clause)

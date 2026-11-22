@@ -72,6 +72,9 @@ const (
 	// UDFLastInsertID(sink, x) is LAST_INSERT_ID(x): x as an integer, also written to
 	// the sink.
 	UDFLastInsertID = "mysqlite_last_insert_id"
+	// UDFCut(s, n) is s cut to at most n bytes on a character boundary
+	// (group_concat_max_len).
+	UDFCut = "mysqlite_cut"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {

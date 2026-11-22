@@ -232,10 +232,10 @@ func TestUnsupported(t *testing.T) {
 		"SELECT * FROM t RIGHT JOIN u USING (a)":                 "RIGHT JOIN with USING",
 		"SELECT * FROM t JOIN other.u ON t.a = u.a":              "cross-database reference",
 		"SELECT * FROM (SELECT 1) AS d":                          "derived table",
-		"SELECT a FROM t GROUP BY a":                             "GROUP BY",
-		"SELECT a FROM t HAVING a > 1":                           "HAVING",
+		"SELECT a FROM t GROUP BY a WITH ROLLUP":                 "WITH ROLLUP",
+		"SELECT sum(a) OVER () FROM t":                           "window function",
 		"SELECT a FROM t WHERE round(a) = 1":                     "function ROUND",
-		"SELECT count(*) FROM t":                                 "aggregate COUNT",
+		"SELECT std(a) FROM t":                                   "aggregate STDDEV_POP",
 		"SELECT a FROM t WHERE a ILIKE 'x%'":                     "ILIKE",
 		"SELECT a FROM t WHERE a & 2 = 1":                        "operator &",
 		"SELECT a FROM t WHERE a << 2 = 1":                       "operator <<",
@@ -366,8 +366,9 @@ func TestSelectShape(t *testing.T) {
 			{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
 		},
 	}
-	st.Shape.Exprs = nil        // arithmetic checks are covered by the wire tests
-	st.Shape.From = meta.From{} // FROM clauses are covered by TestJoins
+	st.Shape.Exprs = nil          // arithmetic checks are covered by the wire tests
+	st.Shape.From = meta.From{}   // FROM clauses are covered by TestJoins
+	st.Shape.Group = meta.Group{} // grouping is covered by TestAggregates
 	if !reflect.DeepEqual(st.Shape, want) {
 		t.Fatalf("want\n%+v\ngot\n%+v", want, st.Shape)
 	}

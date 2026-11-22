@@ -56,6 +56,17 @@ const (
 	RetAccount
 	// RetVersion is the server version string (VERSION).
 	RetVersion
+	// Aggregates (Expr.Agg is set).
+	// RetCount is COUNT: BIGINT, never NULL.
+	RetCount
+	// RetSum is SUM: DECIMAL with the argument's scale for exact numbers, else DOUBLE.
+	RetSum
+	// RetAvg is AVG: DECIMAL with div_precision_increment more decimals, else DOUBLE.
+	RetAvg
+	// RetMinMax is MIN and MAX: the argument's type, nullable.
+	RetMinMax
+	// RetGroupConcat is GROUP_CONCAT: a BLOB-typed string in the connection collation.
+	RetGroupConcat
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -70,6 +81,8 @@ type Expr struct {
 	Var               *Variable
 	Ret               FuncRet
 	Args              []*Expr
+	// Agg marks an aggregate function (COUNT, SUM, ...).
+	Agg bool
 	// NotNull is set by the dialect for a node that is never NULL (IS NULL).
 	NotNull bool
 }
@@ -229,6 +242,8 @@ const (
 	// divPrecisionIncrement is the default of MySQL's div_precision_increment; mysqlite
 	// does not support changing it.
 	divPrecisionIncrement = 4
+	// decimalLongLongDigits is the precision SUM adds to an exact argument.
+	decimalLongLongDigits = 22
 )
 
 func numeric(t uint8) ColumnDef {
@@ -410,6 +425,37 @@ func funcResult(ret FuncRet, args []ColumnDef) (ColumnDef, *errs.Error) {
 	case RetVersion:
 		// SERVER_VERSION_LENGTH characters of utf8mb3.
 		return ColumnDef{Type: TypeVarString, Charset: CollationUTF8MB3, Length: 60 * 3, Flags: FlagNotNull}, nil
+	case RetCount:
+		d := numeric(TypeLongLong)
+		d.Length = maxIntLength
+		d.Flags |= FlagNotNull
+		return d, nil
+	case RetSum, RetAvg:
+		switch classOf(args[0]) {
+		case classTemporal:
+			return ColumnDef{}, refuseTemporal()
+		case classInt, classDecimal:
+			p, sc := decimalOf(args[0])
+			if ret == RetSum {
+				p += decimalLongLongDigits
+			} else {
+				p += divPrecisionIncrement
+				sc += divPrecisionIncrement
+			}
+			p, sc = min(p, maxDecimalDigits), min(sc, maxDecimalScale)
+			d := numeric(TypeNewDecimal)
+			d.Decimals = uint8(sc)
+			d.Length = uint32(decimalLength(p, sc, false))
+			return d, nil
+		}
+		return double(), nil
+	case RetMinMax:
+		d := args[0]
+		d.Flags &^= FlagNotNull | FlagPriKey | FlagUniqueKey | FlagMultipleKey | FlagPartKey | FlagAutoIncrement | FlagNoDefault
+		return d, nil
+	case RetGroupConcat:
+		// group_concat_max_len's default, 1024 characters. `oracle: pending`.
+		return ColumnDef{Type: TypeBlob, Charset: CollationDefault, Length: 1024 * 4, Flags: FlagBlob}, nil
 	case RetString:
 		n := 0
 		for _, a := range args {
