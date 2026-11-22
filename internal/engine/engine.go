@@ -103,6 +103,8 @@ type Engine struct {
 	mu     sync.Mutex
 	dbs    map[string]*Database
 	closed bool
+	// scratch serves statements that read no table, opened on first use.
+	scratch *sql.DB
 }
 
 // Open validates opts and creates the data directory if needed.
@@ -209,6 +211,34 @@ func (e *Engine) SQLiteVersion(ctx context.Context) (string, error) {
 	return v, nil
 }
 
+// Scratch returns a query-only connection to a private in-memory database, for
+// statements that read no table (SELECT without FROM). It has the same functions and
+// collations as every database connection. The caller must close it.
+func (e *Engine) Scratch(ctx context.Context) (*sql.Conn, error) {
+	e.mu.Lock()
+	if e.closed {
+		e.mu.Unlock()
+		return nil, errors.New("engine: closed")
+	}
+	if e.scratch == nil {
+		d, err := newDriver(e.ext, []string{"PRAGMA query_only=ON"}, nil)
+		if err != nil {
+			e.mu.Unlock()
+			return nil, err
+		}
+		e.scratch = sql.OpenDB(connector{driver: d, dsn: ":memory:"})
+		e.scratch.SetMaxOpenConns(e.opts.MaxReadConns)
+		e.scratch.SetMaxIdleConns(e.opts.MaxReadConns)
+	}
+	db := e.scratch
+	e.mu.Unlock()
+	c, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("engine: scratch connection: %w", err)
+	}
+	return c, nil
+}
+
 // Close closes every open database.
 func (e *Engine) Close() error {
 	e.mu.Lock()
@@ -222,6 +252,9 @@ func (e *Engine) Close() error {
 		errs = append(errs, db.close())
 	}
 	e.dbs = nil
+	if e.scratch != nil {
+		errs = append(errs, e.scratch.Close())
+	}
 	return errors.Join(errs...)
 }
 

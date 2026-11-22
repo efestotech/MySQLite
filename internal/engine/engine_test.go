@@ -313,3 +313,41 @@ func TestSQLiteVersion(t *testing.T) {
 		t.Fatalf("want a version, got %q, %v", v, err)
 	}
 }
+
+func TestScratchHasExtensionsAndCannotWrite(t *testing.T) {
+	e := openEngine(t, testOptions(t))
+	ctx := context.Background()
+	c, err := e.Scratch(ctx)
+	if err != nil {
+		t.Fatalf("Scratch: %v", err)
+	}
+	defer c.Close()
+
+	var got string
+	if err := c.QueryRowContext(ctx, "SELECT t1_udf(1)").Scan(&got); err != nil || got != "udf:1" {
+		t.Fatalf("want the function on scratch connections, got %q, %v", got, err)
+	}
+	if _, err := c.ExecContext(ctx, "CREATE TABLE x (a)"); err == nil {
+		t.Fatal("a scratch connection must be query-only")
+	}
+	entries, err := os.ReadDir(e.opts.DataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("scratch must not create files, found %d", len(entries))
+	}
+}
+
+func TestScratchAfterCloseFails(t *testing.T) {
+	e, err := Open(testOptions(t), Extensions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Scratch(context.Background()); err == nil {
+		t.Fatal("want an error after Close")
+	}
+}
