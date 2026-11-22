@@ -268,7 +268,7 @@ func TestUnsupported(t *testing.T) {
 		"DELETE IGNORE FROM t":                                   "DELETE IGNORE",
 		"SET @a = 1":                                             "user variable",
 		"LOCK TABLES t READ":                                     "LOCK TABLES",
-		"SHOW TRIGGERS":                                          "SHOW",
+		"SHOW PROCEDURE STATUS":                                  "SHOW",
 		"CREATE TEMPORARY TABLE x (a INT)":                       "CREATE TEMPORARY TABLE",
 		"DROP TABLE x":                                           "DROP TABLE",
 	}
@@ -314,6 +314,7 @@ func TestRuleOrder(t *testing.T) {
 		"R008 hint-strip",
 		"R009 create-table",
 		"R010 create-table-keys",
+		"R011 current-database",
 	}
 	var got []string
 	for _, r := range Rules() {

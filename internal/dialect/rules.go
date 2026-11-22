@@ -19,6 +19,7 @@ const (
 	ruleHintStrip      = "R008"
 	ruleCreateTable    = "R009"
 	ruleCreateIndexes  = "R010"
+	ruleCurrentDB      = "R011"
 )
 
 var rules = []Rule{
@@ -32,6 +33,7 @@ var rules = []Rule{
 	{ruleHintStrip, "hint-strip", "drop optimizer hints, index hints and priority modifiers"},
 	{ruleCreateTable, "create-table", "MySQL column types become SQLite declared types with collations and range/length CHECKs; options go to the sidecar"},
 	{ruleCreateIndexes, "create-table-keys", "inline KEY/UNIQUE KEY become CREATE INDEX named <table>__<key>; the MySQL name goes to the sidecar"},
+	{ruleCurrentDB, "current-database", "DATABASE() and SCHEMA() become a parameter holding the current database, or NULL"},
 }
 
 // Rules returns the registry in application order.

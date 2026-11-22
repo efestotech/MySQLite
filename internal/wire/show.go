@@ -33,6 +33,8 @@ func (h *handler) show(s *dialect.Show) (*mysql.Result, error) {
 		return h.showDiagnostics(s)
 	case dialect.ShowDatabases:
 		defs, rows, err = h.showDatabases(s)
+	case dialect.ShowCreateDatabase:
+		defs, rows, err = h.showCreateDatabase(ctx, s)
 	case dialect.ShowVariables, dialect.ShowStatus, dialect.ShowEngines, dialect.ShowCharset,
 		dialect.ShowCollation, dialect.ShowProcessList, dialect.ShowGrants:
 		defs, rows, err = h.showServer(s)
@@ -77,6 +79,9 @@ func (h *handler) showDatabases(s *dialect.Show) ([]meta.ColumnDef, [][]any, err
 // showCatalog runs the SHOW statements that read one database. It reads through the
 // open transaction when it uses that database, so it sees the transaction's tables.
 func (h *handler) showCatalog(ctx context.Context, s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
+	if s.Type == dialect.ShowTriggers || s.Type == dialect.ShowEvents {
+		return h.showNoObjects(ctx, s)
+	}
 	if infoschema.Is(s.Database) {
 		return showInfoSchema(s)
 	}
@@ -120,6 +125,55 @@ func (h *handler) showCatalog(ctx context.Context, s *dialect.Show) ([]meta.Colu
 
 // showInfoSchema lists information_schema's tables and describes their columns. Its
 // other SHOW forms are refused: its tables have no storage to report.
+// showCreateDatabase answers SHOW CREATE DATABASE. Every database uses the server
+// default charset and collation; mysqlite stores no per-database options.
+func (h *handler) showCreateDatabase(ctx context.Context, s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
+	name := s.Database
+	charsetName, collation := "utf8mb4", "utf8mb4_general_ci"
+	if infoschema.Is(name) {
+		name, charsetName, collation = infoschema.Name, "utf8mb3", "utf8mb3_general_ci"
+	} else {
+		_, release, err := h.sess.CatalogConn(ctx, name)
+		if err != nil {
+			return nil, nil, h.fail(err, errs.Hint{DatabaseArg: name})
+		}
+		release()
+	}
+	ifNotExists := ""
+	if s.IfNotExists {
+		ifNotExists = "/*!32312 IF NOT EXISTS*/ "
+	}
+	ddl := fmt.Sprintf("CREATE DATABASE %s%s /*!40100 DEFAULT CHARACTER SET %s COLLATE %s */ /*!80016 DEFAULT ENCRYPTION='N' */",
+		ifNotExists, ident(name), charsetName, collation)
+	return []meta.ColumnDef{textCol("Database", 64), textCol("Create Database", 1024)}, [][]any{{name, ddl}}, nil
+}
+
+// showNoObjects answers SHOW TRIGGERS and SHOW EVENTS: mysqlite has neither, so the
+// result is empty, with MySQL's columns. The database must still exist (1049).
+func (h *handler) showNoObjects(ctx context.Context, s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
+	var names []string
+	if s.Type == dialect.ShowTriggers {
+		names = []string{"Trigger", "Event", "Table", "Statement", "Timing", "Created", "sql_mode",
+			"Definer", "character_set_client", "collation_connection", "Database Collation"}
+	} else {
+		names = []string{"Db", "Name", "Definer", "Time zone", "Type", "Execute at", "Interval value",
+			"Interval field", "Starts", "Ends", "Status", "Originator", "character_set_client",
+			"collation_connection", "Database Collation"}
+	}
+	defs := make([]meta.ColumnDef, len(names))
+	for i, n := range names {
+		defs[i] = textCol(n, 64)
+	}
+	if !infoschema.Is(s.Database) {
+		_, release, err := h.sess.CatalogConn(ctx, s.Database)
+		if err != nil {
+			return nil, nil, h.fail(err, errs.Hint{DatabaseArg: s.Database})
+		}
+		release()
+	}
+	return defs, nil, nil
+}
+
 func showInfoSchema(s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
 	switch s.Type {
 	case dialect.ShowTables:

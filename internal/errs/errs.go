@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"mysqlite/internal/engine"
 )
@@ -348,6 +349,27 @@ const (
 // OutOfRange is 1264 in strict mode.
 func OutOfRange(column string, row int) *Error {
 	return newError(1264, "22003", "Out of range value for column '%s' at row %d", column, row)
+}
+
+// IncorrectString is 1366 in strict mode: value is not valid UTF-8. The message shows
+// the bytes from the first invalid one, at most six, as MySQL does (`oracle: pending`).
+func IncorrectString(value, column string, row int) *Error {
+	i := 0
+	for i < len(value) {
+		r, size := utf8.DecodeRuneInString(value[i:])
+		if r == utf8.RuneError && size <= 1 {
+			break
+		}
+		i += size
+	}
+	var b strings.Builder
+	for j := i; j < len(value) && j < i+6; j++ {
+		fmt.Fprintf(&b, `\x%02X`, value[j])
+	}
+	if len(value)-i > 6 {
+		b.WriteString("...")
+	}
+	return newError(1366, "HY000", "Incorrect string value: '%s' for column '%s' at row %d", b.String(), column, row)
 }
 
 // DataTooLong is 1406 in strict mode.

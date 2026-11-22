@@ -25,6 +25,9 @@ type Limits struct {
 	// Chars bounds a CHAR/VARCHAR length in characters; Bytes a BINARY, VARBINARY, TEXT
 	// or BLOB length in bytes. 0 means no bound.
 	Chars, Bytes int
+	// Text is a column with a character set (CHAR, VARCHAR, TEXT): its values must be
+	// valid UTF-8, the only storage charset (1366).
+	Text bool
 }
 
 var intRanges = map[uint8][2]int64{
@@ -63,8 +66,10 @@ func LimitsOf(mysqlType string) Limits {
 			l.Bytes = int(ti.Length)
 		} else {
 			l.Chars = int(ti.Length) / maxLen(ti.Charset)
+			l.Text = true
 		}
 	case TypeBlob:
+		l.Text = ti.Charset != CharsetBinary
 		upper := strings.ToUpper(mysqlType)
 		switch {
 		case strings.HasPrefix(upper, "TINY"):
@@ -138,6 +143,9 @@ func (l Limits) CheckLiteral(column string, v *Literal, row int) *errs.Error {
 			return errs.OutOfRange(column, row)
 		}
 	case LiteralString:
+		if l.Text && !utf8.ValidString(v.Text) {
+			return errs.IncorrectString(v.Text, column, row)
+		}
 		if l.Chars > 0 && utf8.RuneCountInString(v.Text) > l.Chars ||
 			l.Bytes > 0 && len(v.Text) > l.Bytes {
 			return errs.DataTooLong(column, row)

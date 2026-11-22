@@ -266,7 +266,7 @@ func (e *emitter) field(f *ast.SelectField) {
 		return
 	}
 	e.expr(f.Expr)
-	item, ok := selectItem(f)
+	item, ok := selectItem(f, e.current)
 	if !ok {
 		e.unsupported("expression in select list", "result metadata for expressions arrives in M3")
 		return
@@ -281,8 +281,17 @@ func (e *emitter) field(f *ast.SelectField) {
 // selectItem describes a column or literal select item, named as MySQL names it: a
 // column by the name as written, a string by its value, NULL as NULL, a number by its
 // text as written.
-func selectItem(f *ast.SelectField) (meta.Item, bool) {
+func selectItem(f *ast.SelectField, current string) (meta.Item, bool) {
 	switch x := f.Expr.(type) {
+	case *ast.FuncCallExpr:
+		if !isCurrentDatabase(x) {
+			return meta.Item{}, false
+		}
+		lit := &meta.Literal{Kind: meta.LiteralString, Text: current}
+		if current == "" {
+			lit = &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}
+		}
+		return meta.Item{Literal: lit, Name: itemText(f.Text())}, true
 	case *ast.ColumnNameExpr:
 		return meta.Item{Qualifier: x.Name.Table.O, Column: x.Name.Name.O, Name: x.Name.Name.O}, true
 	case *test_driver.ValueExpr:
@@ -838,6 +847,12 @@ func (e *emitter) expr(x ast.ExprNode) {
 	case *ast.PatternLikeOrIlikeExpr:
 		e.unsupported("LIKE", "MySQL collations need the custom LIKE of M3")
 	case *ast.FuncCallExpr:
+		if isCurrentDatabase(n) {
+			e.apply(ruleCurrentDB)
+			e.write("?")
+			e.args = append(e.args, currentDatabaseArg(e.current))
+			return
+		}
 		e.unsupported("function "+strings.ToUpper(n.FnName.L), reasonLater)
 	case *ast.AggregateFuncExpr:
 		e.unsupported("aggregate "+strings.ToUpper(n.F), reasonLater)
@@ -909,4 +924,17 @@ func significantDigits(s string) int {
 	frac = strings.TrimRight(frac, "0")
 	digits := strings.TrimLeft(intPart+frac, "0")
 	return len(digits)
+}
+
+// isCurrentDatabase is DATABASE() or its synonym SCHEMA().
+func isCurrentDatabase(n *ast.FuncCallExpr) bool {
+	return (n.FnName.L == "database" || n.FnName.L == "schema") && len(n.Args) == 0
+}
+
+// currentDatabaseArg is the value of DATABASE(): the current database, NULL without one.
+func currentDatabaseArg(current string) any {
+	if current == "" {
+		return nil
+	}
+	return current
 }

@@ -28,6 +28,9 @@ const (
 	ShowCollation
 	ShowProcessList
 	ShowGrants
+	ShowTriggers
+	ShowEvents
+	ShowCreateDatabase
 )
 
 // Show describes a SHOW statement; the executor builds its rows from session or catalog
@@ -38,6 +41,8 @@ type Show struct {
 	Count bool
 	// Full is SHOW FULL TABLES / COLUMNS / PROCESSLIST.
 	Full bool
+	// IfNotExists is SHOW CREATE DATABASE IF NOT EXISTS.
+	IfNotExists bool
 	// Global is SHOW GLOBAL VARIABLES / STATUS.
 	Global bool
 	// User is the account of SHOW GRANTS FOR; nil for the current user.
@@ -61,19 +66,22 @@ type ShowUser struct {
 }
 
 var showTypes = map[ast.ShowStmtType]ShowType{
-	ast.ShowVariables:   ShowVariables,
-	ast.ShowStatus:      ShowStatus,
-	ast.ShowEngines:     ShowEngines,
-	ast.ShowCharset:     ShowCharset,
-	ast.ShowCollation:   ShowCollation,
-	ast.ShowProcessList: ShowProcessList,
-	ast.ShowGrants:      ShowGrants,
-	ast.ShowDatabases:   ShowDatabases,
-	ast.ShowTables:      ShowTables,
-	ast.ShowColumns:     ShowColumns,
-	ast.ShowCreateTable: ShowCreateTable,
-	ast.ShowIndex:       ShowIndex,
-	ast.ShowTableStatus: ShowTableStatus,
+	ast.ShowVariables:      ShowVariables,
+	ast.ShowStatus:         ShowStatus,
+	ast.ShowEngines:        ShowEngines,
+	ast.ShowCharset:        ShowCharset,
+	ast.ShowCollation:      ShowCollation,
+	ast.ShowProcessList:    ShowProcessList,
+	ast.ShowGrants:         ShowGrants,
+	ast.ShowDatabases:      ShowDatabases,
+	ast.ShowTables:         ShowTables,
+	ast.ShowColumns:        ShowColumns,
+	ast.ShowCreateTable:    ShowCreateTable,
+	ast.ShowIndex:          ShowIndex,
+	ast.ShowTableStatus:    ShowTableStatus,
+	ast.ShowTriggers:       ShowTriggers,
+	ast.ShowEvents:         ShowEvents,
+	ast.ShowCreateDatabase: ShowCreateDatabase,
 }
 
 func (e *emitter) show(n *ast.ShowStmt) *Statement {
@@ -104,7 +112,9 @@ func (e *emitter) show(n *ast.ShowStmt) *Statement {
 		if n.User != nil && !n.User.CurrentUser {
 			s.User = &ShowUser{Name: n.User.Username, Host: n.User.Hostname}
 		}
-	case ShowTables, ShowTableStatus:
+	case ShowCreateDatabase:
+		s.Database, s.IfNotExists = n.DBName, n.IfNotExists
+	case ShowTables, ShowTableStatus, ShowTriggers, ShowEvents:
 		s.Database = n.DBName
 		if s.Database == "" {
 			s.Database = e.current

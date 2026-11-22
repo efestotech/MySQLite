@@ -74,6 +74,10 @@ func init() {
 		"MATCH_OPTION", name64, "UPDATE_RULE", name64, "DELETE_RULE", name64,
 		"TABLE_NAME", name64, "REFERENCED_TABLE_NAME", name64,
 	)})
+	define(&table{name: "CHECK_CONSTRAINTS", cols: cols(
+		"CONSTRAINT_CATALOG", name64, "CONSTRAINT_SCHEMA", name64, "CONSTRAINT_NAME", name64,
+		"CHECK_CLAUSE", longtxt,
+	)})
 	define(&table{name: "VIEWS", cols: cols(
 		"TABLE_CATALOG", name64, "TABLE_SCHEMA", name64, "TABLE_NAME", name64, "VIEW_DEFINITION", longtxt,
 		"CHECK_OPTION", "varchar(8)", "IS_UPDATABLE", "varchar(3)", "DEFINER", "varchar(288)",

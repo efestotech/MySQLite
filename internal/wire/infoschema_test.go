@@ -90,7 +90,7 @@ func TestInfoSchemaColumnsAndKeys(t *testing.T) {
 func TestInfoSchemaEmptyAndStatic(t *testing.T) {
 	conn := shopServer(t)
 	for _, tbl := range []string{"VIEWS", "TRIGGERS", "ROUTINES", "PARAMETERS", "EVENTS", "PARTITIONS",
-		"REFERENTIAL_CONSTRAINTS", "SCHEMA_PRIVILEGES", "TABLE_PRIVILEGES"} {
+		"REFERENTIAL_CONSTRAINTS", "CHECK_CONSTRAINTS", "SCHEMA_PRIVILEGES", "TABLE_PRIVILEGES"} {
 		res := execOK(t, conn, "SELECT * FROM information_schema."+tbl)
 		if res.RowNumber() != 0 || len(res.Fields) < 2 {
 			t.Errorf("%s: %d rows, %d columns", tbl, res.RowNumber(), len(res.Fields))

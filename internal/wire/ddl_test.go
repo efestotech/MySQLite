@@ -76,6 +76,11 @@ func TestCreateTable(t *testing.T) {
 	if e := requireMyError(t, err, 1406, "22001"); e.Message != "Data too long for column 'name' at row 1" {
 		t.Errorf("1406 message: %q", e.Message)
 	}
+	// Bytes that are not UTF-8 cannot be stored in a utf8mb4 column (strict mode).
+	_, err = conn.Execute("INSERT INTO gadgets (name) VALUES ('ok'), ('citt\xe0')")
+	if e := requireMyError(t, err, 1366, "HY000"); e.Message != `Incorrect string value: '\xE0' for column 'name' at row 2` {
+		t.Errorf("1366 message: %q", e.Message)
+	}
 	_, err = conn.Execute("INSERT INTO gadgets (name, price) VALUES ('a', -1)")
 	requireMyError(t, err, 1264, "22003")
 	// UPDATE reaches the CHECK constraint.

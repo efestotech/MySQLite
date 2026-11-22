@@ -73,6 +73,7 @@ var rules = map[string]rule{
 	"net_write_timeout":               {write: Writable, min: 1, max: maxTimeout, advisory: reasonNotApplied},
 	"optimizer_switch":                {write: Writable},
 	"sql_auto_is_null":                {write: Writable, fixed: "WHERE id IS NULL never finds the last inserted row"},
+	"sql_quote_show_create":           {write: Writable, fixed: "SHOW CREATE TABLE always quotes identifiers"},
 	"sql_mode":                        {write: Writable},
 	"sql_require_primary_key":         {write: Writable, advisory: "tables without a primary key are accepted"},
 	"sql_select_limit":                {write: Writable, fixed: "SELECT returns every row"},
