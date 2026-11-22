@@ -2,8 +2,11 @@ package wire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
@@ -13,6 +16,7 @@ import (
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
+	"mysqlite/internal/obs"
 	"mysqlite/internal/session"
 )
 
@@ -22,6 +26,8 @@ type handler struct {
 	sess *session.Session
 	tr   *dialect.Translator
 	log  *slog.Logger
+	// journal records every COM_QUERY; nil records nothing.
+	journal *obs.Journal
 
 	// go-mysql calls UseDB for the handshake database before checking the password
 	// (docs/agent-notes/api-go-mysql.md, W2). Until authenticated, the name is only
@@ -102,21 +108,88 @@ func (h *handler) close() {
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	defer h.syncStatus()
+	start := time.Now()
 	current, _ := h.sess.Database()
+	st, res, err := h.query(query, current)
+	h.record(query, current, st, res, err, start)
+	return res, err
+}
+
+func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Result, error) {
 	st, e := h.tr.Translate(query, current)
 	if e != nil {
-		return nil, toMySQL(e)
+		return nil, nil, toMySQL(e)
 	}
-	if st.Kind == dialect.KindUse {
-		return nil, h.use(st.UseDB)
-	}
+	var res *mysql.Result
+	var err error
 	switch st.Kind {
+	case dialect.KindUse:
+		err = h.use(st.UseDB)
 	case dialect.KindTransaction:
-		return nil, h.transaction(st.Tx)
+		err = h.transaction(st.Tx)
 	case dialect.KindRead:
-		return h.read(st)
+		res, err = h.read(st)
+	default:
+		res, err = h.write(st)
 	}
-	return h.write(st)
+	return st, res, err
+}
+
+// record writes the journal entry of one COM_QUERY (docs/09-conventions.md section 3).
+// st is nil when the statement was not translated.
+func (h *handler) record(query, current string, st *dialect.Statement, res *mysql.Result, err error, start time.Time) {
+	if h.journal == nil {
+		return
+	}
+	e := obs.Entry{
+		Time:     start,
+		Database: current,
+		SQL:      query,
+		Duration: time.Since(start),
+		Outcome:  obs.OutcomeOK,
+	}
+	if h.conn != nil {
+		e.Session = h.conn.ConnectionID()
+		e.User = h.conn.GetUser()
+	}
+	if st != nil {
+		e.Kind = st.Kind.String()
+		e.Rules = st.Rules
+		e.Emitted = st.SQL
+		e.Params = st.Args
+	}
+	if res != nil {
+		e.Affected = res.AffectedRows
+		if res.Resultset != nil {
+			e.Rows = uint64(len(res.Resultset.RowDatas))
+		}
+	}
+	if err != nil {
+		e.Outcome = obs.OutcomeError
+		var my *mysql.MyError
+		if errors.As(err, &my) {
+			e.ErrorCode, e.SQLState, e.Error = my.Code, my.State, my.Message
+			if my.Code == errs.Unsupported("", "").Code {
+				e.Unsupported = unsupportedConstruct(my.Message)
+			}
+		} else {
+			e.Error = err.Error()
+		}
+	}
+	if werr := h.journal.Record(e); werr != nil {
+		h.log.Warn("query journal", "error", werr.Error())
+	}
+}
+
+// unsupportedConstruct extracts the construct name of a strict-mode 1235 message
+// ("mysqlite: unsupported construct <name>: <reason>").
+func unsupportedConstruct(msg string) string {
+	rest, ok := strings.CutPrefix(msg, "mysqlite: unsupported construct ")
+	if !ok {
+		return ""
+	}
+	name, _, _ := strings.Cut(rest, ": ")
+	return name
 }
 
 func (h *handler) transaction(tx *dialect.Transaction) error {

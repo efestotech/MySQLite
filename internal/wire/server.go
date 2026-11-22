@@ -17,6 +17,7 @@ import (
 
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/engine"
+	"mysqlite/internal/obs"
 	"mysqlite/internal/session"
 )
 
@@ -31,6 +32,8 @@ type Config struct {
 	Users map[string]string
 	// Engine serves the databases; each connection gets its own session on it.
 	Engine *engine.Engine
+	// Journal receives one entry per COM_QUERY; nil journals nothing.
+	Journal *obs.Journal
 }
 
 // Server accepts MySQL client connections.
@@ -180,6 +183,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	}()
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
+	h.journal = s.cfg.Journal
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {

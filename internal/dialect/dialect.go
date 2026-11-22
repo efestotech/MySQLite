@@ -56,6 +56,21 @@ const (
 	KindTransaction
 )
 
+// String is the router decision recorded in the query journal.
+func (k Kind) String() string {
+	switch k {
+	case KindRead:
+		return "read"
+	case KindWrite:
+		return "write"
+	case KindUse:
+		return "use"
+	case KindTransaction:
+		return "transaction"
+	}
+	return fmt.Sprintf("Kind(%d)", int(k))
+}
+
 // Statement is a fully translated statement.
 type Statement struct {
 	Kind Kind

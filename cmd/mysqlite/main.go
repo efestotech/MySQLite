@@ -45,6 +45,16 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		}
 	}()
 
+	journal, err := obs.NewJournal(cfg.Log)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if cerr := journal.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("close query journal: %w", cerr)
+		}
+	}()
+
 	log.Info("effective configuration", "config", cfg.Redacted())
 	if !cfg.IsLoopback() {
 		log.Warn("listening on a non-loopback address: no TLS, no privilege model, single user",
@@ -76,6 +86,7 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		MaxAllowedPacket: cfg.MaxAllowedPacket,
 		Users:            cfg.UserPasswords(),
 		Engine:           eng,
+		Journal:          journal,
 	}, log)
 	if err != nil {
 		return err
