@@ -28,6 +28,8 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 	}
 	e.apply(ruleFunction)
 	switch {
+	case f.Emit == functions.Session && len(n.Args) > 0 && f.ArgUDF != "":
+		f = functions.Func{Emit: functions.Rename, SQLite: f.ArgUDF, Zoned: true, Ret: f.Ret}
 	case f.Emit == functions.Session || f.Emit == functions.LastInsertID && len(n.Args) == 0:
 		sv := &SessionValue{Name: f.Session}
 		x := &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: f.Ret, NotNull: true}
@@ -69,7 +71,20 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 	}
 	switch f.Emit {
 	case functions.Rename:
-		e.write(f.SQLiteName(len(texts)), "(", strings.Join(texts, ", "), ")")
+		name := f.SQLiteName(len(n.Args))
+		for len(texts) < f.Pad {
+			texts = append(texts, "NULL")
+		}
+		if f.Extra != "" {
+			texts = append(texts, f.Extra)
+		}
+		if f.Zoned {
+			texts = append(texts, "?")
+		}
+		e.write(name, "(", strings.Join(texts, ", "), ")")
+		if f.Zoned {
+			e.args = append(e.args, &SessionValue{Name: functions.SessionTimeZone})
+		}
 	case functions.Bytes:
 		e.write("length(CAST(", texts[0], " AS BLOB))")
 	case functions.Exact:

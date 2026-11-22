@@ -66,6 +66,15 @@ type Func struct {
 	Session string
 	// Fsp makes the argument of a Session call its fractional seconds precision.
 	Fsp bool
+	// ArgUDF is the UDF a Session function becomes with an argument
+	// (UNIX_TIMESTAMP(x)); it is called as a Zoned Rename.
+	ArgUDF string
+	// Extra is an SQL literal a Rename call passes after the arguments (the part of
+	// UDFDatePart).
+	Extra string
+	// Pad passes NULL for missing arguments up to Pad; Zoned then passes @@time_zone.
+	Pad   int
+	Zoned bool
 }
 
 // UDF names registered by package udf.
@@ -101,6 +110,15 @@ const (
 	// storage (UTC) and the session zone (ADR 0007).
 	UDFTzFromUTC = "mysqlite_tz_from_utc"
 	UDFTzToUTC   = "mysqlite_tz_to_utc"
+	// Date functions (ADR 0007): parts, names, DATE/LAST_DAY, DATEDIFF, DATE_FORMAT,
+	// UNIX_TIMESTAMP(x), FROM_UNIXTIME.
+	UDFDatePart      = "mysqlite_date_part"
+	UDFDateName      = "mysqlite_date_name"
+	UDFDateOnly      = "mysqlite_date_only"
+	UDFDateDiff      = "mysqlite_datediff"
+	UDFDateFormat    = "mysqlite_date_format"
+	UDFUnixTimestamp = "mysqlite_unix_timestamp"
+	UDFFromUnixtime  = "mysqlite_from_unixtime"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
@@ -118,6 +136,12 @@ func clock(name string, ret meta.FuncRet, fsp bool) Func {
 		f.MaxArgs = 1
 	}
 	return f
+}
+
+// part is a date function reading one part of its argument through UDF with the part
+// name.
+func part(udf, name string, ret meta.FuncRet) Func {
+	return Func{MinArgs: 1, MaxArgs: 1, Emit: Rename, SQLite: udf, Extra: "'" + name + "'", Ret: ret}
 }
 
 func text(f Func) Func {
@@ -198,7 +222,28 @@ var table = map[string]Func{
 	"UTC_TIMESTAMP":     clock(SessionUTCNow, meta.RetDatetime, true),
 	"UTC_DATE":          clock(SessionUTCDate, meta.RetDate, false),
 	"UTC_TIME":          clock(SessionUTCTime, meta.RetTime, true),
-	"UNIX_TIMESTAMP":    clock(SessionUnixTimestamp, meta.RetInt, false),
+	"UNIX_TIMESTAMP":    {MaxArgs: 1, Emit: Session, Session: SessionUnixTimestamp, Ret: meta.RetInt, ArgUDF: UDFUnixTimestamp},
+
+	// Dates. Invalid dates are NULL.
+	"YEAR":          part(UDFDatePart, "YEAR", meta.RetInt),
+	"MONTH":         part(UDFDatePart, "MONTH", meta.RetInt),
+	"DAY":           part(UDFDatePart, "DAY", meta.RetInt),
+	"DAYOFMONTH":    part(UDFDatePart, "DAY", meta.RetInt),
+	"HOUR":          part(UDFDatePart, "HOUR", meta.RetInt),
+	"MINUTE":        part(UDFDatePart, "MINUTE", meta.RetInt),
+	"SECOND":        part(UDFDatePart, "SECOND", meta.RetInt),
+	"MICROSECOND":   part(UDFDatePart, "MICROSECOND", meta.RetInt),
+	"QUARTER":       part(UDFDatePart, "QUARTER", meta.RetInt),
+	"DAYOFWEEK":     part(UDFDatePart, "DAYOFWEEK", meta.RetInt),
+	"WEEKDAY":       part(UDFDatePart, "WEEKDAY", meta.RetInt),
+	"DAYOFYEAR":     part(UDFDatePart, "DAYOFYEAR", meta.RetInt),
+	"DAYNAME":       part(UDFDateName, "DAY", meta.RetString),
+	"MONTHNAME":     part(UDFDateName, "MONTH", meta.RetString),
+	"DATE":          part(UDFDateOnly, "DATE", meta.RetDate),
+	"LAST_DAY":      part(UDFDateOnly, "LAST_DAY", meta.RetDate),
+	"DATEDIFF":      rename(UDFDateDiff, 2, 2, meta.RetInt),
+	"DATE_FORMAT":   rename(UDFDateFormat, 2, 2, meta.RetString),
+	"FROM_UNIXTIME": {MinArgs: 1, MaxArgs: 2, Emit: Rename, SQLite: UDFFromUnixtime, Pad: 2, Zoned: true, Ret: meta.RetFromUnixtime},
 }
 
 // Lookup returns the entry of a function by its MySQL name, in any case.

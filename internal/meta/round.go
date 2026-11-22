@@ -72,13 +72,13 @@ func constInt(x *Expr) (int, bool) {
 
 // temporalResult is the type of a function returning DATETIME, DATE or TIME, with the
 // precision its first argument gives.
-func temporalResult(x *Expr) (ColumnDef, *errs.Error) {
+func temporalResult(x *Expr, ret FuncRet) (ColumnDef, *errs.Error) {
 	fsp := 0
-	if len(x.Args) > 0 {
+	if len(x.Args) > 0 && x.Kind == ExprFunc && x.Op != "" && x.Ret == ret && isClock(x.Op) {
 		fsp, _ = constInt(x.Args[0])
 	}
-	decl := map[FuncRet]string{RetDatetime: "DATETIME", RetDate: "DATE", RetTime: "TIME"}[x.Ret]
-	if x.Ret != RetDate && fsp > 0 {
+	decl := map[FuncRet]string{RetDatetime: "DATETIME", RetDate: "DATE", RetTime: "TIME"}[ret]
+	if ret != RetDate && fsp > 0 {
 		decl += "(" + strconv.Itoa(fsp) + ")"
 	}
 	ti, ok := ParseType(decl)
@@ -100,4 +100,13 @@ func (t *Table) IsTimestamp(column string) bool {
 	}
 	ti, ok := ParseType(c.MySQLType())
 	return ok && ti.Type == TypeTimestamp
+}
+
+// isClock names the current-time functions, whose argument is a precision.
+func isClock(op string) bool {
+	switch op {
+	case "NOW", "CURRENT_TIMESTAMP", "LOCALTIME", "LOCALTIMESTAMP", "SYSDATE", "CURTIME", "CURRENT_TIME", "UTC_TIMESTAMP", "UTC_TIME":
+		return true
+	}
+	return false
 }
