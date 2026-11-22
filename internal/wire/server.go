@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -19,6 +21,7 @@ import (
 	"mysqlite/internal/engine"
 	"mysqlite/internal/obs"
 	"mysqlite/internal/session"
+	"mysqlite/internal/vars"
 )
 
 // collationUTF8MB4GeneralCI is the default collation id (docs/00-brief.md section 6).
@@ -43,6 +46,7 @@ type Server struct {
 	log     *slog.Logger
 	conf    *server.Server
 	auth    *authHandler
+	vars    *vars.Server
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -78,7 +82,24 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 		return nil, fmt.Errorf("wire: unset multi-result capabilities: %w", err)
 	}
 
+	hostname, _ := os.Hostname()
+	baseDir := ""
+	if exe, err := os.Executable(); err == nil {
+		baseDir = filepath.Dir(exe)
+	}
+	dataDir := cfg.Engine.DataDir()
+	if abs, err := filepath.Abs(dataDir); err == nil {
+		dataDir = abs
+	}
+
 	return &Server{
+		vars: vars.NewServer(vars.Config{
+			Version:          cfg.ServerVersion,
+			MaxAllowedPacket: cfg.MaxAllowedPacket,
+			DataDir:          dataDir,
+			BaseDir:          baseDir,
+			Hostname:         hostname,
+		}),
 		cfg:     cfg,
 		version: version,
 		log:     log,
@@ -184,6 +205,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
+	h.vars = s.vars.NewSession(h.sess.Autocommit)
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {

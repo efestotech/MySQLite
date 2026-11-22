@@ -30,6 +30,7 @@ import (
 
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
+	"mysqlite/internal/vars"
 )
 
 // defaultSQLMode is the MySQL 8.0 default. SET sql_mode arrives with M2.
@@ -69,6 +70,14 @@ func (k Kind) String() string {
 		return "transaction"
 	}
 	return fmt.Sprintf("Kind(%d)", int(k))
+}
+
+// Variable is a statement argument that stands for a system variable (@@name). The
+// executor replaces it with the session's value before running the statement, so a
+// variable is a value anywhere an expression is.
+type Variable struct {
+	Name  string
+	Scope vars.ReadScope
 }
 
 // Statement is a fully translated statement.

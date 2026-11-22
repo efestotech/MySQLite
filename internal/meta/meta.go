@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/vars"
 )
 
 // Column type codes.
@@ -114,8 +115,19 @@ type Item struct {
 	Column string
 	// Literal is set for a constant item.
 	Literal *Literal
+	// Var is set for a system variable (@@name). Def and Value are filled by the
+	// executor once the variable is read, before Columns.
+	Var *Variable
 	// Name is the result column name: the alias, else the item as MySQL names it.
 	Name string
+}
+
+// Variable is a system variable in the select list.
+type Variable struct {
+	Name  string
+	Scope vars.ReadScope
+	Def   *vars.Def
+	Value vars.Value
 }
 
 // LiteralKind is the kind of a constant select item.
@@ -168,6 +180,11 @@ func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
 		switch {
 		case it.Literal != nil:
 			defs = append(defs, literalColumn(*it.Literal, it.Name))
+		case it.Var != nil:
+			if it.Var.Def == nil {
+				return nil, errs.UnknownSystemVariable(it.Var.Name)
+			}
+			defs = append(defs, variableColumn(*it.Var, it.Name))
 		case it.Star:
 			if t == nil {
 				// MySQL: SELECT * without FROM is a syntax error caught by the parser.
@@ -317,6 +334,26 @@ func keyFlags(t *Table, col string) uint16 {
 		}
 	}
 	return f
+}
+
+// variableColumn describes @@name. MySQL types system variables by their kind: strings
+// in the system charset (utf8mb3), integers as BIGINT, unsigned where the variable is.
+// Lengths and flags are `oracle: pending`.
+func variableColumn(v Variable, name string) ColumnDef {
+	d := ColumnDef{Name: name, Charset: CharsetBinary}
+	const numeric = FlagBinary | FlagNum
+	switch v.Def.Kind {
+	case vars.KindInt, vars.KindBool:
+		d.Type, d.Flags, d.Length = TypeLongLong, numeric, 21
+	case vars.KindUint:
+		d.Type, d.Flags, d.Length = TypeLongLong, numeric|FlagUnsigned, 20
+	case vars.KindDouble:
+		d.Type, d.Flags, d.Length, d.Decimals = TypeDouble, numeric, 23, 6
+	default:
+		d.Type, d.Charset = TypeVarString, CollationUTF8MB3
+		d.Length = uint32(utf8.RuneCountInString(v.Value.Text) * 3)
+	}
+	return d
 }
 
 // literalColumn follows MySQL's Item::make_field for constants: numbers have the

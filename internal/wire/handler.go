@@ -18,6 +18,7 @@ import (
 	"mysqlite/internal/meta"
 	"mysqlite/internal/obs"
 	"mysqlite/internal/session"
+	"mysqlite/internal/vars"
 )
 
 // handler implements server.Handler for one connection.
@@ -28,6 +29,8 @@ type handler struct {
 	log  *slog.Logger
 	// journal records every COM_QUERY; nil records nothing.
 	journal *obs.Journal
+	// vars is this connection's view of the system variables.
+	vars *vars.Session
 
 	// go-mysql calls UseDB for the handshake database before checking the password
 	// (docs/agent-notes/api-go-mysql.md, W2). Until authenticated, the name is only
@@ -120,6 +123,9 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 	if e != nil {
 		return nil, nil, toMySQL(e)
 	}
+	if e := h.bindVariables(st); e != nil {
+		return st, nil, toMySQL(e)
+	}
 	var res *mysql.Result
 	var err error
 	switch st.Kind {
@@ -133,6 +139,48 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 		res, err = h.write(st)
 	}
 	return st, res, err
+}
+
+// bindVariables reads every system variable the statement uses: each
+// dialect.Variable argument becomes the variable's value, and each @@name in the select
+// list gets the definition and value its column metadata needs.
+func (h *handler) bindVariables(st *dialect.Statement) *errs.Error {
+	bind := func(args []any) *errs.Error {
+		for i, a := range args {
+			v, ok := a.(*dialect.Variable)
+			if !ok {
+				continue
+			}
+			val, def, e := h.vars.Get(v.Name, v.Scope)
+			if e != nil {
+				return e
+			}
+			args[i] = vars.Arg(def, val)
+		}
+		return nil
+	}
+	if e := bind(st.Args); e != nil {
+		return e
+	}
+	if st.Write != nil {
+		if e := bind(st.Write.MatchArgs); e != nil {
+			return e
+		}
+	}
+	if st.Shape != nil {
+		for i := range st.Shape.Items {
+			it := st.Shape.Items[i].Var
+			if it == nil {
+				continue
+			}
+			val, def, e := h.vars.Get(it.Name, it.Scope)
+			if e != nil {
+				return e
+			}
+			it.Def, it.Value = def, val
+		}
+	}
+	return nil
 }
 
 // record writes the journal entry of one COM_QUERY (docs/09-conventions.md section 3).

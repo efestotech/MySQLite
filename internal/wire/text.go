@@ -124,6 +124,12 @@ func integerText(d meta.ColumnDef, v any) (string, error) {
 			return "", fmt.Errorf("%v does not fit an integer column", x)
 		}
 		n = int64(x)
+	case string:
+		// An unsigned value above the int64 range is bound as its text (vars.Arg).
+		if u, err := strconv.ParseUint(x, 10, 64); err == nil && d.Flags&meta.FlagUnsigned != 0 {
+			return strconv.FormatUint(u, 10), nil
+		}
+		return "", fmt.Errorf("string value %q in an integer column", x)
 	default:
 		return "", fmt.Errorf("%T value %q in an integer column", v, anyText(v))
 	}

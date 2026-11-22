@@ -8,6 +8,7 @@ import (
 
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
+	"mysqlite/internal/vars"
 )
 
 func newTranslator(t *testing.T) *Translator {
@@ -483,5 +484,39 @@ func TestWriteShape(t *testing.T) {
 		if st.Write == nil || !reflect.DeepEqual(*st.Write, tc.want) {
 			t.Fatalf("%s:\nwant %+v\ngot  %+v", tc.query, tc.want, st.Write)
 		}
+	}
+}
+
+// System variables become *Variable arguments, read by the executor
+// (docs/04-session-catalog.md section 1).
+func TestSystemVariables(t *testing.T) {
+	tr := newTranslator(t)
+	st, e := tr.Translate("SELECT @@version, @@GLOBAL.max_allowed_packet, @@local.sql_mode AS m FROM items WHERE @@session.autocommit = 1", "shop")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if want := "SELECT ?, ?, ? AS `m` FROM `items` WHERE (? = 1)"; st.SQL != want {
+		t.Fatalf("sql: want %q, got %q", want, st.SQL)
+	}
+	wantArgs := []any{
+		&Variable{Name: "version", Scope: vars.ReadDefault},
+		&Variable{Name: "max_allowed_packet", Scope: vars.ReadGlobal},
+		&Variable{Name: "sql_mode", Scope: vars.ReadSession},
+		&Variable{Name: "autocommit", Scope: vars.ReadSession},
+	}
+	if !reflect.DeepEqual(st.Args, wantArgs) {
+		t.Fatalf("args: got %#v", st.Args)
+	}
+	wantItems := []meta.Item{
+		{Var: &meta.Variable{Name: "version", Scope: vars.ReadDefault}, Name: "@@version"},
+		{Var: &meta.Variable{Name: "max_allowed_packet", Scope: vars.ReadGlobal}, Name: "@@GLOBAL.max_allowed_packet"},
+		{Var: &meta.Variable{Name: "sql_mode", Scope: vars.ReadSession}, Name: "m"},
+	}
+	if !reflect.DeepEqual(st.Shape.Items, wantItems) {
+		t.Fatalf("items: got %+v", st.Shape.Items)
+	}
+
+	if _, e := tr.Translate("SELECT @x", "shop"); e == nil || e.Code != 1235 {
+		t.Fatalf("user variable: want 1235, got %v", e)
 	}
 }

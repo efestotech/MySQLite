@@ -12,6 +12,7 @@ import (
 
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
+	"mysqlite/internal/vars"
 )
 
 // Reasons attached to 1235. They tell the user whether the construct is planned.
@@ -274,6 +275,12 @@ func selectItem(f *ast.SelectField) (meta.Item, bool) {
 		return meta.Item{Qualifier: x.Name.Table.O, Column: x.Name.Name.O, Name: x.Name.Name.O}, true
 	case *test_driver.ValueExpr:
 		return literalItem(x, false, f)
+	case *ast.VariableExpr:
+		if !x.IsSystem {
+			return meta.Item{}, false
+		}
+		// MySQL names the column as the item is written: "@@session.sql_mode".
+		return meta.Item{Var: &meta.Variable{Name: x.Name, Scope: variableScope(x)}, Name: itemText(f.Text())}, true
 	case *ast.UnaryOperationExpr:
 		if v, ok := x.V.(*test_driver.ValueExpr); ok && x.Op == opcode.Minus {
 			return literalItem(v, true, f)
@@ -321,6 +328,18 @@ func literalItem(v *test_driver.ValueExpr, negative bool, f *ast.SelectField) (m
 		name = itemText(f.Text())
 	}
 	return meta.Item{Literal: &lit, Name: name}, true
+}
+
+// variableScope is the scope written before a system variable: @@global.x, @@session.x
+// or @@local.x, else none.
+func variableScope(n *ast.VariableExpr) vars.ReadScope {
+	switch {
+	case !n.ExplicitScope:
+		return vars.ReadDefault
+	case n.IsGlobal:
+		return vars.ReadGlobal
+	}
+	return vars.ReadSession
 }
 
 // itemText removes a trailing comment from the text the parser keeps for a select
@@ -817,7 +836,12 @@ func (e *emitter) expr(x ast.ExprNode) {
 	case *ast.RowExpr:
 		e.unsupported("row constructor", reasonLater)
 	case *ast.VariableExpr:
-		e.unsupported("variable", reasonLater)
+		if !n.IsSystem {
+			e.unsupported("user variable", reasonLater)
+			return
+		}
+		e.write("?")
+		e.args = append(e.args, &Variable{Name: n.Name, Scope: variableScope(n)})
 	case *ast.CaseExpr:
 		e.unsupported("CASE", reasonLater)
 	default:

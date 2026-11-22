@@ -107,6 +107,11 @@ type Engine struct {
 	scratch *sql.DB
 }
 
+// DataDir is the directory that holds the database files.
+func (e *Engine) DataDir() string {
+	return e.opts.DataDir
+}
+
 // Open validates opts and creates the data directory if needed.
 func Open(opts Options, ext Extensions) (*Engine, error) {
 	if err := opts.validate(); err != nil {
