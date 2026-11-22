@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/meta"
 )
 
 func newTranslator(t *testing.T) *Translator {
@@ -331,5 +332,49 @@ func TestRuleOrder(t *testing.T) {
 			t.Fatalf("rule-order.md lists %s out of order", r.ID)
 		}
 		last = i
+	}
+}
+
+func TestSelectShape(t *testing.T) {
+	tr := newTranslator(t)
+	st, e := tr.Translate("SELECT *, x.*, A, x.b AS bee, 1, -12, 2.50 /* c */, 1e3, 'città', 'a' 'b', NULL FROM items AS x", "shop")
+	if e != nil {
+		t.Fatal(e)
+	}
+	want := &Shape{
+		Table: "items",
+		Alias: "x",
+		Items: []meta.Item{
+			{Star: true},
+			{Star: true, Qualifier: "x"},
+			{Column: "A", Name: "A"},
+			{Qualifier: "x", Column: "b", Name: "bee"},
+			{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "1"}, Name: "1"},
+			{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "-12"}, Name: "-12"},
+			{Literal: &meta.Literal{Kind: meta.LiteralDecimal, Text: "2.50"}, Name: "2.50"},
+			{Literal: &meta.Literal{Kind: meta.LiteralFloat, Text: "1e3"}, Name: "1e3"},
+			{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "città"}, Name: "città"},
+			{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ab"}, Name: "ab"},
+			{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
+		},
+	}
+	if !reflect.DeepEqual(st.Shape, want) {
+		t.Fatalf("want\n%+v\ngot\n%+v", want, st.Shape)
+	}
+
+	st, e = tr.Translate("SELECT 1 AS one", "")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if st.Shape == nil || st.Shape.Table != "" || st.Shape.Items[0].Name != "one" {
+		t.Fatalf("a SELECT without FROM has a shape with no table: %+v", st.Shape)
+	}
+
+	st, e = tr.Translate("DELETE FROM items", "shop")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if st.Shape != nil {
+		t.Fatalf("only SELECT has a result shape, got %+v", st.Shape)
 	}
 }

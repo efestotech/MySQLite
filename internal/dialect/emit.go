@@ -11,6 +11,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/meta"
 )
 
 // Reasons attached to 1235. They tell the user whether the construct is planned.
@@ -27,6 +28,7 @@ type emitter struct {
 	query   string // the gated query text, for error offsets
 	current string // the session's database
 	target  string // the database the statement runs in
+	shape   *Shape
 	b       strings.Builder
 	args    []any
 	rules   map[string]bool
@@ -88,7 +90,7 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 }
 
 func (e *emitter) result(kind Kind, op errs.Op) *Statement {
-	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op}
+	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op, Shape: e.shape}
 }
 
 // table resolves the single table of a statement and sets the target database.
@@ -196,6 +198,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	if n.From != nil {
 		name, alias = e.table(n.From, "JOIN")
 	}
+	e.shape = &Shape{Table: name, Alias: alias}
 	e.write("SELECT ")
 	if n.Distinct {
 		e.write("DISTINCT ")
@@ -218,8 +221,9 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	e.limit(n.Limit)
 }
 
-// field emits one select-list item. Result-column metadata is inferred only for table
-// columns and literals in M1 (docs/08-milestones.md), so other expressions are refused.
+// field emits one select-list item and records it in the shape. Result-column
+// metadata is inferred only for table columns and literals in M1
+// (docs/08-milestones.md), so other expressions are refused.
 func (e *emitter) field(f *ast.SelectField) {
 	if w := f.WildCard; w != nil {
 		e.checkSchema(w.Schema)
@@ -227,28 +231,89 @@ func (e *emitter) field(f *ast.SelectField) {
 			e.write(quoteIdent(w.Table.O), ".")
 		}
 		e.write("*")
+		e.shape.Items = append(e.shape.Items, meta.Item{Star: true, Qualifier: w.Table.O})
 		return
 	}
 	e.expr(f.Expr)
-	if !isColumnOrLiteral(f.Expr) {
+	item, ok := selectItem(f)
+	if !ok {
 		e.unsupported("expression in select list", "result metadata for expressions arrives in M3")
+		return
 	}
 	if f.AsName.O != "" {
 		e.write(" AS ", quoteIdent(f.AsName.O))
+		item.Name = f.AsName.O
 	}
+	e.shape.Items = append(e.shape.Items, item)
 }
 
-func isColumnOrLiteral(x ast.ExprNode) bool {
-	switch x := x.(type) {
+// selectItem describes a column or literal select item, named as MySQL names it: a
+// column by the name as written, a string by its value, NULL as NULL, a number by its
+// text as written.
+func selectItem(f *ast.SelectField) (meta.Item, bool) {
+	switch x := f.Expr.(type) {
 	case *ast.ColumnNameExpr:
-		return true
+		return meta.Item{Qualifier: x.Name.Table.O, Column: x.Name.Name.O, Name: x.Name.Name.O}, true
 	case *test_driver.ValueExpr:
-		return true
+		return literalItem(x, false, f)
 	case *ast.UnaryOperationExpr:
-		_, ok := x.V.(*test_driver.ValueExpr)
-		return ok && x.Op == opcode.Minus
+		if v, ok := x.V.(*test_driver.ValueExpr); ok && x.Op == opcode.Minus {
+			return literalItem(v, true, f)
+		}
 	}
-	return false
+	return meta.Item{}, false
+}
+
+func literalItem(v *test_driver.ValueExpr, negative bool, f *ast.SelectField) (meta.Item, bool) {
+	var lit meta.Literal
+	sign := ""
+	if negative {
+		sign = "-"
+	}
+	switch v.Kind() {
+	case test_driver.KindNull:
+		if negative {
+			return meta.Item{}, false
+		}
+		lit = meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}
+	case test_driver.KindString:
+		if negative {
+			return meta.Item{}, false
+		}
+		lit = meta.Literal{Kind: meta.LiteralString, Text: v.GetString()}
+	case test_driver.KindInt64:
+		lit = meta.Literal{Kind: meta.LiteralInt, Text: sign + strconv.FormatInt(v.GetInt64(), 10)}
+	case test_driver.KindUint64:
+		lit = meta.Literal{Kind: meta.LiteralInt, Text: sign + strconv.FormatUint(v.GetUint64(), 10)}
+	case test_driver.KindMysqlDecimal:
+		lit = meta.Literal{Kind: meta.LiteralDecimal, Text: sign + v.GetMysqlDecimal().String()}
+	case test_driver.KindFloat64:
+		// The value cannot give back "1e3"; the item text can, unless it carries an
+		// alias, in which case the shortest form is the best approximation.
+		text := sign + strconv.FormatFloat(v.GetFloat64(), 'g', -1, 64)
+		if f.AsName.O == "" {
+			text = itemText(f.Text())
+		}
+		lit = meta.Literal{Kind: meta.LiteralFloat, Text: text}
+	default:
+		return meta.Item{}, false
+	}
+	name := lit.Text
+	if lit.Kind != meta.LiteralString && lit.Kind != meta.LiteralNull && f.AsName.O == "" {
+		name = itemText(f.Text())
+	}
+	return meta.Item{Literal: &lit, Name: name}, true
+}
+
+// itemText removes a trailing comment from the text the parser keeps for a select
+// item ("2.50 /* c */" -> "2.50"). Only used for numbers, which contain no quotes.
+func itemText(s string) string {
+	for _, marker := range []string{"/*", "#", "--"} {
+		if i := strings.Index(s, marker); i >= 0 {
+			s = s[:i]
+		}
+	}
+	return strings.TrimSpace(s)
 }
 
 func (e *emitter) orderBy(o *ast.OrderByClause) {

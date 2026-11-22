@@ -29,6 +29,7 @@ import (
 	_ "github.com/pingcap/tidb/pkg/parser/test_driver"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/meta"
 )
 
 // defaultSQLMode is the MySQL 8.0 default. SET sql_mode arrives with M2.
@@ -66,6 +67,15 @@ type Statement struct {
 	Rules []string
 	// UseDB is the target of KindUse.
 	UseDB string
+	// Shape describes the result columns of a SELECT, for internal/meta.
+	Shape *Shape
+}
+
+// Shape is the select list of a single-table SELECT.
+type Shape struct {
+	Table string // as written; "" without FROM
+	Alias string
+	Items []meta.Item
 }
 
 // Hint returns what the error mapper needs to know about this statement.
