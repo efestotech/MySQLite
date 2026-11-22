@@ -190,6 +190,24 @@ func (s *Session) Conn(ctx context.Context, database string, write bool) (*sql.C
 	return c, func() { _ = c.Close() }, nil
 }
 
+// CatalogConn returns a connection to read database's catalog (SHOW). It never starts a
+// transaction: inside one bound to database it is the transaction's connection, so the
+// statement sees the same schema; otherwise a read connection.
+func (s *Session) CatalogConn(ctx context.Context, database string) (*sql.Conn, func(), error) {
+	if t := s.tx; t != nil && t.conn != nil && t.db == database {
+		return t.conn, func() {}, nil
+	}
+	db, err := s.eng.Database(database)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, err := db.Read(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c, func() { _ = c.Close() }, nil
+}
+
 // DDLConn returns the writer of database for a DDL statement. MySQL commits the open
 // transaction before DDL and runs the statement on its own, autocommit or not.
 func (s *Session) DDLConn(ctx context.Context, database string) (*sql.Conn, func(), error) {

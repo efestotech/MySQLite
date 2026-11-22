@@ -112,3 +112,53 @@ func compareLen(a, b string) int {
 	}
 	return 1
 }
+
+// LikeCI is MySQL's LIKE under mysql_ci: % matches any run of characters, _ one
+// character, and escape makes the next pattern character literal. Characters compare by
+// their mysql_ci weight; unlike =, LIKE does not ignore trailing spaces.
+func LikeCI(value, pattern string, escape rune) bool {
+	weightsOnce.Do(buildWeights)
+	type token struct {
+		w    uint16
+		kind byte // 0 literal, '%' or '_'
+	}
+	var p []token
+	pr := []rune(pattern)
+	for i := 0; i < len(pr); i++ {
+		r := pr[i]
+		switch {
+		case r == escape && i+1 < len(pr):
+			i++
+			p = append(p, token{w: weight(pr[i])})
+		case r == '%' || r == '_':
+			p = append(p, token{kind: byte(r)})
+		default:
+			p = append(p, token{w: weight(r)})
+		}
+	}
+	var v []uint16
+	for _, r := range value {
+		v = append(v, weight(r))
+	}
+	// Greedy matching with one backtrack point, the last %.
+	vi, pi, star, mark := 0, 0, -1, 0
+	for vi < len(v) {
+		switch {
+		case pi < len(p) && p[pi].kind == '%':
+			star, mark = pi, vi
+			pi++
+		case pi < len(p) && (p[pi].kind == '_' || p[pi].kind == 0 && p[pi].w == v[vi]):
+			vi++
+			pi++
+		case star >= 0:
+			mark++
+			vi, pi = mark, star+1
+		default:
+			return false
+		}
+	}
+	for pi < len(p) && p[pi].kind == '%' {
+		pi++
+	}
+	return pi == len(p)
+}

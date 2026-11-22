@@ -62,7 +62,7 @@ func TestReadTable(t *testing.T) {
 		Columns: []meta.Column{
 			{Name: "id", DeclType: "INTEGER"},
 			{Name: "name", DeclType: "VARCHAR(20)", NotNull: true},
-			{Name: "price", DeclType: "DECIMAL(10,2)", NotNull: true, HasDefault: true},
+			{Name: "price", DeclType: "DECIMAL(10,2)", NotNull: true, HasDefault: true, Default: strPtr("0")},
 			{Name: "code", DeclType: "VARCHAR(10)"},
 			{Name: "a", DeclType: "INT"},
 			{Name: "b", DeclType: "INT"},
@@ -126,3 +126,5 @@ func TestReadMissingTable(t *testing.T) {
 		t.Fatalf("want 1146, got %v", err)
 	}
 }
+
+func strPtr(s string) *string { return &s }

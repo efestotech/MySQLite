@@ -153,7 +153,8 @@ func TestCreateTableErrors(t *testing.T) {
 		"CREATE TABLE x (a VARCHAR(20), KEY (a(5)))",
 		"CREATE TABLE x (a INT) ENGINE=MEMORY",
 		"CREATE TABLE x (a INT, b INT, PRIMARY KEY (a, b), KEY (b), c INT AUTO_INCREMENT UNIQUE)",
-		"CREATE TABLE x (a INT DEFAULT '5')",
+		"CREATE TABLE x (a INT DEFAULT '5x')",
+		"CREATE TABLE x (a DECIMAL(5,1) DEFAULT 1.25)",
 		"CREATE TABLE __mysqlite_x (a INT)",
 		"CREATE TABLE x SELECT 1",
 	} {

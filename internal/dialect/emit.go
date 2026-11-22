@@ -97,6 +97,12 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 		return e.set(n)
 	case *ast.CreateTableStmt:
 		return e.createTable(n)
+	case *ast.ExplainStmt:
+		// DESCRIBE t / EXPLAIN t is SHOW COLUMNS; EXPLAIN of a query is M3.
+		if s, ok := n.Stmt.(*ast.ShowStmt); ok && s.Tp == ast.ShowColumns {
+			return e.show(s)
+		}
+		e.unsupported("EXPLAIN", reasonLater)
 	case *ast.SetOprStmt:
 		e.unsupported("UNION, EXCEPT or INTERSECT", reasonLater)
 	case *ast.GrantStmt, *ast.RevokeStmt, *ast.GrantRoleStmt, *ast.RevokeRoleStmt:

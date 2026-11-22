@@ -100,6 +100,9 @@ type Column struct {
 	DeclType   string // declared type as stored by SQLite
 	NotNull    bool
 	HasDefault bool
+	// Default is the default as SQLite stores it: SQL text such as 'abc', 1 or NULL;
+	// nil without a DEFAULT clause.
+	Default *string
 	// Options are the column's sidecar metadata (MySQL type, COLLATE, COMMENT), by
 	// sidecar key; nil when there is none.
 	Options map[string]string

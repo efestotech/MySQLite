@@ -62,7 +62,7 @@ func ReadTable(ctx context.Context, conn *sql.Conn, database, table string) (*me
 
 func readColumns(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	rows, err := conn.QueryContext(ctx,
-		`SELECT name, type, "notnull", dflt_value IS NOT NULL, pk, hidden FROM pragma_table_xinfo(?) ORDER BY cid`, t.Name)
+		`SELECT name, type, "notnull", dflt_value, pk, hidden FROM pragma_table_xinfo(?) ORDER BY cid`, t.Name)
 	if err != nil {
 		return fmt.Errorf("catalog: columns of %s: %w", t.Name, err)
 	}
@@ -75,8 +75,13 @@ func readColumns(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	for rows.Next() {
 		var c meta.Column
 		var pos, hidden int
-		if err := rows.Scan(&c.Name, &c.DeclType, &c.NotNull, &c.HasDefault, &pos, &hidden); err != nil {
+		var dflt sql.NullString
+		if err := rows.Scan(&c.Name, &c.DeclType, &c.NotNull, &dflt, &pos, &hidden); err != nil {
 			return fmt.Errorf("catalog: columns of %s: %w", t.Name, err)
+		}
+		if dflt.Valid {
+			c.HasDefault = true
+			c.Default = &dflt.String
 		}
 		// hidden 1 is a virtual-table hidden column; 2 and 3 are generated columns,
 		// which MySQL shows.

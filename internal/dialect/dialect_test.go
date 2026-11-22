@@ -268,7 +268,7 @@ func TestUnsupported(t *testing.T) {
 		"DELETE IGNORE FROM t":                                   "DELETE IGNORE",
 		"SET @a = 1":                                             "user variable",
 		"LOCK TABLES t READ":                                     "LOCK TABLES",
-		"SHOW TABLES":                                            "SHOW",
+		"SHOW TRIGGERS":                                          "SHOW",
 		"CREATE TEMPORARY TABLE x (a INT)":                       "CREATE TEMPORARY TABLE",
 		"DROP TABLE x":                                           "DROP TABLE",
 	}

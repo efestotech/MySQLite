@@ -547,7 +547,26 @@ var (
 	reDate     = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 	reDatetime = regexp.MustCompile(`^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?$`)
 	reTime     = regexp.MustCompile(`^-?\d{1,3}:\d{2}:\d{2}(\.\d{1,6})?$`)
+	reInteger  = regexp.MustCompile(`^-?\d+$`)
+	reDecimal  = regexp.MustCompile(`^-?\d+\.\d+$`)
 )
+
+// decimalDefault writes a DECIMAL default with the column's scale, as MySQL stores it
+// (DEFAULT 1.5 on DECIMAL(8,2) is 1.50). nil when the literal has more decimals than
+// the scale, or is not a plain decimal number.
+func decimalDefault(lit *meta.Literal, scale int) *meta.Literal {
+	if lit.Kind != meta.LiteralInt && lit.Kind != meta.LiteralDecimal {
+		return nil
+	}
+	intPart, frac, _ := strings.Cut(lit.Text, ".")
+	if len(frac) > scale || strings.ContainsAny(lit.Text, "eE") {
+		return nil
+	}
+	if scale == 0 {
+		return &meta.Literal{Kind: meta.LiteralInt, Text: intPart}
+	}
+	return &meta.Literal{Kind: meta.LiteralDecimal, Text: intPart + "." + frac + strings.Repeat("0", scale-len(frac))}
+}
 
 // defaultLiteral checks a DEFAULT. Only constants are accepted; a value that would need
 // a type conversion is refused until M3, an invalid one is 1067.
@@ -573,13 +592,29 @@ func (e *emitter) defaultLiteral(col *ddlColumn, x ast.ExprNode) *meta.Literal {
 	case mysql.TypeTiny, mysql.TypeShort, mysql.TypeInt24, mysql.TypeLong, mysql.TypeLonglong,
 		mysql.TypeNewDecimal, mysql.TypeFloat, mysql.TypeDouble, mysql.TypeYear:
 		if !numeric {
-			e.unsupported("string DEFAULT for a numeric column", "the conversion arrives with M3")
-			return nil
+			// SHOW CREATE TABLE prints numeric defaults as strings (DEFAULT '1'), so an
+			// exact number in a string is that number; any other string needs M3's
+			// conversion.
+			switch {
+			case reInteger.MatchString(lit.Text):
+				lit = &meta.Literal{Kind: meta.LiteralInt, Text: lit.Text}
+			case reDecimal.MatchString(lit.Text):
+				lit = &meta.Literal{Kind: meta.LiteralDecimal, Text: lit.Text}
+			default:
+				e.unsupported("string DEFAULT for a numeric column", "the conversion arrives with M3")
+				return nil
+			}
 		}
 		integer := col.ft.GetType() != mysql.TypeNewDecimal && col.ft.GetType() != mysql.TypeFloat && col.ft.GetType() != mysql.TypeDouble
 		if integer && lit.Kind != meta.LiteralInt {
 			e.unsupported("fractional DEFAULT for an integer column", "the rounding arrives with M3")
 			return nil
+		}
+		if col.ft.GetType() == mysql.TypeNewDecimal {
+			if lit = decimalDefault(lit, col.ft.GetDecimal()); lit == nil {
+				e.unsupported("DEFAULT with more decimals than the column", "the rounding arrives with M3")
+				return nil
+			}
 		}
 	case mysql.TypeDate, mysql.TypeDatetime, mysql.TypeTimestamp, mysql.TypeDuration:
 		re := map[byte]*regexp.Regexp{mysql.TypeDate: reDate, mysql.TypeDatetime: reDatetime, mysql.TypeTimestamp: reDatetime, mysql.TypeDuration: reTime}[col.ft.GetType()]

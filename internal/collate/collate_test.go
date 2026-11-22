@@ -60,3 +60,32 @@ func sign(n int) int {
 	}
 	return 0
 }
+
+func TestLikeCI(t *testing.T) {
+	cases := []struct {
+		value, pattern string
+		want           bool
+	}{
+		{"città", "CITTA", true},
+		{"città", "%a", true},
+		{"città", "c_tt_", true},
+		{"città", "c_t", false},
+		{"items", "it%", true},
+		{"items", "%", true},
+		{"", "%", true},
+		{"", "_", false},
+		{"g_x", `g\_%`, true},
+		{"gadgets", `g\_%`, false},
+		{"abc", "a%c%", true},
+		{"abcbc", "%bc", true},
+		{"a ", "a", false},
+		{"Straße", "STRASE", true},
+		{"100%", `100\%`, true},
+		{"1000", `100\%`, false},
+	}
+	for _, c := range cases {
+		if got := LikeCI(c.value, c.pattern, '\\'); got != c.want {
+			t.Errorf("%q LIKE %q: want %v, got %v", c.value, c.pattern, c.want, got)
+		}
+	}
+}

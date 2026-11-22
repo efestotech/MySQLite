@@ -143,7 +143,7 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 	case dialect.KindRead:
 		res, err = h.read(st)
 	case dialect.KindShow:
-		res, err = h.showDiagnostics(st.Show)
+		res, err = h.show(st.Show)
 	case dialect.KindSet:
 		res, err = h.set(st.Set)
 	case dialect.KindDDL:
