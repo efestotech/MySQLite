@@ -1,5 +1,6 @@
 // Package session holds per-connection state (docs/01-architecture.md rule 6). In M1
-// that is the current database; sql_mode, variables and transaction state follow.
+// that is the current database and the explicit transaction; sql_mode and variables
+// follow.
 //
 // A Session is used by one connection goroutine at a time and is not safe for
 // concurrent use.
@@ -17,6 +18,7 @@ type Session struct {
 	eng  *engine.Engine
 	name string
 	db   *engine.Database
+	tx   *tx // the open explicit transaction, or nil
 }
 
 // New returns a session with no current database.

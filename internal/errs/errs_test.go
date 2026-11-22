@@ -181,6 +181,7 @@ func TestConstructors(t *testing.T) {
 		{NoDatabaseSelected(), 1046, "3D000", "No database selected"},
 		{Parse("FROM", 1), 1064, "42000", "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near 'FROM' at line 1"},
 		{Unsupported("LOCK TABLES", "single writer"), 1235, "42000", "mysqlite: unsupported construct LOCK TABLES: single writer"},
+		{ReadOnlyTransaction(), 1792, "25006", "Cannot execute statement in a READ ONLY transaction."},
 		{UnknownCommand(), 1047, "08S01", "Unknown command"},
 		{AccessDenied("test", "127.0.0.1", true), 1045, "28000", "Access denied for user 'test'@'127.0.0.1' (using password: YES)"},
 		{AccessDenied("test", "127.0.0.1", false), 1045, "28000", "Access denied for user 'test'@'127.0.0.1' (using password: NO)"},

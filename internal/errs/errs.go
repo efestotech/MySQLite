@@ -242,6 +242,11 @@ func Unsupported(construct, reason string) *Error {
 	return newError(1235, "42000", "mysqlite: unsupported construct %s: %s", construct, reason)
 }
 
+// ReadOnlyTransaction is 1792: a write inside START TRANSACTION READ ONLY.
+func ReadOnlyTransaction() *Error {
+	return newError(1792, "25006", "Cannot execute statement in a READ ONLY transaction.")
+}
+
 // EmptyQuery is 1065: the query has no statement, only whitespace or comments.
 func EmptyQuery() *Error {
 	return newError(1065, "42000", "Query was empty")
