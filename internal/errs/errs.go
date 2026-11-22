@@ -575,6 +575,11 @@ func LimitInSubquery() *Error {
 	return newError(1235, "42000", "This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")
 }
 
+// DerivedAlias is 1248: a derived table without an alias.
+func DerivedAlias() *Error {
+	return newError(1248, "42000", "Every derived table must have its own alias")
+}
+
 // UnionColumns is 1222: SELECTs of a UNION with different column counts.
 func UnionColumns() *Error {
 	return newError(1222, "21000", "The used SELECT statements have a different number of columns")

@@ -97,6 +97,11 @@ func (e *emitter) joinNode(n ast.ResultSetNode) {
 // tableSource emits one table of a FROM clause. Every table is in the statement's
 // database: one statement runs in one database file.
 func (e *emitter) tableSource(ts *ast.TableSource) {
+	switch ts.Source.(type) {
+	case *ast.SelectStmt, *ast.SetOprStmt:
+		e.derivedTable(ts)
+		return
+	}
 	name, alias, db, ok := e.tableName(ts)
 	if !ok {
 		return
@@ -112,11 +117,8 @@ func (e *emitter) tableSource(ts *ast.TableSource) {
 	if visible == "" {
 		visible = name
 	}
-	for _, s := range e.shape.From.Sources {
-		if s.Visible() == visible || s.Table == nil && s.Alias == visible {
-			e.fail(errs.NonUniqueTable(visible))
-			return
-		}
+	if !e.uniqueTable(visible) {
+		return
 	}
 	if src.Table == nil && alias == "" {
 		// Without a catalog the name still identifies the table.
@@ -127,4 +129,43 @@ func (e *emitter) tableSource(ts *ast.TableSource) {
 	}
 	e.shape.From.Sources = append(e.shape.From.Sources, src)
 	e.writeTable(name, alias)
+}
+
+// uniqueTable fails with 1066 when the FROM clause already has a table named visible.
+func (e *emitter) uniqueTable(visible string) bool {
+	for _, s := range e.shape.From.Sources {
+		if s.Visible() == visible || s.Table == nil && s.Alias == visible {
+			e.fail(errs.NonUniqueTable(visible))
+			return false
+		}
+	}
+	return true
+}
+
+// derivedTable emits FROM (SELECT ...) AS alias. meta builds the table from the query's
+// result columns when the statement is checked.
+func (e *emitter) derivedTable(ts *ast.TableSource) {
+	alias := ts.AsName.O
+	switch {
+	case ts.Lateral:
+		e.unsupported("LATERAL", reasonLater)
+		return
+	case len(ts.ColumnNames) > 0:
+		e.unsupported("derived table column list", reasonLater)
+		return
+	case alias == "":
+		e.fail(errs.DerivedAlias())
+		return
+	}
+	if !e.uniqueTable(alias) {
+		return
+	}
+	text, args, inner := e.subQuery(ts.Source, false)
+	if inner == nil {
+		return
+	}
+	src := meta.Source{Alias: alias, Derived: &meta.Derived{Select: inner.Select, Union: inner.Union}}
+	e.shape.From.Sources = append(e.shape.From.Sources, src)
+	e.write("(", text, ") AS ", quoteIdent(alias))
+	e.args = append(e.args, args...)
 }

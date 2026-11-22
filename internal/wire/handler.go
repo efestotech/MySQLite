@@ -320,8 +320,8 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	var conn *sql.Conn
 	var from meta.From
 	if infoschema.Is(st.Database) {
-		if len(st.Shape.From.Sources) > 1 || len(st.Shape.Union) > 0 {
-			return nil, toMySQL(errs.Unsupported("JOIN or UNION in information_schema", "information_schema tables are built one at a time"))
+		if len(st.Shape.From.Sources) > 1 || len(st.Shape.Union) > 0 || len(st.Shape.From.Sources) == 1 && st.Shape.From.Sources[0].Derived != nil {
+			return nil, toMySQL(errs.Unsupported("JOIN, UNION or derived table in information_schema", "information_schema tables are built one at a time"))
 		}
 		var table *meta.Table
 		conn, table, err = h.infoSchemaConn(ctx, st.Shape.Table)

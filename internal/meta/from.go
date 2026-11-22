@@ -13,6 +13,8 @@ type Source struct {
 	Alias string
 	// Nullable marks the inner side of an outer join: its columns can be NULL.
 	Nullable bool
+	// Derived is the query of a derived table; checking builds its Table.
+	Derived *Derived
 }
 
 // Visible is the name the statement refers to the table by: its alias, else its name.

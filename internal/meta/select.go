@@ -23,6 +23,10 @@ func CheckSelect(sel *Select) ([]ColumnDef, *errs.Error) {
 }
 
 func (s scope) checkSelect(sel *Select) ([]ColumnDef, *errs.Error) {
+	s, e := s.derive()
+	if e != nil {
+		return nil, e
+	}
 	defs, e := s.columns(sel.Items)
 	if e != nil {
 		return nil, e

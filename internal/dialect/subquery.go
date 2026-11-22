@@ -28,18 +28,36 @@ func (e *emitter) subSelect(q *ast.SubqueryExpr, scalar bool) (string, []any, *m
 		e.unsupported("UNION in a subquery", reasonLater)
 		return "", nil, nil
 	}
+	text, args, inner := e.subQuery(sel, scalar)
+	if inner == nil {
+		return "", nil, nil
+	}
+	return text, args, &inner.Select
+}
+
+// subQuery emits a SELECT or a set operation nested in the statement into its own text
+// and arguments, saving the enclosing query's emitter state, and returns its shape; nil
+// when it failed.
+func (e *emitter) subQuery(q ast.ResultSetNode, scalar bool) (string, []any, *Shape) {
 	e.apply(ruleSubquery)
 	shape, refs, checks, clause, inAggregate := e.shape, e.refs, e.checks, e.clause, e.inAggregate
 	text, args := e.sub(func() {
 		e.clause, e.inAggregate, e.aliasFirst = "", false, scalar
-		e.selectStmt(sel)
+		switch q := q.(type) {
+		case *ast.SelectStmt:
+			e.selectStmt(q)
+		case *ast.SetOprStmt:
+			e.setOpr(q)
+		default:
+			e.fail(errs.Internal())
+		}
 	})
 	inner := e.shape
 	e.shape, e.refs, e.checks, e.clause, e.inAggregate, e.aliasFirst = shape, refs, checks, clause, inAggregate, false
-	if e.err != nil || inner == nil {
+	if e.err != nil || inner == nil || inner == shape {
 		return "", nil, nil
 	}
-	return text, args, &inner.Select
+	return text, args, inner
 }
 
 // scalarSubquery emits a subquery used as a value. SQLite returns the first row of a

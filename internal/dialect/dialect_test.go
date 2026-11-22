@@ -231,7 +231,7 @@ func TestUnsupported(t *testing.T) {
 		"SELECT * FROM t NATURAL JOIN u":                         "NATURAL JOIN",
 		"SELECT * FROM t RIGHT JOIN u USING (a)":                 "RIGHT JOIN with USING",
 		"SELECT * FROM t JOIN other.u ON t.a = u.a":              "cross-database reference",
-		"SELECT * FROM (SELECT 1) AS d":                          "derived table",
+		"SELECT * FROM t, LATERAL (SELECT 1 AS a) AS d":          "LATERAL",
 		"SELECT a FROM t GROUP BY a WITH ROLLUP":                 "WITH ROLLUP",
 		"SELECT sum(a) OVER () FROM t":                           "window function",
 		"SELECT a FROM t WHERE round(a) = 1":                     "function ROUND",

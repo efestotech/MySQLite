@@ -6,13 +6,25 @@ import "mysqlite/internal/errs"
 // columns: named as the first SELECT's, typed by merging each position over every
 // SELECT, nullable when any SELECT's column is, and belonging to no table.
 func CheckUnion(first *Select, others []*Select) ([]ColumnDef, *errs.Error) {
-	defs, e := CheckSelect(first)
+	return checkUnion(nil, first, others)
+}
+
+// checkUnion is CheckUnion for SELECTs whose enclosing query is outer (nil for none);
+// without others it is the first SELECT's columns.
+func checkUnion(outer *scope, first *Select, others []*Select) ([]ColumnDef, *errs.Error) {
+	check := func(sel *Select) ([]ColumnDef, *errs.Error) {
+		return scope{from: sel.From, outer: outer}.checkSelect(sel)
+	}
+	defs, e := check(first)
+	if e != nil || len(others) == 0 {
+		return defs, e
+	}
 	if e != nil {
 		return nil, e
 	}
 	all := [][]ColumnDef{defs}
 	for _, sel := range others {
-		d, e := CheckSelect(sel)
+		d, e := check(sel)
 		if e != nil {
 			return nil, e
 		}

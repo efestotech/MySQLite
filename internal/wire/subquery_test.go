@@ -72,7 +72,7 @@ func TestSubqueryErrors(t *testing.T) {
 		{"SELECT name FROM items WHERE id > ANY (SELECT item_id FROM orders)", 1235, "42000", "mysqlite: unsupported construct > ANY subquery: not implemented yet"},
 		{"SELECT (SELECT * FROM stock)", 1235, "42000", "mysqlite: unsupported construct * in a scalar subquery: not implemented yet"},
 		{"UPDATE items SET price = 1 WHERE id IN (SELECT item_id FROM orders)", 1235, "42000", "mysqlite: unsupported construct subquery in a write statement: not implemented yet"},
-		{"SELECT * FROM (SELECT 1) AS d", 1235, "42000", "mysqlite: unsupported construct derived table: not implemented yet"},
+		{"SELECT * FROM items, LATERAL (SELECT 1 AS a) AS d", 1235, "42000", "mysqlite: unsupported construct LATERAL: not implemented yet"},
 	}
 	for _, c := range cases {
 		_, err := conn.Execute(c.query)

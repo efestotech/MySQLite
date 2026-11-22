@@ -106,6 +106,8 @@ type Column struct {
 	// Options are the column's sidecar metadata (MySQL type, COLLATE, COMMENT), by
 	// sidecar key; nil when there is none.
 	Options map[string]string
+	// Def is a derived table column's result column; nil for a stored column.
+	Def *ColumnDef
 }
 
 // Index is a non-primary index.
@@ -313,6 +315,9 @@ const (
 )
 
 func tableColumn(t *Table, c Column, visible, name string) ColumnDef {
+	if c.Def != nil {
+		return derivedColumn(t, c, visible, name)
+	}
 	ti, ok := ParseType(c.MySQLType())
 	if !ok {
 		ti = TypeInfo{Type: TypeVarString, Length: degradedLength, Charset: CollationDefault}
