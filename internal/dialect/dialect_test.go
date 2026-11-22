@@ -370,6 +370,21 @@ func TestSelectShape(t *testing.T) {
 		t.Fatalf("a SELECT without FROM has a shape with no table: %+v", st.Shape)
 	}
 
+	st, e = tr.Translate("SELECT name AS n FROM items AS x WHERE x.id > 1 AND (price = 2 OR NOT code) ORDER BY n, 1, `x`.a DESC", "shop")
+	if e != nil {
+		t.Fatal(e)
+	}
+	refs := []meta.Ref{
+		{Qualifier: "x", Column: "id", Clause: meta.ClauseWhere},
+		{Column: "price", Clause: meta.ClauseWhere},
+		{Column: "code", Clause: meta.ClauseWhere},
+		{Column: "n", Clause: meta.ClauseOrder},
+		{Qualifier: "x", Column: "a", Clause: meta.ClauseOrder},
+	}
+	if !reflect.DeepEqual(st.Shape.Refs, refs) {
+		t.Fatalf("want refs %+v, got %+v", refs, st.Shape.Refs)
+	}
+
 	st, e = tr.Translate("DELETE FROM items", "shop")
 	if e != nil {
 		t.Fatal(e)

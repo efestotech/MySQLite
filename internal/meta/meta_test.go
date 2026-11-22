@@ -218,3 +218,41 @@ func TestLiteralColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckRefs(t *testing.T) {
+	items := []Item{{Column: "name", Name: "n"}}
+	ok := [][]Ref{
+		{{Column: "id", Clause: ClauseWhere}},
+		{{Qualifier: "i", Column: "PRICE", Clause: ClauseWhere}},
+		// ORDER BY may name a select-list alias; WHERE may not.
+		{{Column: "n", Clause: ClauseOrder}},
+		{{Column: "N", Clause: ClauseOrder}},
+	}
+	for _, refs := range ok {
+		if err := CheckRefs(refs, items, shop(), "i"); err != nil {
+			t.Errorf("%+v: unexpected %v", refs, err)
+		}
+	}
+	bad := []struct {
+		refs  []Ref
+		alias string
+		msg   string
+	}{
+		{[]Ref{{Column: "nope", Clause: ClauseWhere}}, "", "Unknown column 'nope' in 'where clause'"},
+		{[]Ref{{Column: "nope", Clause: ClauseOrder}}, "", "Unknown column 'nope' in 'order clause'"},
+		{[]Ref{{Column: "n", Clause: ClauseWhere}}, "", "Unknown column 'n' in 'where clause'"},
+		{[]Ref{{Qualifier: "items", Column: "id", Clause: ClauseWhere}}, "i", "Unknown column 'items.id' in 'where clause'"},
+		{[]Ref{{Qualifier: "x", Column: "n", Clause: ClauseOrder}}, "", "Unknown column 'x.n' in 'order clause'"},
+		// The first unknown reference is reported, in clause order.
+		{[]Ref{{Column: "w", Clause: ClauseWhere}, {Column: "o", Clause: ClauseOrder}}, "", "Unknown column 'w' in 'where clause'"},
+	}
+	for _, tc := range bad {
+		err := CheckRefs(tc.refs, items, shop(), tc.alias)
+		if err == nil || err.Code != 1054 || err.Message != tc.msg {
+			t.Errorf("%+v: want 1054 %q, got %v", tc.refs, tc.msg, err)
+		}
+	}
+	if err := CheckRefs([]Ref{{Column: "id", Clause: ClauseWhere}}, nil, nil, ""); err == nil || err.Code != 1054 {
+		t.Errorf("a column without FROM is unknown, got %v", err)
+	}
+}

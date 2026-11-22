@@ -36,6 +36,8 @@ type emitter struct {
 
 	// inValues forbids column references, which SQLite does not allow in VALUES.
 	inValues bool
+	// clause, when set, records column references in the shape (meta.CheckRefs).
+	clause string
 }
 
 func (e *emitter) apply(rule string) { e.rules[rule] = true }
@@ -215,9 +217,12 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	}
 	if n.Where != nil {
 		e.write(" WHERE ")
+		e.clause = meta.ClauseWhere
 		e.expr(n.Where)
 	}
+	e.clause = meta.ClauseOrder
 	e.orderBy(n.OrderBy)
+	e.clause = ""
 	e.limit(n.Limit)
 }
 
@@ -568,6 +573,9 @@ func (e *emitter) expr(x ast.ExprNode) {
 			return
 		}
 		e.checkSchema(n.Name.Schema)
+		if e.clause != "" && e.shape != nil {
+			e.shape.Refs = append(e.shape.Refs, meta.Ref{Qualifier: n.Name.Table.O, Column: n.Name.Name.O, Clause: e.clause})
+		}
 		if n.Name.Table.O != "" {
 			e.write(quoteIdent(n.Name.Table.O), ".")
 		}

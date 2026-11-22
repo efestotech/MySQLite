@@ -76,6 +76,8 @@ type Shape struct {
 	Table string // as written; "" without FROM
 	Alias string
 	Items []meta.Item
+	// Refs are the column references of WHERE and ORDER BY, in clause order.
+	Refs []meta.Ref
 }
 
 // Hint returns what the error mapper needs to know about this statement.

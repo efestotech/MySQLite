@@ -195,6 +195,58 @@ func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
 	return defs, nil
 }
 
+// Clauses named by error 1054, as MySQL names them.
+const (
+	ClauseWhere = "where clause"
+	ClauseOrder = "order clause"
+)
+
+// Ref is a column reference outside the select list.
+type Ref struct {
+	Qualifier, Column string
+	Clause            string // ClauseWhere or ClauseOrder
+}
+
+// CheckRefs resolves the WHERE and ORDER BY column references of a single-table
+// SELECT, after Columns resolved the select list, as MySQL does. SQLite reports an
+// unknown column without its clause and resolves select-list aliases in WHERE, which
+// MySQL rejects, so the references are checked here before the query runs. ORDER BY may
+// name a select-list alias. t is nil for a SELECT without FROM.
+func CheckRefs(refs []Ref, items []Item, t *Table, alias string) *errs.Error {
+	visible := ""
+	if t != nil {
+		visible = t.Name
+		if alias != "" {
+			visible = alias
+		}
+	}
+	for _, r := range refs {
+		name := r.Column
+		if r.Qualifier != "" {
+			name = r.Qualifier + "." + r.Column
+		}
+		if t != nil && (r.Qualifier == "" || r.Qualifier == visible) {
+			if _, ok := t.column(r.Column); ok {
+				continue
+			}
+		}
+		if r.Clause == ClauseOrder && r.Qualifier == "" && selectAlias(items, r.Column) {
+			continue
+		}
+		return errs.UnknownColumn(name, r.Clause)
+	}
+	return nil
+}
+
+func selectAlias(items []Item, name string) bool {
+	for _, it := range items {
+		if !it.Star && strings.EqualFold(it.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // column finds a column by name; MySQL column names are case-insensitive.
 func (t *Table) column(name string) (Column, bool) {
 	for _, c := range t.Columns {
