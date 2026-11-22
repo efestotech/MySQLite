@@ -52,6 +52,8 @@ type emitter struct {
 	changes bool
 	// inAggregate is set inside an aggregate's arguments.
 	inAggregate bool
+	// decimalReal is set when a DECIMAL takes part in arithmetic (Statement.DecimalAsReal).
+	decimalReal bool
 	// aliasFirst makes the next select item a scalar subquery's column: aliased
 	// scalarColumn when it has no alias; scalarName is the name it got.
 	aliasFirst bool
@@ -147,7 +149,7 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 }
 
 func (e *emitter) result(kind Kind, op errs.Op) *Statement {
-	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op, Shape: e.shape, Write: e.wr}
+	return &Statement{Kind: kind, Database: e.target, SQL: e.b.String(), Args: e.args, Op: op, Shape: e.shape, Write: e.wr, DecimalAsReal: e.decimalReal}
 }
 
 // table resolves the single table of a statement and sets the target database.
@@ -1059,7 +1061,21 @@ func (e *emitter) check(x *meta.Expr) *meta.Expr {
 	if x != nil && e.checks != nil {
 		*e.checks = append(*e.checks, x)
 	}
+	if x != nil && (x.Kind == meta.ExprArith || x.Kind == meta.ExprFunc && x.Op == "MOD") {
+		e.noteDecimal(x.Args...)
+	}
 	return x
+}
+
+// noteDecimal flags the statement when a DECIMAL takes part in arithmetic: mysqlite
+// computes it as REAL (ADR 0006), and the journal records it.
+func (e *emitter) noteDecimal(args ...*meta.Expr) {
+	for _, a := range args {
+		if d, err := meta.Infer(a, e.scope()); err == nil && meta.IsDecimal(d) {
+			e.decimalReal = true
+			return
+		}
+	}
 }
 
 // node builds an operator node; it is nil when an operand failed.

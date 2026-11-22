@@ -60,6 +60,15 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 		e.write(f.SQLiteName(len(texts)), "(", strings.Join(texts, ", "), ")")
 	case functions.Bytes:
 		e.write("length(CAST(", texts[0], " AS BLOB))")
+	case functions.Exact:
+		if len(texts) == 1 {
+			texts = append(texts, "0")
+		}
+		exact := "1"
+		if d, err := meta.Infer(nodes[0], e.scope()); err == nil && !meta.IsExact(d) {
+			exact = "0"
+		}
+		e.write(f.SQLite, "(", strings.Join(texts, ", "), ", ", exact, ")")
 	case functions.Concat:
 		if len(texts) == 1 {
 			texts = append(texts, "''")

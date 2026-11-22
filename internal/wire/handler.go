@@ -263,6 +263,7 @@ func (h *handler) record(query, current string, st *dialect.Statement, res *mysq
 		e.Rules = st.Rules
 		e.Emitted = st.SQL
 		e.Params = st.Args
+		e.DecimalAsReal = st.DecimalAsReal
 	}
 	if res != nil {
 		e.Affected = res.AffectedRows

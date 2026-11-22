@@ -69,6 +69,9 @@ func (e *emitter) aggregate(n *ast.AggregateFuncExpr) *meta.Expr {
 	if x == nil {
 		return nil
 	}
+	if name == "SUM" || name == "AVG" {
+		e.noteDecimal(x)
+	}
 	return &meta.Expr{Kind: meta.ExprFunc, Op: name, Ret: ret, Args: []*meta.Expr{x}, Agg: true}
 }
 

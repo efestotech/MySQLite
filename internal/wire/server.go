@@ -95,6 +95,10 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 		dataDir = abs
 	}
 
+	// ADR 0006: say it loudly, every start.
+	log.Warn("DECIMAL values are stored and computed as REAL (binary floating point): DECIMAL arithmetic, SUM and AVG are not exact; the journal flags such statements with decimal_as_real",
+		"adr", "docs/adr/0006-decimal.md")
+
 	return &Server{
 		catalog: catalog.NewCache(),
 		procs:   newProcessList(),

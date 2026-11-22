@@ -102,8 +102,8 @@ func TestFunctionErrors(t *testing.T) {
 		t.Errorf("1582 message: %q", e.Message)
 	}
 	// Functions outside the table stay 1235, by name.
-	_, err = conn.Execute("SELECT ROUND(d, 1) FROM nums")
-	if e := requireMyError(t, err, 1235, "42000"); e.Message != "mysqlite: unsupported construct function ROUND: not implemented yet" {
+	_, err = conn.Execute("SELECT FORMAT(d, 1) FROM nums")
+	if e := requireMyError(t, err, 1235, "42000"); e.Message != "mysqlite: unsupported construct function FORMAT: not implemented yet" {
 		t.Errorf("1235 message: %q", e.Message)
 	}
 	// Functions work in WHERE too.

@@ -45,6 +45,8 @@ type Entry struct {
 	Error     string
 	// Unsupported is the construct name of a 1235 error, for the roadmap report.
 	Unsupported string
+	// DecimalAsReal marks a statement whose DECIMAL arithmetic ran as REAL (ADR 0006).
+	DecimalAsReal bool
 }
 
 type record struct {
@@ -65,6 +67,7 @@ type record struct {
 	SQLState    string   `json:"sqlstate,omitempty"`
 	Error       string   `json:"error,omitempty"`
 	Unsupported string   `json:"unsupported,omitempty"`
+	DecimalReal bool     `json:"decimal_as_real,omitempty"`
 }
 
 // Journal is the merged query journal: JSON Lines in <dir>/journal.jsonl, rotated by
@@ -113,6 +116,7 @@ func (j *Journal) Record(e Entry) error {
 		ErrorCode:   e.ErrorCode,
 		SQLState:    e.SQLState,
 		Error:       e.Error,
+		DecimalReal: e.DecimalAsReal,
 		Unsupported: e.Unsupported,
 	})
 	if err != nil {

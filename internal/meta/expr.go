@@ -69,6 +69,8 @@ const (
 	RetMinMax
 	// RetGroupConcat is GROUP_CONCAT: a BLOB-typed string in the connection collation.
 	RetGroupConcat
+	// RetRound is ROUND and TRUNCATE: integer, DECIMAL with the places given, or DOUBLE.
+	RetRound
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -217,6 +219,9 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 				return ColumnDef{}, e
 			}
 			args[i] = d
+		}
+		if x.Ret == RetRound {
+			return roundResult(x, args)
 		}
 		return funcResult(x.Ret, args)
 	case ExprArith:

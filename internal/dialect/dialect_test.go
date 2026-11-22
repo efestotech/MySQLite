@@ -234,7 +234,7 @@ func TestUnsupported(t *testing.T) {
 		"SELECT * FROM t, LATERAL (SELECT 1 AS a) AS d":          "LATERAL",
 		"SELECT a FROM t GROUP BY a WITH ROLLUP":                 "WITH ROLLUP",
 		"SELECT sum(a) OVER () FROM t":                           "window function",
-		"SELECT a FROM t WHERE round(a) = 1":                     "function ROUND",
+		"SELECT a FROM t WHERE format(a, 1) = 1":                 "function FORMAT",
 		"SELECT std(a) FROM t":                                   "aggregate STDDEV_POP",
 		"SELECT a FROM t WHERE a ILIKE 'x%'":                     "ILIKE",
 		"SELECT a FROM t WHERE a & 2 = 1":                        "operator &",

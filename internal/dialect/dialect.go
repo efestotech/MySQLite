@@ -116,6 +116,9 @@ type Statement struct {
 	Shape *Shape
 	// Explain is set for EXPLAIN of the read: the executor shows the query's plan.
 	Explain bool
+	// DecimalAsReal is set when a DECIMAL takes part in arithmetic, which mysqlite
+	// computes in binary floating point (ADR 0006); the journal records it.
+	DecimalAsReal bool
 	// Tx is the transaction control of KindTransaction.
 	Tx *Transaction
 	// Write describes INSERT, UPDATE and DELETE.

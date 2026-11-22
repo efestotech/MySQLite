@@ -21,6 +21,9 @@ const (
 	// LastInsertID is LAST_INSERT_ID(): a Session value without an argument; with one,
 	// UDFLastInsertID, which also hands the value to the executor.
 	LastInsertID
+	// Exact calls the SQLite function SQLite with the arguments (a missing second one
+	// as 0) and a last argument 1 when the first is an exact number, else 0 (ROUND).
+	Exact
 )
 
 // Session values the executor binds (dialect.SessionValue).
@@ -78,6 +81,10 @@ const (
 	// UDFRaise(code) raises the MySQL error code (errs.FunctionError); not deterministic,
 	// so SQLite never evaluates it ahead of the branch that calls it.
 	UDFRaise = "mysqlite_raise"
+	// UDFRound and UDFTruncate are ROUND and TRUNCATE (Emit Exact): exact numbers round
+	// on their decimal digits, DOUBLEs on their binary value.
+	UDFRound    = "mysqlite_round"
+	UDFTruncate = "mysqlite_truncate"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
@@ -125,7 +132,10 @@ var table = map[string]Func{
 	"ATAN":    {MinArgs: 1, MaxArgs: 2, Emit: Rename, ByArgs: map[int]string{1: "atan", 2: "atan2"}, Ret: meta.RetDouble},
 	"ATAN2":   rename("atan2", 2, 2, meta.RetDouble),
 	"DEGREES": rename("degrees", 1, 1, meta.RetDouble),
-	"RADIANS": rename("radians", 1, 1, meta.RetDouble),
+	// SQLite's round() rounds the binary value: round(2.675, 2) is 2.67, MySQL's 2.68.
+	"ROUND":    {MinArgs: 1, MaxArgs: 2, Emit: Exact, SQLite: UDFRound, Ret: meta.RetRound},
+	"TRUNCATE": {MinArgs: 2, MaxArgs: 2, Emit: Exact, SQLite: UDFTruncate, Ret: meta.RetRound},
+	"RADIANS":  rename("radians", 1, 1, meta.RetDouble),
 
 	// Strings. SQLite's upper/lower fold ASCII only; MySQL folds every letter.
 	"UPPER":            text(rename(UDFUpper, 1, 1, meta.RetString)),
