@@ -325,22 +325,22 @@ func formatDate(t temporal, format string) string {
 		case 'T':
 			fmt.Fprintf(&b, "%02d:%02d:%02d", t.hour, t.minute, t.second)
 		case 'U':
-			w, _ := week(tt, 0)
+			w, _ := weekMode(tt, 0)
 			fmt.Fprintf(&b, "%02d", w)
 		case 'u':
-			w, _ := week(tt, 1)
+			w, _ := weekMode(tt, 1)
 			fmt.Fprintf(&b, "%02d", w)
 		case 'V':
-			w, _ := week(tt, 2)
+			w, _ := weekMode(tt, 2)
 			fmt.Fprintf(&b, "%02d", w)
 		case 'v':
-			w, _ := week(tt, 3)
+			w, _ := weekMode(tt, 3)
 			fmt.Fprintf(&b, "%02d", w)
 		case 'X':
-			_, y := week(tt, 2)
+			_, y := weekMode(tt, 2)
 			fmt.Fprintf(&b, "%04d", y)
 		case 'x':
-			_, y := week(tt, 3)
+			_, y := weekMode(tt, 3)
 			fmt.Fprintf(&b, "%04d", y)
 		case 'W':
 			b.WriteString(tt.Weekday().String())
@@ -370,36 +370,4 @@ func ordinal(day int) string {
 		return "rd"
 	}
 	return "th"
-}
-
-// week numbers a date as MySQL's WEEK modes 0-3 (documented definitions):
-// 0: Sunday first, 0-53, week 1 holds the year's first Sunday;
-// 1: Monday first, 0-53, week 1 has 4 or more days of the year;
-// 2: as 0, 1-53, earlier days are the previous year's last week;
-// 3: ISO 8601 (Monday first, 1-53, 4-day rule).
-// It also returns the year the week belongs to (%X, %x).
-func week(t time.Time, mode int) (int, int) {
-	switch mode {
-	case 0, 2:
-		firstSunday := (7-int(time.Date(t.Year(), 1, 1, 0, 0, 0, 0, time.UTC).Weekday()))%7 + 1
-		if t.YearDay() >= firstSunday {
-			return (t.YearDay()-firstSunday)/7 + 1, t.Year()
-		}
-		if mode == 0 {
-			return 0, t.Year()
-		}
-		return week(time.Date(t.Year()-1, 12, 31, 0, 0, 0, 0, time.UTC), 2)
-	case 1:
-		y, w := t.ISOWeek()
-		switch {
-		case y < t.Year():
-			return 0, t.Year()
-		case y > t.Year():
-			_, w = t.AddDate(0, 0, -7).ISOWeek()
-			return w + 1, t.Year()
-		}
-		return w, t.Year()
-	}
-	y, w := t.ISOWeek()
-	return w, y
 }

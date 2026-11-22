@@ -880,6 +880,11 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			e.write(ref)
 		}
 		return &meta.Expr{Kind: meta.ExprColumn, Qualifier: n.Name.Table.O, Column: n.Name.Name.O}
+	case *ast.TimeUnitExpr:
+		// An INTERVAL, EXTRACT or TIMESTAMPDIFF unit, passed to the date UDFs as text.
+		unit := n.Unit.String()
+		e.write("'", unit, "'")
+		return &meta.Expr{Kind: meta.ExprLiteral, Literal: &meta.Literal{Kind: meta.LiteralString, Text: unit}}
 	case *test_driver.ParamMarkerExpr:
 		// '?' is not valid in a COM_QUERY text; MySQL reports a syntax error there.
 		e.fail(parseErrorAt(e.query, n.Offset))

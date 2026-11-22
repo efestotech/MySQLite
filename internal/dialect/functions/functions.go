@@ -72,9 +72,11 @@ type Func struct {
 	// Extra is an SQL literal a Rename call passes after the arguments (the part of
 	// UDFDatePart).
 	Extra string
-	// Pad passes NULL for missing arguments up to Pad; Zoned then passes @@time_zone.
-	Pad   int
-	Zoned bool
+	// Pad passes PadValue (NULL when empty) for missing arguments up to Pad; Zoned
+	// then passes @@time_zone.
+	Pad      int
+	PadValue string
+	Zoned    bool
 }
 
 // UDF names registered by package udf.
@@ -119,6 +121,14 @@ const (
 	UDFDateFormat    = "mysqlite_date_format"
 	UDFUnixTimestamp = "mysqlite_unix_timestamp"
 	UDFFromUnixtime  = "mysqlite_from_unixtime"
+	UDFDateAdd       = "mysqlite_date_add"
+	UDFTimestampAdd  = "mysqlite_timestampadd"
+	UDFTimestampDiff = "mysqlite_timestampdiff"
+	UDFExtract       = "mysqlite_extract"
+	UDFWeek          = "mysqlite_week"
+	UDFTime          = "mysqlite_time"
+	UDFMakeDate      = "mysqlite_makedate"
+	UDFPeriodDiff    = "mysqlite_period_diff"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
@@ -244,6 +254,22 @@ var table = map[string]Func{
 	"DATEDIFF":      rename(UDFDateDiff, 2, 2, meta.RetInt),
 	"DATE_FORMAT":   rename(UDFDateFormat, 2, 2, meta.RetString),
 	"FROM_UNIXTIME": {MinArgs: 1, MaxArgs: 2, Emit: Rename, SQLite: UDFFromUnixtime, Pad: 2, Zoned: true, Ret: meta.RetFromUnixtime},
+
+	// Date arithmetic: the parser gives INTERVAL n unit (and ADDDATE(d, n), d + INTERVAL)
+	// as (d, n, unit); the dialect writes the unit as text.
+	"DATE_ADD":      {MinArgs: 3, MaxArgs: 3, Emit: Rename, SQLite: UDFDateAdd, Extra: "1", Ret: meta.RetDateAdd},
+	"ADDDATE":       {MinArgs: 3, MaxArgs: 3, Emit: Rename, SQLite: UDFDateAdd, Extra: "1", Ret: meta.RetDateAdd},
+	"DATE_SUB":      {MinArgs: 3, MaxArgs: 3, Emit: Rename, SQLite: UDFDateAdd, Extra: "-1", Ret: meta.RetDateAdd},
+	"SUBDATE":       {MinArgs: 3, MaxArgs: 3, Emit: Rename, SQLite: UDFDateAdd, Extra: "-1", Ret: meta.RetDateAdd},
+	"TIMESTAMPADD":  rename(UDFTimestampAdd, 3, 3, meta.RetDateAdd),
+	"TIMESTAMPDIFF": rename(UDFTimestampDiff, 3, 3, meta.RetInt),
+	"EXTRACT":       rename(UDFExtract, 2, 2, meta.RetInt),
+	// WEEK(d) uses default_week_format, 0 in mysqlite.
+	"WEEK":        {MinArgs: 1, MaxArgs: 2, Emit: Rename, SQLite: UDFWeek, Pad: 2, PadValue: "0", Ret: meta.RetInt},
+	"WEEKOFYEAR":  {MinArgs: 1, MaxArgs: 1, Emit: Rename, SQLite: UDFWeek, Extra: "3", Ret: meta.RetInt},
+	"TIME":        rename(UDFTime, 1, 1, meta.RetTimeOf),
+	"MAKEDATE":    rename(UDFMakeDate, 2, 2, meta.RetDate),
+	"PERIOD_DIFF": rename(UDFPeriodDiff, 2, 2, meta.RetInt),
 }
 
 // Lookup returns the entry of a function by its MySQL name, in any case.

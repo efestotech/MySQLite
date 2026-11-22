@@ -72,8 +72,12 @@ func (e *emitter) call(n *ast.FuncCallExpr) *meta.Expr {
 	switch f.Emit {
 	case functions.Rename:
 		name := f.SQLiteName(len(n.Args))
+		pad := f.PadValue
+		if pad == "" {
+			pad = "NULL"
+		}
 		for len(texts) < f.Pad {
-			texts = append(texts, "NULL")
+			texts = append(texts, pad)
 		}
 		if f.Extra != "" {
 			texts = append(texts, f.Extra)

@@ -78,6 +78,11 @@ const (
 	RetTime
 	// RetFromUnixtime is FROM_UNIXTIME: DATETIME, or a string with a format argument.
 	RetFromUnixtime
+	// RetDateAdd is DATE_ADD and the like: DATE for a DATE and a date unit, DATETIME for
+	// a temporal value, else a string.
+	RetDateAdd
+	// RetTimeOf is TIME(x): TIME with x's fractional digits.
+	RetTimeOf
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -232,11 +237,15 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			return roundResult(x, args)
 		case RetDatetime, RetDate, RetTime:
 			return temporalResult(x, x.Ret)
+		case RetDateAdd:
+			return dateAddResult(x, args)
+		case RetTimeOf:
+			return timeOfResult(x, args)
 		case RetFromUnixtime:
 			if len(args) > 1 {
 				return funcResult(RetString, args)
 			}
-			return temporalResult(&Expr{}, RetDatetime)
+			return temporalDef(RetDatetime, 0)
 		}
 		d, e := funcResult(x.Ret, args)
 		if e == nil && x.NotNull {

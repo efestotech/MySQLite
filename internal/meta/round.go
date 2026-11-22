@@ -2,6 +2,7 @@ package meta
 
 import (
 	"strconv"
+	"strings"
 
 	"mysqlite/internal/errs"
 )
@@ -77,6 +78,15 @@ func temporalResult(x *Expr, ret FuncRet) (ColumnDef, *errs.Error) {
 	if len(x.Args) > 0 && x.Kind == ExprFunc && x.Op != "" && x.Ret == ret && isClock(x.Op) {
 		fsp, _ = constInt(x.Args[0])
 	}
+	d, e := temporalDef(ret, fsp)
+	if e == nil && x.NotNull {
+		d.Flags |= FlagNotNull
+	}
+	return d, e
+}
+
+// temporalDef is a nullable DATETIME, DATE or TIME with fsp fractional digits.
+func temporalDef(ret FuncRet, fsp int) (ColumnDef, *errs.Error) {
 	decl := map[FuncRet]string{RetDatetime: "DATETIME", RetDate: "DATE", RetTime: "TIME"}[ret]
 	if ret != RetDate && fsp > 0 {
 		decl += "(" + strconv.Itoa(fsp) + ")"
@@ -85,11 +95,50 @@ func temporalResult(x *Expr, ret FuncRet) (ColumnDef, *errs.Error) {
 	if !ok {
 		return ColumnDef{}, errs.Internal()
 	}
-	d := ColumnDef{Type: ti.Type, Charset: ti.Charset, Length: ti.Length, Flags: ti.Flags, Decimals: ti.Decimals}
-	if x.NotNull {
-		d.Flags |= FlagNotNull
+	return ColumnDef{Type: ti.Type, Charset: ti.Charset, Length: ti.Length, Flags: ti.Flags, Decimals: ti.Decimals}, nil
+}
+
+// dateAddResult types DATE_ADD(d, n, unit) and TIMESTAMPADD(unit, n, d).
+func dateAddResult(x *Expr, args []ColumnDef) (ColumnDef, *errs.Error) {
+	arg, unitNode := args[0], x.Args[2]
+	if x.Op == "TIMESTAMPADD" {
+		arg, unitNode = args[2], x.Args[0]
 	}
-	return d, nil
+	unit := ""
+	if unitNode.Kind == ExprLiteral && unitNode.Literal != nil {
+		unit = unitNode.Literal.Text
+	}
+	fsp := 0
+	if strings.Contains(unit, "MICROSECOND") {
+		fsp = 6
+	}
+	switch arg.Type {
+	case TypeDate:
+		switch unit {
+		case "YEAR", "QUARTER", "MONTH", "WEEK", "DAY", "YEAR_MONTH":
+			return temporalDef(RetDate, 0)
+		}
+		return temporalDef(RetDatetime, fsp)
+	case TypeDatetime, TypeTimestamp:
+		return temporalDef(RetDatetime, max(fsp, int(arg.Decimals)))
+	}
+	return funcResult(RetString, args[:1])
+}
+
+// timeOfResult types TIME(x): the fraction digits of a temporal argument, of a string
+// literal as written, else 6.
+func timeOfResult(x *Expr, args []ColumnDef) (ColumnDef, *errs.Error) {
+	fsp := 6
+	switch a := args[0]; {
+	case a.Type == TypeDate:
+		fsp = 0
+	case a.Type == TypeDatetime || a.Type == TypeTimestamp || a.Type == TypeTime:
+		fsp = int(a.Decimals)
+	case x.Args[0].Kind == ExprLiteral && x.Args[0].Literal != nil:
+		_, frac, _ := strings.Cut(x.Args[0].Literal.Text, ".")
+		fsp = min(len(frac), 6)
+	}
+	return temporalDef(RetTime, fsp)
 }
 
 // IsTimestamp reports whether column is a TIMESTAMP column of t (ADR 0007).
