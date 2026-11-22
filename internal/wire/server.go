@@ -215,7 +215,8 @@ func (s *Server) serveConn(raw net.Conn) {
 	h.users = s.cfg.Users
 	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
 	h.applyGlobals()
-	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
+	h.filter = &responseFilter{Conn: newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
+	guarded := hostOnlyConn{h.filter}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {
 		s.log.Info("handshake failed", "remote", remote, "error", err.Error())

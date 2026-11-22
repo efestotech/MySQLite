@@ -51,6 +51,8 @@ type handler struct {
 	procs *processList
 	proc  *process
 	users map[string]string
+	// filter can drop go-mysql's next response packet (COM_STATISTICS).
+	filter *responseFilter
 
 	// conn carries the status flags of every OK and EOF packet; set after
 	// authentication.
@@ -388,10 +390,6 @@ func fields(defs []meta.ColumnDef) []*mysql.Field {
 	return out
 }
 
-func (h *handler) HandleFieldList(string, string) ([]*mysql.Field, error) {
-	return nil, unknownCommand()
-}
-
 func (h *handler) HandleStmtPrepare(string) (int, int, any, error) {
 	return 0, 0, nil, unknownCommand()
 }
@@ -402,10 +400,6 @@ func (h *handler) HandleStmtExecute(any, string, []any) (*mysql.Result, error) {
 
 func (h *handler) HandleStmtClose(any) error {
 	return nil
-}
-
-func (h *handler) HandleOtherCommand(byte, []byte) error {
-	return unknownCommand()
 }
 
 // unknownCommand is ER_UNKNOWN_COM_ERROR (1047 / 08S01), docs/03-protocol.md section 4.
