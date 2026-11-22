@@ -247,7 +247,7 @@ func TestUnsupported(t *testing.T) {
 		"SELECT a FROM t WHERE a = _latin1'x'":                   "character set introducer _latin1",
 		"SELECT a FROM t WHERE a = 18446744073709551615":         "integer literal",
 		"SELECT a FROM t WHERE a = 0.12345678901234567":          "decimal literal",
-		"SELECT a FROM t WHERE a IN (SELECT 1)":                  "subquery",
+		"SELECT a FROM t WHERE a > ALL (SELECT 1)":               "> ALL subquery",
 		"SELECT a FROM t FOR UPDATE":                             "FOR UPDATE",
 		"SELECT SQL_CALC_FOUND_ROWS a FROM t":                    "SQL_CALC_FOUND_ROWS",
 		"SELECT a FROM t UNION SELECT a FROM u":                  "UNION, EXCEPT or INTERSECT",
@@ -316,6 +316,7 @@ func TestRuleOrder(t *testing.T) {
 		"R010 create-table-keys",
 		"R011 current-database",
 		"R012 function-table",
+		"R013 subquery",
 	}
 	var got []string
 	for _, r := range Rules() {
@@ -352,19 +353,19 @@ func TestSelectShape(t *testing.T) {
 	want := &Shape{
 		Table: "items",
 		Alias: "x",
-		Items: []meta.Item{
-			{Star: true},
-			{Star: true, Qualifier: "x"},
-			{Column: "A", Name: "A"},
-			{Qualifier: "x", Column: "b", Name: "bee"},
-			{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "1"}, Name: "1"},
-			{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "-12"}, Name: "-12"},
-			{Literal: &meta.Literal{Kind: meta.LiteralDecimal, Text: "2.50"}, Name: "2.50"},
-			{Literal: &meta.Literal{Kind: meta.LiteralFloat, Text: "1e3"}, Name: "1e3"},
-			{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "città"}, Name: "città"},
-			{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ab"}, Name: "ab"},
-			{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
-		},
+	}
+	want.Items = []meta.Item{
+		{Star: true},
+		{Star: true, Qualifier: "x"},
+		{Column: "A", Name: "A"},
+		{Qualifier: "x", Column: "b", Name: "bee"},
+		{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "1"}, Name: "1"},
+		{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "-12"}, Name: "-12"},
+		{Literal: &meta.Literal{Kind: meta.LiteralDecimal, Text: "2.50"}, Name: "2.50"},
+		{Literal: &meta.Literal{Kind: meta.LiteralFloat, Text: "1e3"}, Name: "1e3"},
+		{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "città"}, Name: "città"},
+		{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ab"}, Name: "ab"},
+		{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
 	}
 	st.Shape.Exprs = nil          // arithmetic checks are covered by the wire tests
 	st.Shape.From = meta.From{}   // FROM clauses are covered by TestJoins

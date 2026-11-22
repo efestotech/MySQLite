@@ -21,6 +21,7 @@ const (
 	ruleCreateIndexes  = "R010"
 	ruleCurrentDB      = "R011"
 	ruleFunction       = "R012"
+	ruleSubquery       = "R013"
 )
 
 var rules = []Rule{
@@ -36,6 +37,7 @@ var rules = []Rule{
 	{ruleCreateIndexes, "create-table-keys", "inline KEY/UNIQUE KEY become CREATE INDEX named <table>__<key>; the MySQL name goes to the sidecar"},
 	{ruleCurrentDB, "current-database", "DATABASE() and SCHEMA() become a parameter holding the current database, or NULL"},
 	{ruleFunction, "function-table", "Function calls and % are translated from the function table: SQLite functions, mysqlite UDFs, MySQL string forms of numeric arguments"},
+	{ruleSubquery, "subquery", "Subqueries: a scalar subquery fails with 1242 on more than one row, = ANY is IN and <> ALL is NOT IN"},
 }
 
 // Rules returns the registry in application order.

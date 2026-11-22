@@ -52,6 +52,10 @@ type emitter struct {
 	changes bool
 	// inAggregate is set inside an aggregate's arguments.
 	inAggregate bool
+	// aliasFirst makes the next select item a scalar subquery's column: aliased
+	// scalarColumn when it has no alias; scalarName is the name it got.
+	aliasFirst bool
+	scalarName string
 }
 
 func (e *emitter) apply(rule string) { e.rules[rule] = true }
@@ -298,6 +302,22 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 // metadata is inferred only for table columns and literals in M1
 // (docs/08-milestones.md), so other expressions are refused.
 func (e *emitter) field(f *ast.SelectField) {
+	first := e.aliasFirst
+	e.aliasFirst = false
+	if w := f.WildCard; w != nil && first {
+		e.unsupported("* in a scalar subquery", reasonLater)
+		return
+	}
+	if first {
+		defer func() {
+			if f.AsName.O != "" {
+				e.scalarName = f.AsName.O
+				return
+			}
+			e.write(" AS ", quoteIdent(scalarColumn))
+			e.scalarName = scalarColumn
+		}()
+	}
 	if w := f.WildCard; w != nil {
 		if w.Table.O == "" && len(e.shape.From.Using) > 0 {
 			// MySQL lists a USING column once, first; SQLite's * keeps the left table's
@@ -937,8 +957,12 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		return x
 	case *ast.PatternInExpr:
 		if n.Sel != nil {
-			e.unsupported("subquery", reasonLater)
-			return nil
+			q, ok := n.Sel.(*ast.SubqueryExpr)
+			if !ok {
+				e.fail(errs.Internal())
+				return nil
+			}
+			return e.inSubquery(n.Expr, q, n.Not)
 		}
 		e.write("(")
 		args := []*meta.Expr{e.expr(n.Expr)}
@@ -1002,8 +1026,12 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		return e.aggregate(n)
 	case *ast.WindowFuncExpr:
 		e.unsupported("window function", reasonLater)
-	case *ast.SubqueryExpr, *ast.ExistsSubqueryExpr, *ast.CompareSubqueryExpr:
-		e.unsupported("subquery", reasonLater)
+	case *ast.SubqueryExpr:
+		return e.scalarSubquery(n)
+	case *ast.ExistsSubqueryExpr:
+		return e.exists(n)
+	case *ast.CompareSubqueryExpr:
+		return e.compareSubquery(n)
 	case *ast.DefaultExpr:
 		e.unsupported("DEFAULT", reasonCatalog)
 	case *ast.RowExpr:

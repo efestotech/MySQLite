@@ -19,6 +19,8 @@ const (
 	ExprBool
 	// ExprArith is binary + - * / DIV (Op), on Args[0] and Args[1].
 	ExprArith
+	// ExprSubquery is a scalar subquery (Sub).
+	ExprSubquery
 	// ExprNeg is unary minus on Args[0].
 	ExprNeg
 	// ExprFunc is a function call (Op is its upper-case name) typed by Ret.
@@ -83,6 +85,9 @@ type Expr struct {
 	Args              []*Expr
 	// Agg marks an aggregate function (COUNT, SUM, ...).
 	Agg bool
+	// Sub is the subquery of an ExprSubquery (scalar), or of an ExprBool with Op
+	// OpExists or OpInSubquery (Args[0] is the left operand).
+	Sub *Select
 	// NotNull is set by the dialect for a node that is never NULL (IS NULL).
 	NotNull bool
 }
@@ -105,7 +110,10 @@ func (x *Expr) Vars() []*Variable {
 // CheckExprs runs the arithmetic checks on expressions outside the select list (WHERE,
 // ORDER BY, SET). Unknown columns are left to CheckRefs, which names their clause.
 func CheckExprs(exprs []*Expr, from From) *errs.Error {
-	s := newScope(from)
+	return newScope(from).checkExprs(exprs)
+}
+
+func (s scope) checkExprs(exprs []*Expr) *errs.Error {
 	for _, x := range exprs {
 		if _, e := s.infer(x, ""); e != nil {
 			return e
@@ -142,6 +150,21 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 	if x == nil {
 		return ColumnDef{}, errs.Internal()
 	}
+	if x.Sub != nil {
+		defs, e := s.subquery(x.Sub)
+		if e != nil {
+			return ColumnDef{}, e
+		}
+		if x.Op != OpExists && len(defs) != 1 {
+			return ColumnDef{}, errs.OperandColumns(1)
+		}
+		if x.Kind == ExprSubquery {
+			// A scalar subquery is NULL when it returns no row.
+			d := defs[0]
+			d.Flags &^= FlagNotNull | FlagPriKey | FlagUniqueKey | FlagMultipleKey | FlagPartKey | FlagAutoIncrement | FlagNoDefault
+			return d, nil
+		}
+	}
 	switch x.Kind {
 	case ExprColumn:
 		src, c, e := s.resolve(x.Qualifier, x.Column, clause)
@@ -173,6 +196,9 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			notNull = notNull && d.Flags&FlagNotNull != 0
 		}
 		d := ColumnDef{Type: TypeLongLong, Charset: CharsetBinary, Length: 1, Flags: FlagBinary | FlagNum}
+		if x.Sub != nil && x.Op != OpExists {
+			notNull = false // the subquery's values can be NULL
+		}
 		if notNull || x.NotNull {
 			d.Flags |= FlagNotNull
 		}
@@ -551,3 +577,9 @@ func merge(args []ColumnDef) ColumnDef {
 	}
 	return ColumnDef{Type: TypeVarString, Charset: CollationDefault, Length: uint32(n * 4)}
 }
+
+// Subquery operators of ExprBool nodes.
+const (
+	OpExists     = "EXISTS"
+	OpInSubquery = "IN SUBQUERY"
+)

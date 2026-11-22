@@ -30,10 +30,15 @@ type Group struct {
 // 1140 without GROUP BY). MySQL also derives dependencies from equalities in WHERE and
 // ON, which this does not: such queries get 1055 here. `oracle: pending`.
 func CheckGroup(items []Item, g Group, from From) *errs.Error {
+	return newScope(from).checkGroup(items, g)
+}
+
+func (s scope) checkGroup(items []Item, g Group) *errs.Error {
 	if !g.Grouped && !g.Aggregated {
 		return nil
 	}
-	c := groupCheck{s: newScope(from), g: g}
+	from := s.from
+	c := groupCheck{s: s, g: g}
 	if g.Having != nil {
 		if col := c.firstColumn(g.Having, func(x *Expr) bool {
 			return x.Qualifier == "" && selectAlias(items, x.Column) || c.grouped(x)
@@ -142,9 +147,14 @@ func (c groupCheck) dependent(col *Expr) bool {
 	if c.grouped(col) {
 		return true
 	}
-	src, _, e := c.s.resolve(col.Qualifier, col.Column, "")
-	if e != nil || len(src.Table.PrimaryKey) == 0 {
-		return e != nil // unresolved columns are CheckRefs' business
+	src, _, depth, e := c.s.resolveDepth(col.Qualifier, col.Column, "")
+	if e != nil || depth > 0 {
+		// Unresolved columns are CheckRefs' business; an enclosing query's column is a
+		// constant here.
+		return true
+	}
+	if len(src.Table.PrimaryKey) == 0 {
+		return false
 	}
 	for _, k := range src.Table.PrimaryKey {
 		if !c.grouped(&Expr{Kind: ExprColumn, Qualifier: src.Visible(), Column: k}) {
@@ -157,7 +167,7 @@ func (c groupCheck) dependent(col *Expr) bool {
 // equal compares two expressions structurally; columns compare by the table and column
 // they resolve to.
 func (c groupCheck) equal(a, b *Expr) bool {
-	if a == nil || b == nil || a.Kind != b.Kind || a.Op != b.Op || a.Agg != b.Agg || len(a.Args) != len(b.Args) {
+	if a == nil || b == nil || a.Kind != b.Kind || a.Op != b.Op || a.Agg != b.Agg || a.Sub != b.Sub || len(a.Args) != len(b.Args) {
 		return false
 	}
 	switch a.Kind {

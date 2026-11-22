@@ -157,17 +157,10 @@ type Shape struct {
 	// (information_schema); From has every table.
 	Table string // as written; "" without FROM
 	Alias string
-	Items []meta.Item
-	// Refs are the column references of WHERE and ORDER BY, in clause order.
-	Refs []meta.Ref
-	// Exprs are the arithmetic nodes of every clause, for meta.CheckExprs.
-	Exprs []*meta.Expr
 	// Meta is the FROM table, when the statement was translated with a catalog.
 	Meta *meta.Table
-	// From is the FROM clause; a source's Table is nil without a catalog.
-	From meta.From
-	// Group is the grouping of the statement, for meta.CheckGroup.
-	Group meta.Group
+	// Select is what meta.CheckSelect checks once the catalog is read.
+	meta.Select
 }
 
 // Hint returns what the error mapper needs to know about this statement.

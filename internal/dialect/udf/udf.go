@@ -35,6 +35,7 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFXor, NumArgs: 2, Deterministic: true, Fn: xor},
 		{Name: functions.UDFLike, NumArgs: 4, Deterministic: true, Fn: like},
 		{Name: functions.UDFCut, NumArgs: 2, Deterministic: true, Fn: cut},
+		{Name: functions.UDFRaise, NumArgs: 1, Fn: raise},
 		// Not deterministic: it writes to the sink on every call.
 		{Name: functions.UDFLastInsertID, NumArgs: 2, Fn: lastInsertID},
 	}
@@ -271,4 +272,16 @@ func cut(args []any) (any, error) {
 		end--
 	}
 	return s[:end], nil
+}
+
+// raise(code) fails with the MySQL error code; errs.Map recovers it.
+func raise(args []any) (any, error) {
+	code, _ := args[0].(int64)
+	switch code {
+	case 1242:
+		return nil, errs.FunctionError(errs.SubqueryRows())
+	case 1365:
+		return nil, errs.FunctionError(errs.DivisionByZero())
+	}
+	return nil, fmt.Errorf("udf: %s(%v)", functions.UDFRaise, args[0])
 }

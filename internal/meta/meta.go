@@ -184,8 +184,12 @@ type ColumnDef struct {
 // Columns describes the result columns of a SELECT; from has no sources for a SELECT
 // without FROM.
 func Columns(items []Item, from From) ([]ColumnDef, *errs.Error) {
+	return newScope(from).columns(items)
+}
+
+func (s scope) columns(items []Item) ([]ColumnDef, *errs.Error) {
 	var defs []ColumnDef
-	s := newScope(from)
+	from := s.from
 	for _, it := range items {
 		switch {
 		case it.Expr != nil:
@@ -254,7 +258,10 @@ type Ref struct {
 // rejects, so the references are checked here before the query runs. ORDER BY may name
 // a select-list alias.
 func CheckRefs(refs []Ref, items []Item, from From) *errs.Error {
-	s := newScope(from)
+	return newScope(from).checkRefs(refs, items)
+}
+
+func (s scope) checkRefs(refs []Ref, items []Item) *errs.Error {
 	for _, r := range refs {
 		alias := r.Qualifier == "" && selectAlias(items, r.Column)
 		// ORDER BY and HAVING look a name up in the select list first.

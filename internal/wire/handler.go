@@ -345,17 +345,10 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 		// The translator attached the FROM tables, read through the same session.
 		from = st.Shape.From
 	}
-	defs, e := meta.Columns(st.Shape.Items, from)
+	sel := st.Shape.Select
+	sel.From = from
+	defs, e := meta.CheckSelect(&sel)
 	if e != nil {
-		return nil, toMySQL(e)
-	}
-	if e := meta.CheckRefs(st.Shape.Refs, st.Shape.Items, from); e != nil {
-		return nil, toMySQL(e)
-	}
-	if e := meta.CheckExprs(st.Shape.Exprs, from); e != nil {
-		return nil, toMySQL(e)
-	}
-	if e := meta.CheckGroup(st.Shape.Items, st.Shape.Group, from); e != nil {
 		return nil, toMySQL(e)
 	}
 	for _, d := range defs {

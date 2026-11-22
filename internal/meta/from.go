@@ -38,18 +38,41 @@ func Single(t *Table, alias string) From {
 	return From{Sources: []Source{{Table: t, Alias: alias}}}
 }
 
-// scope resolves the column references of an expression against a FROM clause.
+// scope resolves the column references of an expression against a FROM clause, then
+// against the enclosing queries' (a correlated subquery).
 type scope struct {
-	from From
+	from  From
+	outer *scope
 }
 
 func newScope(from From) scope {
 	return scope{from: from}
 }
 
-// resolve finds the table of a column reference. A name in several tables is ambiguous
-// (1052) unless it was joined with USING, which takes the first table's column.
+// resolve finds the table of a column reference, in this query or an enclosing one.
 func (s scope) resolve(qualifier, column, clause string) (Source, Column, *errs.Error) {
+	src, c, _, e := s.resolveDepth(qualifier, column, clause)
+	return src, c, e
+}
+
+// resolveDepth is resolve, with the number of queries out the column was found: 0 for
+// this query's tables.
+func (s scope) resolveDepth(qualifier, column, clause string) (Source, Column, int, *errs.Error) {
+	src, c, e := s.resolveHere(qualifier, column, clause)
+	if e != nil && e.Code == unknownColumnCode && s.outer != nil {
+		if osrc, oc, depth, oe := s.outer.resolveDepth(qualifier, column, clause); oe == nil || oe.Code != unknownColumnCode {
+			return osrc, oc, depth + 1, oe
+		}
+	}
+	return src, c, 0, e
+}
+
+var unknownColumnCode = errs.UnknownColumn("", "").Code
+
+// resolveHere finds the table of a column reference among this query's tables. A name
+// in several tables is ambiguous (1052) unless it was joined with USING, which takes
+// the first table's column.
+func (s scope) resolveHere(qualifier, column, clause string) (Source, Column, *errs.Error) {
 	name := column
 	if qualifier != "" {
 		name = qualifier + "." + column

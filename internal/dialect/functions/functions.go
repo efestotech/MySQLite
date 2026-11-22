@@ -75,6 +75,9 @@ const (
 	// UDFCut(s, n) is s cut to at most n bytes on a character boundary
 	// (group_concat_max_len).
 	UDFCut = "mysqlite_cut"
+	// UDFRaise(code) raises the MySQL error code (errs.FunctionError); not deterministic,
+	// so SQLite never evaluates it ahead of the branch that calls it.
+	UDFRaise = "mysqlite_raise"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {

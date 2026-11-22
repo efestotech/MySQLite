@@ -395,6 +395,8 @@ func fromFunction(msg string) *Error {
 	switch code {
 	case "1365":
 		return DivisionByZero()
+	case "1242":
+		return SubqueryRows()
 	}
 	return Internal()
 }
@@ -556,6 +558,21 @@ func NotInGroupBy(n int, clause, column string) *Error {
 // that also selects a plain column.
 func MixedAggregate(n int, column string) *Error {
 	return newError(1140, "42000", "In aggregated query without GROUP BY, expression #%d of SELECT list contains nonaggregated column '%s'; this is incompatible with sql_mode=only_full_group_by", n, column)
+}
+
+// OperandColumns is 1241: a subquery or row with the wrong number of columns.
+func OperandColumns(n int) *Error {
+	return newError(1241, "21000", "Operand should contain %d column(s)", n)
+}
+
+// SubqueryRows is 1242: a scalar subquery that returned more than one row.
+func SubqueryRows() *Error {
+	return newError(1242, "21000", "Subquery returns more than 1 row")
+}
+
+// LimitInSubquery is MySQL's own 1235 for LIMIT in an IN, ALL, ANY or SOME subquery.
+func LimitInSubquery() *Error {
+	return newError(1235, "42000", "This version of MySQL doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'")
 }
 
 // AmbiguousColumn is 1052: an unqualified column that more than one table has.
