@@ -186,6 +186,9 @@ func TestConstructors(t *testing.T) {
 		{AccessDenied("test", "127.0.0.1", false), 1045, "28000", "Access denied for user 'test'@'127.0.0.1' (using password: NO)"},
 		{CommandDenied("SUPER"), 1227, "42000", "Access denied; you need (at least one of) the SUPER privilege(s) for this operation"},
 		{Internal(), 1105, "HY000", "Unknown error"},
+		{NoSuchTable("shop", "t"), 1146, "42S02", "Table 'shop.t' doesn't exist"},
+		{UnknownTable("x"), 1051, "42S02", "Unknown table 'x'"},
+		{UnknownColumn("x.a", "field list"), 1054, "42S22", "Unknown column 'x.a' in 'field list'"},
 		{EmptyQuery(), 1065, "42000", "Query was empty"},
 		{ColumnCount(3), 1136, "21S01", "Column count doesn't match value count at row 3"},
 	}

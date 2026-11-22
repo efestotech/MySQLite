@@ -161,14 +161,14 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 	case sqliteError:
 		if m := reTable.FindStringSubmatch(msg); m != nil {
 			table := strings.TrimPrefix(m[1], "main.")
-			return newError(1146, "42S02", "Table '%s.%s' doesn't exist", h.Database, table)
+			return NoSuchTable(h.Database, table)
 		}
 		if m := reColumn.FindStringSubmatch(msg); m != nil {
 			clause := h.Clause
 			if clause == "" {
 				clause = "field list"
 			}
-			return newError(1054, "42S22", "Unknown column '%s' in '%s'", m[1], clause)
+			return UnknownColumn(m[1], clause)
 		}
 		if reValueCount.MatchString(msg) {
 			// SQLite does not say which row; the dialect layer reports rows whose lengths
@@ -245,6 +245,21 @@ func Unsupported(construct, reason string) *Error {
 // EmptyQuery is 1065: the query has no statement, only whitespace or comments.
 func EmptyQuery() *Error {
 	return newError(1065, "42000", "Query was empty")
+}
+
+// NoSuchTable is 1146.
+func NoSuchTable(database, table string) *Error {
+	return newError(1146, "42S02", "Table '%s.%s' doesn't exist", database, table)
+}
+
+// UnknownTable is 1051, for a qualifier that names no table of the statement (t.*).
+func UnknownTable(table string) *Error {
+	return newError(1051, "42S02", "Unknown table '%s'", table)
+}
+
+// UnknownColumn is 1054. clause is "field list", "where clause", ...
+func UnknownColumn(column, clause string) *Error {
+	return newError(1054, "42S22", "Unknown column '%s' in '%s'", column, clause)
 }
 
 // UnknownCommand is 1047.
