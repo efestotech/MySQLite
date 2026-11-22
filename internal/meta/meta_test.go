@@ -103,7 +103,7 @@ func shop() *Table {
 }
 
 func TestStarExpandsTableColumns(t *testing.T) {
-	defs, err := Columns([]Item{{Star: true}}, shop(), "")
+	defs, err := Columns([]Item{{Star: true}}, Single(shop(), ""))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestNamedColumnsAliasesAndQualifiers(t *testing.T) {
 		{Qualifier: "i", Column: "price", Name: "cost"},
 		{Star: true, Qualifier: "i"},
 	}
-	defs, err := Columns(items, shop(), "i")
+	defs, err := Columns(items, Single(shop(), "i"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,12 +175,12 @@ func TestColumnErrors(t *testing.T) {
 		{[]Item{{Star: true, Qualifier: "x"}}, "", 1051, "Unknown table 'x'"},
 	}
 	for _, tc := range cases {
-		_, err := Columns(tc.items, shop(), tc.alias)
+		_, err := Columns(tc.items, Single(shop(), tc.alias))
 		if err == nil || err.Code != tc.code || err.Message != tc.msg {
 			t.Errorf("want %d %q, got %v", tc.code, tc.msg, err)
 		}
 	}
-	if _, err := Columns([]Item{{Column: "id", Name: "id"}}, nil, ""); err == nil || err.Code != 1054 {
+	if _, err := Columns([]Item{{Column: "id", Name: "id"}}, Single(nil, "")); err == nil || err.Code != 1054 {
 		t.Errorf("a column without FROM is unknown, got %v", err)
 	}
 }
@@ -205,7 +205,7 @@ func TestLiteralColumns(t *testing.T) {
 	}
 	for _, tc := range cases {
 		lit := tc.lit
-		defs, err := Columns([]Item{{Literal: &lit, Name: tc.name}}, nil, "")
+		defs, err := Columns([]Item{{Literal: &lit, Name: tc.name}}, Single(nil, ""))
 		if err != nil {
 			t.Fatalf("%s: %v", tc.name, err)
 		}
@@ -229,7 +229,7 @@ func TestCheckRefs(t *testing.T) {
 		{{Column: "N", Clause: ClauseOrder}},
 	}
 	for _, refs := range ok {
-		if err := CheckRefs(refs, items, shop(), "i"); err != nil {
+		if err := CheckRefs(refs, items, Single(shop(), "i")); err != nil {
 			t.Errorf("%+v: unexpected %v", refs, err)
 		}
 	}
@@ -247,12 +247,12 @@ func TestCheckRefs(t *testing.T) {
 		{[]Ref{{Column: "w", Clause: ClauseWhere}, {Column: "o", Clause: ClauseOrder}}, "", "Unknown column 'w' in 'where clause'"},
 	}
 	for _, tc := range bad {
-		err := CheckRefs(tc.refs, items, shop(), tc.alias)
+		err := CheckRefs(tc.refs, items, Single(shop(), tc.alias))
 		if err == nil || err.Code != 1054 || err.Message != tc.msg {
 			t.Errorf("%+v: want 1054 %q, got %v", tc.refs, tc.msg, err)
 		}
 	}
-	if err := CheckRefs([]Ref{{Column: "id", Clause: ClauseWhere}}, nil, nil, ""); err == nil || err.Code != 1054 {
+	if err := CheckRefs([]Ref{{Column: "id", Clause: ClauseWhere}}, nil, Single(nil, "")); err == nil || err.Code != 1054 {
 		t.Errorf("a column without FROM is unknown, got %v", err)
 	}
 }

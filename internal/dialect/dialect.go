@@ -153,6 +153,8 @@ type Write struct {
 
 // Shape is the select list of a single-table SELECT.
 type Shape struct {
+	// Table, Alias and Meta are the first FROM table, for the single-table readers
+	// (information_schema); From has every table.
 	Table string // as written; "" without FROM
 	Alias string
 	Items []meta.Item
@@ -162,6 +164,8 @@ type Shape struct {
 	Exprs []*meta.Expr
 	// Meta is the FROM table, when the statement was translated with a catalog.
 	Meta *meta.Table
+	// From is the FROM clause; a source's Table is nil without a catalog.
+	From meta.From
 }
 
 // Hint returns what the error mapper needs to know about this statement.

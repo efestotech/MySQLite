@@ -71,8 +71,7 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 // binaryString reports a string operand with a binary collation. An operand whose type
 // is unknown (no catalog) is not binary.
 func (e *emitter) binaryString(x *meta.Expr) bool {
-	t, alias := e.scope()
-	d, err := meta.Infer(x, t, alias)
+	d, err := meta.Infer(x, e.scope())
 	return err == nil && meta.IsString(d) && charset.Binary(d.Charset)
 }
 

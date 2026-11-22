@@ -20,7 +20,7 @@ func TestSelectColumnDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defs, me := meta.Columns(st.Shape.Items, table, st.Shape.Alias)
+	defs, me := meta.Columns(st.Shape.Items, meta.Single(table, st.Shape.Alias))
 	if me != nil {
 		t.Fatal(me)
 	}

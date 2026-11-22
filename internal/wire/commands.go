@@ -42,7 +42,7 @@ func (h *handler) HandleFieldList(table, wildcard string) ([]*mysql.Field, error
 			return nil, h.fail(err, errs.Hint{Database: db})
 		}
 	}
-	defs, e := meta.Columns([]meta.Item{{Star: true}}, t, "")
+	defs, e := meta.Columns([]meta.Item{{Star: true}}, meta.Single(t, ""))
 	if e != nil {
 		return nil, toMySQL(e)
 	}

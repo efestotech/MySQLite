@@ -85,8 +85,7 @@ func (e *emitter) subExpr(x ast.ExprNode) (string, *meta.Expr) {
 // scale (2.50, where SQLite's REAL prints 2.5), a DOUBLE prints as MySQL prints it
 // (1e20, not 1.0e+20). Integers, strings and dates are already in MySQL's form.
 func (e *emitter) textForm(text string, node *meta.Expr) string {
-	t, alias := e.scope()
-	d, err := meta.Infer(node, t, alias)
+	d, err := meta.Infer(node, e.scope())
 	if err != nil {
 		return text
 	}
@@ -106,13 +105,14 @@ func (e *emitter) textForm(text string, node *meta.Expr) string {
 	return text
 }
 
-// scope is the table the statement's column references resolve against.
-func (e *emitter) scope() (*meta.Table, string) {
+// scope is the FROM clause the statement's column references resolve against, as far
+// as it has been read: a JOIN's ON sees the tables before it.
+func (e *emitter) scope() meta.From {
 	switch {
 	case e.shape != nil:
-		return e.shape.Meta, e.shape.Alias
+		return e.shape.From
 	case e.wr != nil:
-		return e.wr.Meta, e.wr.Alias
+		return meta.Single(e.wr.Meta, e.wr.Alias)
 	}
-	return nil, ""
+	return meta.From{}
 }

@@ -540,6 +540,16 @@ func UnknownTable(table string) *Error {
 	return newError(1051, "42S02", "Unknown table '%s'", table)
 }
 
+// AmbiguousColumn is 1052: an unqualified column that more than one table has.
+func AmbiguousColumn(column, clause string) *Error {
+	return newError(1052, "23000", "Column '%s' in %s is ambiguous", column, clause)
+}
+
+// NonUniqueTable is 1066: two tables of a FROM clause with the same name or alias.
+func NonUniqueTable(table string) *Error {
+	return newError(1066, "42000", "Not unique table/alias: '%s'", table)
+}
+
 // UnknownColumn is 1054. clause is "field list", "where clause", ...
 func UnknownColumn(column, clause string) *Error {
 	return newError(1054, "42S22", "Unknown column '%s' in '%s'", column, clause)

@@ -159,10 +159,21 @@ func (e *emitter) table(refs *ast.TableRefsClause, multi string) (name, alias st
 		e.unsupported(multi, reasonM1Scope)
 		return "", ""
 	}
-	tn, ok := ts.Source.(*ast.TableName)
-	if !ok || ts.Lateral || len(ts.ColumnNames) > 0 {
-		e.unsupported("derived table", reasonLater)
+	name, alias, db, ok := e.tableName(ts)
+	if !ok {
 		return "", ""
+	}
+	e.target = db
+	return name, alias
+}
+
+// tableName checks a table of a FROM clause and returns it with its database; ok is
+// false when it failed (e.err is set).
+func (e *emitter) tableName(ts *ast.TableSource) (name, alias, db string, ok bool) {
+	tn, isName := ts.Source.(*ast.TableName)
+	if !isName || ts.Lateral || len(ts.ColumnNames) > 0 {
+		e.unsupported("derived table", reasonLater)
+		return "", "", "", false
 	}
 	switch {
 	case len(tn.PartitionNames) > 0:
@@ -175,7 +186,7 @@ func (e *emitter) table(refs *ast.TableRefsClause, multi string) (name, alias st
 	if len(tn.IndexHints) > 0 {
 		e.apply(ruleHintStrip)
 	}
-	db := tn.Schema.O
+	db = tn.Schema.O
 	if db != "" {
 		e.apply(ruleDBQualifier)
 	} else {
@@ -183,9 +194,9 @@ func (e *emitter) table(refs *ast.TableRefsClause, multi string) (name, alias st
 	}
 	if db == "" {
 		e.fail(errs.NoDatabaseSelected())
+		return "", "", "", false
 	}
-	e.target = db
-	return tn.Name.O, ts.AsName.O
+	return tn.Name.O, ts.AsName.O, db, e.err == nil
 }
 
 func (e *emitter) writeTable(name, alias string) {
@@ -244,13 +255,14 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		e.apply(ruleHintStrip)
 	}
 
-	var name, alias string
-	if n.From != nil {
-		name, alias = e.table(n.From, "JOIN")
-	}
-	e.shape = &Shape{Table: name, Alias: alias, Meta: e.lookup(name)}
+	e.shape = &Shape{}
 	e.refs = &e.shape.Refs
 	e.checks = &e.shape.Exprs
+	var fromText string
+	var fromArgs []any
+	if n.From != nil {
+		fromText, fromArgs = e.fromClause(n.From)
+	}
 	e.write("SELECT ")
 	if n.Distinct {
 		e.write("DISTINCT ")
@@ -262,8 +274,8 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		e.field(f)
 	}
 	if n.From != nil {
-		e.write(" FROM ")
-		e.writeTable(name, alias)
+		e.write(" FROM ", fromText)
+		e.args = append(e.args, fromArgs...)
 	}
 	if n.Where != nil {
 		e.write(" WHERE ")
@@ -281,6 +293,12 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 // (docs/08-milestones.md), so other expressions are refused.
 func (e *emitter) field(f *ast.SelectField) {
 	if w := f.WildCard; w != nil {
+		if w.Table.O == "" && len(e.shape.From.Using) > 0 {
+			// MySQL lists a USING column once, first; SQLite's * keeps the left table's
+			// column order.
+			e.unsupported("* with USING", reasonLater)
+			return
+		}
 		e.checkSchema(w.Schema)
 		if w.Table.O != "" {
 			e.write(quoteIdent(w.Table.O), ".")
@@ -412,11 +430,35 @@ func (e *emitter) orderBy(o *ast.OrderByClause) {
 		if i > 0 {
 			e.write(", ")
 		}
-		e.expr(item.Expr)
+		if pos := e.selectPosition(item.Expr); pos > 0 {
+			e.write(strconv.Itoa(pos))
+		} else {
+			e.expr(item.Expr)
+		}
 		if item.Desc {
 			e.write(" DESC")
 		}
 	}
+}
+
+// selectPosition is the select-list position an unqualified ORDER BY name stands for
+// when the FROM clause has several tables, else 0. MySQL looks a name up in the select
+// list before the tables, so "ORDER BY id" sorts by "SELECT i.id"; SQLite would find
+// the name ambiguous. Items after a * have no fixed position.
+func (e *emitter) selectPosition(x ast.ExprNode) int {
+	c, ok := x.(*ast.ColumnNameExpr)
+	if !ok || c.Name.Table.O != "" || e.shape == nil || len(e.shape.From.Sources) < 2 {
+		return 0
+	}
+	for i, it := range e.shape.Items {
+		if it.Star {
+			return 0
+		}
+		if strings.EqualFold(it.Name, c.Name.Name.O) {
+			return i + 1
+		}
+	}
+	return 0
 }
 
 func (e *emitter) limit(l *ast.Limit) {

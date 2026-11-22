@@ -228,8 +228,9 @@ func TestStatementErrors(t *testing.T) {
 
 func TestUnsupported(t *testing.T) {
 	cases := map[string]string{
-		"SELECT * FROM t JOIN u ON t.a = u.a":                    "JOIN",
-		"SELECT * FROM t, u":                                     "JOIN",
+		"SELECT * FROM t NATURAL JOIN u":                         "NATURAL JOIN",
+		"SELECT * FROM t RIGHT JOIN u USING (a)":                 "RIGHT JOIN with USING",
+		"SELECT * FROM t JOIN other.u ON t.a = u.a":              "cross-database reference",
 		"SELECT * FROM (SELECT 1) AS d":                          "derived table",
 		"SELECT a FROM t GROUP BY a":                             "GROUP BY",
 		"SELECT a FROM t HAVING a > 1":                           "HAVING",
@@ -365,7 +366,8 @@ func TestSelectShape(t *testing.T) {
 			{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
 		},
 	}
-	st.Shape.Exprs = nil // arithmetic checks are covered by the wire tests
+	st.Shape.Exprs = nil        // arithmetic checks are covered by the wire tests
+	st.Shape.From = meta.From{} // FROM clauses are covered by TestJoins
 	if !reflect.DeepEqual(st.Shape, want) {
 		t.Fatalf("want\n%+v\ngot\n%+v", want, st.Shape)
 	}

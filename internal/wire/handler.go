@@ -318,13 +318,18 @@ func (h *handler) transaction(tx *dialect.Transaction) error {
 func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	ctx := context.Background()
 	var conn *sql.Conn
-	var table *meta.Table
+	var from meta.From
 	if infoschema.Is(st.Database) {
+		if len(st.Shape.From.Sources) > 1 {
+			return nil, toMySQL(errs.Unsupported("JOIN in information_schema", "information_schema tables are built one at a time"))
+		}
+		var table *meta.Table
 		conn, table, err = h.infoSchemaConn(ctx, st.Shape.Table)
 		if err != nil {
 			return nil, err
 		}
 		defer conn.Close()
+		from = meta.Single(table, st.Shape.Alias)
 	} else {
 		var release func()
 		conn, release, err = h.sess.Conn(ctx, st.Database, false)
@@ -337,17 +342,17 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 				h.sess.StatementFailed(ctx)
 			}
 		}()
-		// The translator attached the FROM table, read through the same session.
-		table = st.Shape.Meta
+		// The translator attached the FROM tables, read through the same session.
+		from = st.Shape.From
 	}
-	defs, e := meta.Columns(st.Shape.Items, table, st.Shape.Alias)
+	defs, e := meta.Columns(st.Shape.Items, from)
 	if e != nil {
 		return nil, toMySQL(e)
 	}
-	if e := meta.CheckRefs(st.Shape.Refs, st.Shape.Items, table, st.Shape.Alias); e != nil {
+	if e := meta.CheckRefs(st.Shape.Refs, st.Shape.Items, from); e != nil {
 		return nil, toMySQL(e)
 	}
-	if e := meta.CheckExprs(st.Shape.Exprs, table, st.Shape.Alias); e != nil {
+	if e := meta.CheckExprs(st.Shape.Exprs, from); e != nil {
 		return nil, toMySQL(e)
 	}
 	for _, d := range defs {

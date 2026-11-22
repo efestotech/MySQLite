@@ -89,35 +89,10 @@ func (x *Expr) Vars() []*Variable {
 	return out
 }
 
-// scope resolves the column references of an expression against the one table of a
-// single-table statement.
-type scope struct {
-	t       *Table
-	visible string
-}
-
-func newScope(t *Table, alias string) scope {
-	s := scope{t: t}
-	if t != nil {
-		s.visible = t.Name
-		if alias != "" {
-			s.visible = alias
-		}
-	}
-	return s
-}
-
-func (s scope) lookup(qualifier, column string) (Column, bool) {
-	if s.t == nil || (qualifier != "" && qualifier != s.visible) {
-		return Column{}, false
-	}
-	return s.t.column(column)
-}
-
 // CheckExprs runs the arithmetic checks on expressions outside the select list (WHERE,
 // ORDER BY, SET). Unknown columns are left to CheckRefs, which names their clause.
-func CheckExprs(exprs []*Expr, t *Table, alias string) *errs.Error {
-	s := newScope(t, alias)
+func CheckExprs(exprs []*Expr, from From) *errs.Error {
+	s := newScope(from)
 	for _, x := range exprs {
 		if _, e := s.infer(x, ""); e != nil {
 			return e
@@ -141,8 +116,8 @@ func (s scope) exprColumn(x *Expr, name string) (ColumnDef, *errs.Error) {
 
 // Infer types x for the dialect, which needs argument types to translate some functions
 // (CONCAT prints a DECIMAL with its scale). Unknown columns are not reported here.
-func Infer(x *Expr, t *Table, alias string) (ColumnDef, *errs.Error) {
-	return newScope(t, alias).infer(x, "")
+func Infer(x *Expr, from From) (ColumnDef, *errs.Error) {
+	return newScope(from).infer(x, "")
 }
 
 // ClauseField is the clause error 1054 names for the select list.
@@ -156,18 +131,14 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 	}
 	switch x.Kind {
 	case ExprColumn:
-		c, ok := s.lookup(x.Qualifier, x.Column)
-		if !ok {
+		src, c, e := s.resolve(x.Qualifier, x.Column, clause)
+		if e != nil {
 			if clause == "" {
 				return ColumnDef{Type: TypeVarString, Charset: CollationDefault}, nil
 			}
-			name := x.Column
-			if x.Qualifier != "" {
-				name = x.Qualifier + "." + x.Column
-			}
-			return ColumnDef{}, errs.UnknownColumn(name, clause)
+			return ColumnDef{}, e
 		}
-		return tableColumn(s.t, c, s.visible, c.Name), nil
+		return src.column(c, c.Name), nil
 	case ExprLiteral:
 		return literalColumn(*x.Literal, ""), nil
 	case ExprVar:

@@ -181,21 +181,15 @@ type ColumnDef struct {
 	Degraded bool
 }
 
-// Columns describes the result columns of a single-table SELECT. t is nil for a SELECT
-// without FROM; alias is the table alias, or "".
-func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
+// Columns describes the result columns of a SELECT; from has no sources for a SELECT
+// without FROM.
+func Columns(items []Item, from From) ([]ColumnDef, *errs.Error) {
 	var defs []ColumnDef
-	visible := ""
-	if t != nil {
-		visible = t.Name
-		if alias != "" {
-			visible = alias
-		}
-	}
+	s := newScope(from)
 	for _, it := range items {
 		switch {
 		case it.Expr != nil:
-			d, e := newScope(t, alias).exprColumn(it.Expr, it.Name)
+			d, e := s.exprColumn(it.Expr, it.Name)
 			if e != nil {
 				return nil, e
 			}
@@ -208,29 +202,32 @@ func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
 			}
 			defs = append(defs, variableColumn(*it.Var, it.Name))
 		case it.Star:
-			if t == nil {
+			if len(from.Sources) == 0 {
 				// MySQL: SELECT * without FROM is a syntax error caught by the parser.
 				return nil, errs.Parse("*", 1)
 			}
-			if it.Qualifier != "" && it.Qualifier != visible {
-				return nil, errs.UnknownTable(it.Qualifier)
+			srcs := from.Sources
+			if it.Qualifier != "" {
+				src, e := s.source(it.Qualifier)
+				if e != nil {
+					return nil, e
+				}
+				srcs = []Source{src}
 			}
-			for _, c := range t.Columns {
-				defs = append(defs, tableColumn(t, c, visible, c.Name))
+			for _, src := range srcs {
+				if src.Table == nil {
+					continue
+				}
+				for _, c := range src.Table.Columns {
+					defs = append(defs, src.column(c, c.Name))
+				}
 			}
 		default:
-			name := it.Column
-			if it.Qualifier != "" {
-				name = it.Qualifier + "." + it.Column
+			src, c, e := s.resolve(it.Qualifier, it.Column, ClauseField)
+			if e != nil {
+				return nil, e
 			}
-			if t == nil || (it.Qualifier != "" && it.Qualifier != visible) {
-				return nil, errs.UnknownColumn(name, "field list")
-			}
-			c, ok := t.column(it.Column)
-			if !ok {
-				return nil, errs.UnknownColumn(name, "field list")
-			}
-			defs = append(defs, tableColumn(t, c, visible, it.Name))
+			defs = append(defs, src.column(c, it.Name))
 		}
 	}
 	return defs, nil
@@ -240,6 +237,7 @@ func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
 const (
 	ClauseWhere = "where clause"
 	ClauseOrder = "order clause"
+	ClauseOn    = "on clause"
 )
 
 // Ref is a column reference outside the select list.
@@ -248,33 +246,21 @@ type Ref struct {
 	Clause            string // ClauseWhere or ClauseOrder
 }
 
-// CheckRefs resolves the WHERE and ORDER BY column references of a single-table
-// SELECT, after Columns resolved the select list, as MySQL does. SQLite reports an
-// unknown column without its clause and resolves select-list aliases in WHERE, which
-// MySQL rejects, so the references are checked here before the query runs. ORDER BY may
-// name a select-list alias. t is nil for a SELECT without FROM.
-func CheckRefs(refs []Ref, items []Item, t *Table, alias string) *errs.Error {
-	visible := ""
-	if t != nil {
-		visible = t.Name
-		if alias != "" {
-			visible = alias
-		}
-	}
+// CheckRefs resolves the column references outside the select list (ON, WHERE, ORDER
+// BY), after Columns resolved the select list, as MySQL does. SQLite reports an unknown
+// column without its clause and resolves select-list aliases in WHERE, which MySQL
+// rejects, so the references are checked here before the query runs. ORDER BY may name
+// a select-list alias.
+func CheckRefs(refs []Ref, items []Item, from From) *errs.Error {
+	s := newScope(from)
 	for _, r := range refs {
-		name := r.Column
-		if r.Qualifier != "" {
-			name = r.Qualifier + "." + r.Column
-		}
-		if t != nil && (r.Qualifier == "" || r.Qualifier == visible) {
-			if _, ok := t.column(r.Column); ok {
-				continue
-			}
-		}
+		// ORDER BY looks a name up in the select list first.
 		if r.Clause == ClauseOrder && r.Qualifier == "" && selectAlias(items, r.Column) {
 			continue
 		}
-		return errs.UnknownColumn(name, r.Clause)
+		if _, _, e := s.resolve(r.Qualifier, r.Column, r.Clause); e != nil {
+			return e
+		}
 	}
 	return nil
 }
