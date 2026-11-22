@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 
+	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
 )
 
@@ -27,6 +29,9 @@ func textRow(defs []meta.ColumnDef, vals []any) ([]byte, error) {
 	var row []byte
 	for i, d := range defs {
 		b, null, err := textValue(d, vals[i])
+		if errors.Is(err, errIntegerOverflow) {
+			return nil, errs.BigintOutOfRange(d.Flags&meta.FlagUnsigned != 0, d.Name)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("column %q: %w", d.Name, err)
 		}
@@ -113,6 +118,11 @@ func anyText(v any) string {
 	return fmt.Sprint(v)
 }
 
+// errIntegerOverflow is an integer column that received a REAL holding a whole number
+// outside the 64-bit range: SQLite's integer arithmetic overflowed into floating point,
+// where MySQL raises 1690.
+var errIntegerOverflow = errors.New("integer arithmetic overflow")
+
 func integerText(d meta.ColumnDef, v any) (string, error) {
 	var n int64
 	switch x := v.(type) {
@@ -120,7 +130,10 @@ func integerText(d meta.ColumnDef, v any) (string, error) {
 		n = x
 	case float64:
 		// A REAL that holds an integer is the same number.
-		if x != math.Trunc(x) || x < math.MinInt64 || x >= math.MaxInt64 {
+		if x == math.Trunc(x) && (x < math.MinInt64 || x >= math.MaxInt64) {
+			return "", errIntegerOverflow
+		}
+		if x != math.Trunc(x) {
 			return "", fmt.Errorf("%v does not fit an integer column", x)
 		}
 		n = int64(x)

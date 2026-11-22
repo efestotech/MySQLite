@@ -40,6 +40,8 @@ type emitter struct {
 	// clause, when set, records column references in refs (meta.CheckRefs).
 	clause string
 	refs   *[]meta.Ref
+	// checks collects the arithmetic nodes of the statement for meta.CheckExprs.
+	checks *[]*meta.Expr
 	wr     *Write
 }
 
@@ -227,6 +229,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	}
 	e.shape = &Shape{Table: name, Alias: alias}
 	e.refs = &e.shape.Refs
+	e.checks = &e.shape.Exprs
 	e.write("SELECT ")
 	if n.Distinct {
 		e.write("DISTINCT ")
@@ -265,11 +268,16 @@ func (e *emitter) field(f *ast.SelectField) {
 		e.shape.Items = append(e.shape.Items, meta.Item{Star: true, Qualifier: w.Table.O})
 		return
 	}
-	e.expr(f.Expr)
+	x := e.expr(f.Expr)
 	item, ok := selectItem(f, e.current)
 	if !ok {
-		e.unsupported("expression in select list", "result metadata for expressions arrives in M3")
-		return
+		if x == nil {
+			// The expression failed (e.err is set) or has no type of its own.
+			e.unsupported("expression in select list", reasonLater)
+			return
+		}
+		// MySQL names a computed column by its text as written.
+		item = meta.Item{Expr: x, Name: itemText(f.Text())}
 	}
 	if f.AsName.O != "" {
 		e.write(" AS ", quoteIdent(f.AsName.O))
@@ -511,6 +519,7 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 
 	e.wr = &Write{Table: name, Alias: alias, Set: map[string]*meta.Literal{}}
 	e.refs = &e.wr.Refs
+	e.checks = &e.wr.Exprs
 	e.write("UPDATE ")
 	e.writeTable(name, alias)
 	e.write(" SET ")
@@ -651,6 +660,7 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	}
 	e.wr = &Write{Table: name, Alias: alias}
 	e.refs = &e.wr.Refs
+	e.checks = &e.wr.Exprs
 	e.write("DELETE FROM ")
 	e.writeTable(name, alias)
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
@@ -731,12 +741,15 @@ var refusedOps = map[opcode.Op]string{
 	opcode.RightShift: ">>",
 }
 
-func (e *emitter) expr(x ast.ExprNode) {
+// expr emits x and returns its typed shape (meta.Expr), from which meta infers the
+// result type once the catalog is read. It returns nil when x failed, or for nodes that
+// carry no type of their own (a placeholder, ORDER BY position).
+func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 	switch n := x.(type) {
 	case *ast.ColumnNameExpr:
 		if e.inValues {
 			e.unsupported("column reference in VALUES", reasonSemantics)
-			return
+			return nil
 		}
 		e.checkSchema(n.Name.Schema)
 		if e.clause != "" && e.refs != nil {
@@ -746,34 +759,40 @@ func (e *emitter) expr(x ast.ExprNode) {
 			e.write(quoteIdent(n.Name.Table.O), ".")
 		}
 		e.write(quoteIdent(n.Name.Name.O))
+		return &meta.Expr{Kind: meta.ExprColumn, Qualifier: n.Name.Table.O, Column: n.Name.Name.O}
 	case *test_driver.ParamMarkerExpr:
 		// '?' is not valid in a COM_QUERY text; MySQL reports a syntax error there.
 		e.fail(parseErrorAt(e.query, n.Offset))
 	case *test_driver.ValueExpr:
 		e.value(n)
+		if lit := valueLiteral(n); lit != nil {
+			return &meta.Expr{Kind: meta.ExprLiteral, Literal: lit}
+		}
 	case *ast.PositionExpr:
 		// ORDER BY 1: a select-list position, the same in SQLite.
 		if n.P != nil {
 			e.fail(parseErrorAt(e.query, 0))
-			return
+			return nil
 		}
 		e.write(strconv.Itoa(n.N))
 	case *ast.ParenthesesExpr:
 		// Every emitted operator is already parenthesized.
-		e.expr(n.Expr)
+		return e.expr(n.Expr)
 	case *ast.UnaryOperationExpr:
 		switch n.Op {
 		case opcode.Minus:
 			// "(- x)": the space keeps "- -5" from becoming a "--" comment.
 			e.write("(- ")
-			e.expr(n.V)
+			a := e.expr(n.V)
 			e.write(")")
+			return e.check(node(meta.ExprNeg, "", a))
 		case opcode.Plus:
-			e.expr(n.V)
+			return e.expr(n.V)
 		case opcode.Not, opcode.Not2:
 			e.write("(NOT ")
-			e.expr(n.V)
+			a := e.expr(n.V)
 			e.write(")")
+			return node(meta.ExprBool, "NOT", a)
 		default:
 			e.unsupported("operator ~", reasonLater)
 		}
@@ -789,28 +808,42 @@ func (e *emitter) expr(x ast.ExprNode) {
 				name = n.Op.String()
 			}
 			e.unsupported("operator "+name, reasonLater)
-			return
+			return nil
 		}
 		e.write("(")
-		e.expr(n.L)
+		l := e.expr(n.L)
 		e.write(" ", op, " ")
-		e.expr(n.R)
+		r := e.expr(n.R)
 		e.write(")")
+		switch op {
+		case "+", "-", "*":
+			return e.check(node(meta.ExprArith, op, l, r))
+		}
+		x := node(meta.ExprBool, op, l, r)
+		if x != nil && op == "IS" {
+			x.NotNull = true
+		}
+		return x
 	case *ast.IsNullExpr:
 		e.write("(")
-		e.expr(n.Expr)
+		a := e.expr(n.Expr)
 		if n.Not {
 			e.write(" IS NOT NULL)")
 		} else {
 			e.write(" IS NULL)")
 		}
+		x := node(meta.ExprBool, "IS NULL", a)
+		if x != nil {
+			x.NotNull = true
+		}
+		return x
 	case *ast.PatternInExpr:
 		if n.Sel != nil {
 			e.unsupported("subquery", reasonLater)
-			return
+			return nil
 		}
 		e.write("(")
-		e.expr(n.Expr)
+		args := []*meta.Expr{e.expr(n.Expr)}
 		if n.Not {
 			e.write(" NOT")
 		}
@@ -819,20 +852,22 @@ func (e *emitter) expr(x ast.ExprNode) {
 			if i > 0 {
 				e.write(", ")
 			}
-			e.expr(item)
+			args = append(args, e.expr(item))
 		}
 		e.write("))")
+		return node(meta.ExprBool, "IN", args...)
 	case *ast.BetweenExpr:
 		e.write("(")
-		e.expr(n.Expr)
+		a := e.expr(n.Expr)
 		if n.Not {
 			e.write(" NOT")
 		}
 		e.write(" BETWEEN ")
-		e.expr(n.Left)
+		l := e.expr(n.Left)
 		e.write(" AND ")
-		e.expr(n.Right)
+		r := e.expr(n.Right)
 		e.write(")")
+		return node(meta.ExprBool, "BETWEEN", a, l, r)
 	case *ast.IsTruthExpr:
 		name := "IS "
 		if n.Not {
@@ -851,7 +886,11 @@ func (e *emitter) expr(x ast.ExprNode) {
 			e.apply(ruleCurrentDB)
 			e.write("?")
 			e.args = append(e.args, currentDatabaseArg(e.current))
-			return
+			lit := &meta.Literal{Kind: meta.LiteralString, Text: e.current}
+			if e.current == "" {
+				lit = &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}
+			}
+			return &meta.Expr{Kind: meta.ExprLiteral, Literal: lit}
 		}
 		e.unsupported("function "+strings.ToUpper(n.FnName.L), reasonLater)
 	case *ast.AggregateFuncExpr:
@@ -865,15 +904,36 @@ func (e *emitter) expr(x ast.ExprNode) {
 	case *ast.VariableExpr:
 		if !n.IsSystem {
 			e.unsupported("user variable", reasonLater)
-			return
+			return nil
 		}
 		e.write("?")
 		e.args = append(e.args, &Variable{Name: n.Name, Scope: variableScope(n)})
+		return &meta.Expr{Kind: meta.ExprVar, Var: &meta.Variable{Name: n.Name, Scope: variableScope(n)}}
 	case *ast.CaseExpr:
 		e.unsupported("CASE", reasonLater)
 	default:
 		e.unsupported(strings.TrimSuffix(statementName(x), " EXPR")+" expression", reasonLater)
 	}
+	return nil
+}
+
+// check records an arithmetic node for meta.CheckExprs, which refuses the operand
+// types SQLite would compute differently.
+func (e *emitter) check(x *meta.Expr) *meta.Expr {
+	if x != nil && e.checks != nil {
+		*e.checks = append(*e.checks, x)
+	}
+	return x
+}
+
+// node builds an operator node; it is nil when an operand failed.
+func node(kind meta.ExprKind, op string, args ...*meta.Expr) *meta.Expr {
+	for _, a := range args {
+		if a == nil {
+			return nil
+		}
+	}
+	return &meta.Expr{Kind: kind, Op: op, Args: args}
 }
 
 func (e *emitter) value(v *test_driver.ValueExpr) {

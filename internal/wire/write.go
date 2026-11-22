@@ -49,6 +49,9 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 		if e := meta.CheckRefs(w.Refs, nil, table, w.Alias); e != nil {
 			return nil, toMySQL(e)
 		}
+		if e := meta.CheckExprs(w.Exprs, table, w.Alias); e != nil {
+			return nil, toMySQL(e)
+		}
 		r, err := conn.ExecContext(ctx, st.SQL, st.Args...)
 		if err != nil {
 			return nil, h.fail(err, hint)
@@ -101,6 +104,9 @@ func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statem
 func (h *handler) update(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {
 	w := st.Write
 	if e := meta.CheckRefs(w.Refs, nil, table, w.Alias); e != nil {
+		return nil, toMySQL(e)
+	}
+	if e := meta.CheckExprs(w.Exprs, table, w.Alias); e != nil {
 		return nil, toMySQL(e)
 	}
 	hint.Entry = func(_ string, cols []string) string { return updateEntry(w.Set, cols) }

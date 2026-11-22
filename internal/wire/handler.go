@@ -206,15 +206,17 @@ func (h *handler) bindVariables(st *dialect.Statement) *errs.Error {
 	}
 	if st.Shape != nil {
 		for i := range st.Shape.Items {
-			it := st.Shape.Items[i].Var
-			if it == nil {
-				continue
+			vs := st.Shape.Items[i].Expr.Vars()
+			if v := st.Shape.Items[i].Var; v != nil {
+				vs = append(vs, v)
 			}
-			val, def, e := h.vars.Get(it.Name, it.Scope)
-			if e != nil {
-				return e
+			for _, it := range vs {
+				val, def, e := h.vars.Get(it.Name, it.Scope)
+				if e != nil {
+					return e
+				}
+				it.Def, it.Value = def, val
 			}
-			it.Def, it.Value = def, val
 		}
 	}
 	return nil
@@ -330,6 +332,9 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	if e := meta.CheckRefs(st.Shape.Refs, st.Shape.Items, table, st.Shape.Alias); e != nil {
 		return nil, toMySQL(e)
 	}
+	if e := meta.CheckExprs(st.Shape.Exprs, table, st.Shape.Alias); e != nil {
+		return nil, toMySQL(e)
+	}
 	for _, d := range defs {
 		if d.Degraded {
 			h.log.Warn("column metadata degraded to text", "table", d.OrgTable, "column", d.OrgName)
@@ -360,6 +365,10 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 			return nil, h.fail(err, st.Hint())
 		}
 		row, err := textRow(defs, vals)
+		var me *errs.Error
+		if errors.As(err, &me) {
+			return nil, toMySQL(me)
+		}
 		if err != nil {
 			return nil, h.fail(fmt.Errorf("wire: encode row of %q: %w", st.SQL, err), errs.Hint{})
 		}

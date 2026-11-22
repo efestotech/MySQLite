@@ -76,3 +76,12 @@ func TestSqlQuoteShowCreate(t *testing.T) {
 		t.Errorf("sql_quote_show_create: %q", got)
 	}
 }
+
+func TestAdminerFieldListQuery(t *testing.T) {
+	conn := shopServer(t)
+	// Adminer's SQL-editor field list (M2 smoke run, 1235 before M3).
+	res := execOK(t, conn, "SELECT TABLE_NAME AS tab, COLUMN_NAME AS field, IS_NULLABLE AS nullable, DATA_TYPE AS type, CHARACTER_MAXIMUM_LENGTH AS length, COLUMN_KEY = 'PRI' AS `primary`\nFROM INFORMATION_SCHEMA.COLUMNS\nWHERE TABLE_SCHEMA = 'shop'\nORDER BY TABLE_NAME, ORDINAL_POSITION")
+	if res.RowNumber() != 5 || column(t, res, 0, "field") != "id" || column(t, res, 0, "primary") != "1" || column(t, res, 1, "primary") != "0" {
+		t.Errorf("field list: %d rows", res.RowNumber())
+	}
+}

@@ -346,6 +346,17 @@ const (
 	CheckLengthPrefix = "__mysqlite_length_"
 )
 
+// BigintOutOfRange is 1690: integer arithmetic left the 64-bit range. expr is the
+// expression as the select list names it; MySQL prints it normalized and qualified
+// (`oracle: pending`).
+func BigintOutOfRange(unsigned bool, expr string) *Error {
+	kind := "BIGINT"
+	if unsigned {
+		kind = "BIGINT UNSIGNED"
+	}
+	return newError(1690, "22003", "%s value is out of range in '%s'", kind, expr)
+}
+
 // OutOfRange is 1264 in strict mode.
 func OutOfRange(column string, row int) *Error {
 	return newError(1264, "22003", "Out of range value for column '%s' at row %d", column, row)

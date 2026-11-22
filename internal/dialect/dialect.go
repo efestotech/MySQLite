@@ -133,6 +133,8 @@ type Write struct {
 	Set map[string]*meta.Literal
 	// UPDATE and DELETE: WHERE and ORDER BY column references, for meta.CheckRefs.
 	Refs []meta.Ref
+	// UPDATE and DELETE: arithmetic nodes, for meta.CheckExprs.
+	Exprs []*meta.Expr
 	// UPDATE: counts the rows the statement matches. Statement.SQL updates only the rows
 	// whose values change, so its changes() is MySQL's affected rows; with
 	// CLIENT_FOUND_ROWS the matched count is reported instead.
@@ -147,6 +149,8 @@ type Shape struct {
 	Items []meta.Item
 	// Refs are the column references of WHERE and ORDER BY, in clause order.
 	Refs []meta.Ref
+	// Exprs are the arithmetic nodes of every clause, for meta.CheckExprs.
+	Exprs []*meta.Expr
 }
 
 // Hint returns what the error mapper needs to know about this statement.

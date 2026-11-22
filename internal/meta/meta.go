@@ -132,6 +132,8 @@ type Item struct {
 	// Var is set for a system variable (@@name). Def and Value are filled by the
 	// executor once the variable is read, before Columns.
 	Var *Variable
+	// Expr is set for a computed item; its type is inferred once the catalog is read.
+	Expr *Expr
 	// Name is the result column name: the alias, else the item as MySQL names it.
 	Name string
 }
@@ -192,6 +194,12 @@ func Columns(items []Item, t *Table, alias string) ([]ColumnDef, *errs.Error) {
 	}
 	for _, it := range items {
 		switch {
+		case it.Expr != nil:
+			d, e := newScope(t, alias).exprColumn(it.Expr, it.Name)
+			if e != nil {
+				return nil, e
+			}
+			defs = append(defs, d)
 		case it.Literal != nil:
 			defs = append(defs, literalColumn(*it.Literal, it.Name))
 		case it.Var != nil:
