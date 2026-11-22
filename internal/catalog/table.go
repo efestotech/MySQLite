@@ -91,7 +91,7 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	// pragma_index_list does not return creation order; sqlite_schema rowids do. The
 	// primary-key index (origin 'pk') is described by PrimaryKey instead.
 	rows, err := conn.QueryContext(ctx, `
-		SELECT il.name, il."unique", il.partial
+		SELECT il.name, il."unique", il.partial, il.origin
 		FROM pragma_index_list(?) AS il JOIN sqlite_schema AS s ON s.name = il.name
 		WHERE il.origin <> 'pk'
 		ORDER BY s.rowid`, t.Name)
@@ -101,11 +101,12 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	type index struct {
 		name            string
 		unique, partial bool
+		origin          string // 'c' CREATE INDEX, 'u' UNIQUE constraint
 	}
 	var list []index
 	for rows.Next() {
 		var ix index
-		if err := rows.Scan(&ix.name, &ix.unique, &ix.partial); err != nil {
+		if err := rows.Scan(&ix.name, &ix.unique, &ix.partial, &ix.origin); err != nil {
 			rows.Close()
 			return fmt.Errorf("catalog: indexes of %s: %w", t.Name, err)
 		}
@@ -116,6 +117,16 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 		return fmt.Errorf("catalog: indexes of %s: %w", t.Name, err)
 	}
 
+	// SQLite names a UNIQUE constraint sqlite_autoindex_<table>_<n>. MySQL names an
+	// unnamed key after its first column, adding _2, _3... when the name is taken
+	// (sql_table.cc, make_unique_key_name). A constraint name given in the DDL is not
+	// kept by SQLite; the sidecar metadata will keep it (M2/M3).
+	used := map[string]bool{"primary": true}
+	for _, ix := range list {
+		if ix.origin != "u" {
+			used[strings.ToLower(ix.name)] = true
+		}
+	}
 	for _, ix := range list {
 		cols, ok, err := indexColumns(ctx, conn, ix.name)
 		if err != nil {
@@ -125,10 +136,27 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 			// An index on an expression has no MySQL column flags.
 			continue
 		}
+		name := ix.name
+		if ix.origin == "u" {
+			name = uniqueName(cols[0], used)
+			used[strings.ToLower(name)] = true
+		}
 		// A partial unique index does not make the column unique for every row.
-		t.Indexes = append(t.Indexes, meta.Index{Columns: cols, Unique: ix.unique && !ix.partial})
+		t.Indexes = append(t.Indexes, meta.Index{Name: name, Columns: cols, Unique: ix.unique && !ix.partial})
 	}
 	return nil
+}
+
+func uniqueName(base string, used map[string]bool) string {
+	if !used[strings.ToLower(base)] {
+		return base
+	}
+	for n := 2; ; n++ {
+		name := fmt.Sprintf("%s_%d", base, n)
+		if !used[strings.ToLower(name)] {
+			return name
+		}
+	}
 }
 
 func indexColumns(ctx context.Context, conn *sql.Conn, index string) ([]string, bool, error) {

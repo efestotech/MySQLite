@@ -64,6 +64,8 @@ type Hint struct {
 	// DuplicateEntry is the conflicting value for 1062, formatted as MySQL does
 	// ('-'-joined for composite keys). SQLite does not report it.
 	DuplicateEntry string
+	// Entry computes DuplicateEntry for the unique key on table(cols) when it is empty.
+	Entry func(table string, cols []string) string
 	// KeyName resolves the index name for a unique conflict on table(cols). When nil,
 	// the column names joined by '_' are used (deviation until the catalog exists, M2).
 	KeyName func(table string, cols []string) string
@@ -138,14 +140,18 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 		case h.KeyName != nil:
 			key = h.KeyName(table, cols)
 		}
-		return newError(1062, "23000", "Duplicate entry '%s' for key '%s.%s'", h.DuplicateEntry, table, key)
+		entry := h.DuplicateEntry
+		if entry == "" && h.Entry != nil {
+			entry = h.Entry(table, cols)
+		}
+		return newError(1062, "23000", "Duplicate entry '%s' for key '%s.%s'", entry, table, key)
 	case sqliteConstraintNotNul:
 		m := reNotNull.FindStringSubmatch(msg)
 		if m == nil {
 			return Internal()
 		}
 		_, cols := splitColumns(m[1])
-		return newError(1048, "23000", "Column '%s' cannot be null", cols[0])
+		return BadNull(cols[0])
 	case sqliteConstraintCheck:
 		m := reCheck.FindStringSubmatch(msg)
 		if m == nil {
@@ -240,6 +246,21 @@ func Parse(near string, line int) *Error {
 // Unsupported is 1235 with the strict-mode message of docs/05-dialect.md section 2.
 func Unsupported(construct, reason string) *Error {
 	return newError(1235, "42000", "mysqlite: unsupported construct %s: %s", construct, reason)
+}
+
+// FieldSpecifiedTwice is 1110: a column listed twice in INSERT.
+func FieldSpecifiedTwice(column string) *Error {
+	return newError(1110, "42000", "Column '%s' specified twice", column)
+}
+
+// NoDefaultValue is 1364: strict mode, an INSERT omits a NOT NULL column without default.
+func NoDefaultValue(column string) *Error {
+	return newError(1364, "HY000", "Field '%s' doesn't have a default value", column)
+}
+
+// BadNull is 1048: NULL written to a NOT NULL column.
+func BadNull(column string) *Error {
+	return newError(1048, "23000", "Column '%s' cannot be null", column)
 }
 
 // ReadOnlyTransaction is 1792: a write inside START TRANSACTION READ ONLY.

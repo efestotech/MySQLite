@@ -71,9 +71,9 @@ func TestReadTable(t *testing.T) {
 		PrimaryKey:    []string{"id"},
 		AutoIncrement: "id",
 		Indexes: []meta.Index{
-			{Columns: []string{"code"}, Unique: true},
-			{Columns: []string{"a", "b"}, Unique: true},
-			{Columns: []string{"b"}},
+			{Name: "code", Columns: []string{"code"}, Unique: true},
+			{Name: "items_ab", Columns: []string{"a", "b"}, Unique: true},
+			{Name: "items_b", Columns: []string{"b"}},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -95,6 +95,26 @@ func TestReadTableCompositeKeyWithoutAutoIncrement(t *testing.T) {
 	}
 	if len(got.Indexes) != 0 {
 		t.Errorf("the primary-key index is not reported as another index: got %v", got.Indexes)
+	}
+}
+
+// An unnamed UNIQUE constraint is named after its first column, with a numeric suffix
+// when that name is taken, as MySQL names it.
+func TestReadTableUnnamedUniqueKeys(t *testing.T) {
+	w := newConn(t,
+		"CREATE TABLE u (a INT UNIQUE, b INT, UNIQUE (a, b), UNIQUE (b))",
+		"CREATE UNIQUE INDEX b_2 ON u (b, a)",
+	)
+	got, err := ReadTable(context.Background(), w, "shop", "u")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, ix := range got.Indexes {
+		names = append(names, ix.Name)
+	}
+	if want := []string{"a", "a_2", "b", "b_2"}; !reflect.DeepEqual(names, want) {
+		t.Fatalf("want %v, got %v", want, names)
 	}
 }
 

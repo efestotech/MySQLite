@@ -98,6 +98,8 @@ type Column struct {
 
 // Index is a non-primary index.
 type Index struct {
+	// Name is the MySQL key name, as error 1062 reports it.
+	Name    string
 	Columns []string
 	Unique  bool
 }
