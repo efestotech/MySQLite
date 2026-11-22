@@ -95,6 +95,8 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 		return e.show(n)
 	case *ast.SetStmt:
 		return e.set(n)
+	case *ast.CreateTableStmt:
+		return e.createTable(n)
 	case *ast.SetOprStmt:
 		e.unsupported("UNION, EXCEPT or INTERSECT", reasonLater)
 	case *ast.GrantStmt, *ast.RevokeStmt, *ast.GrantRoleStmt, *ast.RevokeRoleStmt:

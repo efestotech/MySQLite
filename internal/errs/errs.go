@@ -157,6 +157,15 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 		if m == nil {
 			return Internal()
 		}
+		// mysqlite's own CHECKs stand for MySQL's type checks (dialect, CREATE TABLE).
+		// SQLite does not say which row failed; for INSERT the literal rows are checked
+		// before SQLite runs, so this is UPDATE's first changed row.
+		if col, ok := strings.CutPrefix(m[1], CheckRangePrefix); ok {
+			return OutOfRange(col, 1)
+		}
+		if col, ok := strings.CutPrefix(m[1], CheckLengthPrefix); ok {
+			return DataTooLong(col, 1)
+		}
 		return newError(3819, "HY000", "Check constraint '%s' is violated.", m[1])
 	case sqliteConstraintFK:
 		return foreignKey(h)
@@ -328,6 +337,92 @@ func NoDefaultValue(column string) *Error {
 // BadNull is 1048: NULL written to a NOT NULL column.
 func BadNull(column string) *Error {
 	return newError(1048, "23000", "Column '%s' cannot be null", column)
+}
+
+// Names of the CHECK constraints the dialect adds for MySQL's type checks.
+const (
+	CheckRangePrefix  = "__mysqlite_range_"
+	CheckLengthPrefix = "__mysqlite_length_"
+)
+
+// OutOfRange is 1264 in strict mode.
+func OutOfRange(column string, row int) *Error {
+	return newError(1264, "22003", "Out of range value for column '%s' at row %d", column, row)
+}
+
+// DataTooLong is 1406 in strict mode.
+func DataTooLong(column string, row int) *Error {
+	return newError(1406, "22001", "Data too long for column '%s' at row %d", column, row)
+}
+
+// TableExists is 1050.
+func TableExists(table string) *Error {
+	return newError(1050, "42S01", "Table '%s' already exists", table)
+}
+
+// DuplicateColumn is 1060.
+func DuplicateColumn(column string) *Error {
+	return newError(1060, "42S21", "Duplicate column name '%s'", column)
+}
+
+// DuplicateKeyName is 1061.
+func DuplicateKeyName(key string) *Error {
+	return newError(1061, "42000", "Duplicate key name '%s'", key)
+}
+
+// WrongColumnSpec is 1063: AUTO_INCREMENT on a column that cannot have it.
+func WrongColumnSpec(column string) *Error {
+	return newError(1063, "42000", "Incorrect column specifier for column '%s'", column)
+}
+
+// InvalidDefault is 1067.
+func InvalidDefault(column string) *Error {
+	return newError(1067, "42000", "Invalid default value for '%s'", column)
+}
+
+// MultiplePrimaryKey is 1068.
+func MultiplePrimaryKey() *Error {
+	return newError(1068, "42000", "Multiple primary key defined")
+}
+
+// KeyColumnMissing is 1072.
+func KeyColumnMissing(column string) *Error {
+	return newError(1072, "42000", "Key column '%s' doesn't exist in table", column)
+}
+
+// ColumnTooLong is 1074.
+func ColumnTooLong(column string, max int) *Error {
+	return newError(1074, "42000", "Column length too big for column '%s' (max = %d); use BLOB or TEXT instead", column, max)
+}
+
+// WrongIndexName is 1280.
+func WrongIndexName(name string) *Error {
+	return newError(1280, "42000", "Incorrect index name '%s'", name)
+}
+
+// PrimaryKeyNull is 1171.
+func PrimaryKeyNull() *Error {
+	return newError(1171, "42000", "All parts of a PRIMARY KEY must be NOT NULL; if you need NULL in a key, use UNIQUE instead")
+}
+
+// BlobDefault is 1101.
+func BlobDefault(column string) *Error {
+	return newError(1101, "42000", "BLOB, TEXT, GEOMETRY or JSON column '%s' can't have a default value", column)
+}
+
+// WrongAutoKey is 1075.
+func WrongAutoKey() *Error {
+	return newError(1075, "42000", "Incorrect table definition; there can be only one auto column and it must be defined as a key")
+}
+
+// BlobKeyWithoutLength is 1170.
+func BlobKeyWithoutLength(column string) *Error {
+	return newError(1170, "42000", "BLOB/TEXT column '%s' used in key specification without a key length", column)
+}
+
+// UnknownStorageEngine is 1286.
+func UnknownStorageEngine(name string) *Error {
+	return newError(1286, "42000", "Unknown storage engine '%s'", name)
 }
 
 // TransactionInProgress is 1568: SET TRANSACTION without a scope inside a transaction.

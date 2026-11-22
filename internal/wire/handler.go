@@ -146,6 +146,8 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 		res, err = h.showDiagnostics(st.Show)
 	case dialect.KindSet:
 		res, err = h.set(st.Set)
+	case dialect.KindDDL:
+		res, err = h.createTable(st)
 	default:
 		res, err = h.write(st)
 	}

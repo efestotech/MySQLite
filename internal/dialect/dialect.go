@@ -59,6 +59,8 @@ const (
 	KindShow
 	// KindSet is SET (Statement.Set).
 	KindSet
+	// KindDDL is CREATE TABLE (Statement.Create).
+	KindDDL
 )
 
 // String is the router decision recorded in the query journal.
@@ -74,6 +76,8 @@ func (k Kind) String() string {
 		return "transaction"
 	case KindShow:
 		return "show"
+	case KindDDL:
+		return "ddl"
 	case KindSet:
 		return "set"
 	}
@@ -111,6 +115,8 @@ type Statement struct {
 	Show *Show
 	// Set lists the assignments of KindSet, in statement order.
 	Set []Assignment
+	// Create is the CREATE TABLE of KindDDL.
+	Create *CreateTable
 }
 
 // Write is what the executor needs about INSERT, UPDATE and DELETE beyond the SQL: the
@@ -238,15 +244,21 @@ func VersionNumber(version string) (int, error) {
 // TiDB reports syntax errors as `line 1 column 13 near "FROM t" `.
 var reParseError = regexp.MustCompile(`(?s)^line (\d+) column \d+ near "(.*)"\s*$`)
 
+var reUnknownCollation = regexp.MustCompile(`\[ddl:1273\]Unknown collation: '([^']*)'`)
+
 var reUnknownCharset = regexp.MustCompile(`\[parser:1115\]Unknown character set: '([^']*)'`)
 
 func parseError(err error, query string) *errs.Error {
 	// The parser checks the character set of SET NAMES / SET CHARACTER SET itself;
 	// MySQL reports it as 1115 too, not as a syntax error.
 	if m := reUnknownCharset.FindStringSubmatch(err.Error()); m != nil {
-		if w := words(query); len(w) > 0 && strings.EqualFold(w[0].text, "SET") {
+		if w := words(query); len(w) > 0 && (strings.EqualFold(w[0].text, "SET") || strings.EqualFold(w[0].text, "CREATE")) {
 			return errs.UnknownCharset(m[1])
 		}
+	}
+	// The parser also checks collation names; MySQL reports them as 1273 too.
+	if m := reUnknownCollation.FindStringSubmatch(err.Error()); m != nil {
+		return errs.UnknownCollation(m[1])
 	}
 	if m := reParseError.FindStringSubmatch(err.Error()); m != nil {
 		line, _ := strconv.Atoi(m[1])

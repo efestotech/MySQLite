@@ -9,9 +9,11 @@
 package meta
 
 import (
+	"math"
 	"strings"
 	"unicode/utf8"
 
+	"mysqlite/internal/charset"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/vars"
 )
@@ -285,10 +287,33 @@ func (t *Table) column(name string) (Column, bool) {
 	return Column{}, false
 }
 
+// MySQLType is the column's MySQL type: the sidecar's when mysqlite created the table
+// (the SQLite declared type may differ, e.g. INTEGER for AUTO_INCREMENT), else the
+// declared type.
+func (c Column) MySQLType() string {
+	if t := c.Options[OptionType]; t != "" {
+		return t
+	}
+	return c.DeclType
+}
+
+// Sidecar keys meta reads (the full list is in package catalog).
+const (
+	OptionType      = "type"
+	OptionCollation = "collation"
+)
+
 func tableColumn(t *Table, c Column, visible, name string) ColumnDef {
-	ti, ok := ParseType(c.DeclType)
+	ti, ok := ParseType(c.MySQLType())
 	if !ok {
 		ti = TypeInfo{Type: TypeVarString, Length: degradedLength, Charset: CollationDefault}
+	}
+	if co, found := charset.LookupCollation(c.Options[OptionCollation]); found && ti.Charset != CharsetBinary {
+		// Lengths are in bytes of the column's character set.
+		if co.Charset == "utf8mb3" && ti.Charset != CollationUTF8MB3 && ti.Length != math.MaxUint32 {
+			ti.Length = ti.Length / 4 * 3
+		}
+		ti.Charset = co.ID
 	}
 	d := ColumnDef{
 		Schema:   t.Database,

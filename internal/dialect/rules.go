@@ -17,6 +17,8 @@ const (
 	ruleDefaultValues  = "R006"
 	ruleUpdateLimit    = "R007"
 	ruleHintStrip      = "R008"
+	ruleCreateTable    = "R009"
+	ruleCreateIndexes  = "R010"
 )
 
 var rules = []Rule{
@@ -28,6 +30,8 @@ var rules = []Rule{
 	{ruleDefaultValues, "insert-default-values", "INSERT ... VALUES () becomes INSERT ... DEFAULT VALUES"},
 	{ruleUpdateLimit, "update-delete-limit", "UPDATE/DELETE with ORDER BY or LIMIT filter by a rowid subquery"},
 	{ruleHintStrip, "hint-strip", "drop optimizer hints, index hints and priority modifiers"},
+	{ruleCreateTable, "create-table", "MySQL column types become SQLite declared types with collations and range/length CHECKs; options go to the sidecar"},
+	{ruleCreateIndexes, "create-table-keys", "inline KEY/UNIQUE KEY become CREATE INDEX named <table>__<key>; the MySQL name goes to the sidecar"},
 }
 
 // Rules returns the registry in application order.

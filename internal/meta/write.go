@@ -82,11 +82,14 @@ func CheckInsertMode(t *Table, columns []string, rows [][]*Literal, mode InsertM
 		}
 	}
 
-	for _, row := range rows {
+	for r, row := range rows {
 		values := map[string]*Literal{}
 		generated := true
 		for j, v := range row {
 			col := t.Columns[idx[j]]
+			if e := LimitsOf(col.MySQLType()).CheckLiteral(col.Name, v, r+1); e != nil {
+				return info, e
+			}
 			values[strings.ToLower(col.Name)] = v
 			if strings.EqualFold(col.Name, t.AutoIncrement) {
 				n, gen, err := autoValue(v, mode.NoAutoValueOnZero)

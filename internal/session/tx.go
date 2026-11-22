@@ -190,6 +190,26 @@ func (s *Session) Conn(ctx context.Context, database string, write bool) (*sql.C
 	return c, func() { _ = c.Close() }, nil
 }
 
+// DDLConn returns the writer of database for a DDL statement. MySQL commits the open
+// transaction before DDL and runs the statement on its own, autocommit or not.
+func (s *Session) DDLConn(ctx context.Context, database string) (*sql.Conn, func(), error) {
+	if err := s.Commit(ctx); err != nil {
+		return nil, nil, err
+	}
+	if s.readOnly {
+		return nil, nil, errs.ReadOnlyTransaction()
+	}
+	db, err := s.eng.Database(database)
+	if err != nil {
+		return nil, nil, err
+	}
+	c, err := db.Writer(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return c, func() { _ = c.Close() }, nil
+}
+
 // StatementFailed is called after a statement inside a transaction failed. SQLite
 // rolls the whole transaction back by itself after some errors (SQLITE_FULL, IOERR,
 // BUSY, NOMEM); MySQL keeps it. The driver does not expose sqlite3_get_autocommit, so

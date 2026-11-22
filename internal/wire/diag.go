@@ -21,6 +21,7 @@ import (
 // The rule is oracle pending (ADR 0002 addendum).
 
 const (
+	levelNote    = "Note"
 	levelWarning = "Warning"
 	levelError   = "Error"
 )
@@ -34,6 +35,11 @@ type diagnostic struct {
 // warn records a warning of the running statement.
 func (h *handler) warn(e *errs.Error) {
 	h.pendingDiag = append(h.pendingDiag, diagnostic{Level: levelWarning, Code: e.Code, Message: e.Message})
+}
+
+// note records a Note of the running statement.
+func (h *handler) note(e *errs.Error) {
+	h.pendingDiag = append(h.pendingDiag, diagnostic{Level: levelNote, Code: e.Code, Message: e.Message})
 }
 
 // diagCounts is @@warning_count and @@error_count.

@@ -269,7 +269,8 @@ func TestUnsupported(t *testing.T) {
 		"SET @a = 1":                                             "user variable",
 		"LOCK TABLES t READ":                                     "LOCK TABLES",
 		"SHOW TABLES":                                            "SHOW",
-		"CREATE TABLE x (a INT)":                                 "CREATE TABLE",
+		"CREATE TEMPORARY TABLE x (a INT)":                       "CREATE TEMPORARY TABLE",
+		"DROP TABLE x":                                           "DROP TABLE",
 	}
 	tr := newTranslator(t)
 	for q, construct := range cases {
@@ -311,6 +312,8 @@ func TestRuleOrder(t *testing.T) {
 		"R006 insert-default-values",
 		"R007 update-delete-limit",
 		"R008 hint-strip",
+		"R009 create-table",
+		"R010 create-table-keys",
 	}
 	var got []string
 	for _, r := range Rules() {
@@ -556,5 +559,51 @@ func TestSetStatements(t *testing.T) {
 	}
 	if _, e := tr.Translate("SET NAMES klingon", "shop"); e == nil || e.Code != 1115 {
 		t.Errorf("SET NAMES klingon: got %v", e)
+	}
+}
+
+// Column types as MySQL 8.0 prints them (the sidecar type) and the SQLite declared type.
+func TestCreateTableTypes(t *testing.T) {
+	tr := newTranslator(t)
+	cases := []struct{ in, mysqlType, decl string }{
+		{"INT", "int", "int"},
+		{"INTEGER(11)", "int", "int"},
+		{"INT(5) UNSIGNED ZEROFILL", "int(5) unsigned zerofill", "int unsigned zerofill(5)"},
+		{"BOOL", "tinyint(1)", "tinyint(1)"},
+		{"BIGINT UNSIGNED", "bigint unsigned", "bigint unsigned"},
+		{"DECIMAL", "decimal(10,0)", "decimal(10,0)"},
+		{"NUMERIC(8,2) UNSIGNED", "decimal(8,2) unsigned", "decimal unsigned(8,2)"},
+		{"REAL", "double", "double"},
+		{"FLOAT(7,4)", "float(7,4)", "float(7,4)"},
+		{"CHAR", "char(1)", "char(1)"},
+		{"VARBINARY(4)", "varbinary(4)", "varbinary BLOB(4)"},
+		{"TEXT(300)", "text", "text"},
+		{"TEXT(60)", "tinytext", "tinytext"}, // 60 x 4 bytes fit TINYTEXT
+		{"TEXT(70)", "text", "text"},
+		{"LONGBLOB", "longblob", "longblob"},
+		{"DATETIME(3)", "datetime(3)", "datetime TEXT(3)"},
+		{"TIMESTAMP", "timestamp", "timestamp TEXT"},
+		{"TIME", "time", "time TEXT"},
+		{"YEAR", "year", "year"},
+		{"JSON", "json", "json TEXT"},
+	}
+	for _, c := range cases {
+		st, e := tr.Translate("CREATE TABLE t (a "+c.in+")", "shop")
+		if e != nil {
+			t.Errorf("%s: %v", c.in, e)
+			continue
+		}
+		var got string
+		for _, f := range st.Create.Facts {
+			if f.Column == "a" && f.Key == "type" {
+				got = f.Value
+			}
+		}
+		if got != c.mysqlType {
+			t.Errorf("%s: MySQL type %q, want %q", c.in, got, c.mysqlType)
+		}
+		if !strings.Contains(st.Create.SQL[0], "`a` "+c.decl) {
+			t.Errorf("%s: declared type in %s, want %q", c.in, st.Create.SQL[0], c.decl)
+		}
 	}
 }
