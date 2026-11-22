@@ -49,6 +49,7 @@ type Server struct {
 	auth    *authHandler
 	vars    *vars.Server
 	catalog *catalog.Cache
+	procs   *processList
 
 	mu     sync.Mutex
 	ln     net.Listener
@@ -96,6 +97,7 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 
 	return &Server{
 		catalog: catalog.NewCache(),
+		procs:   newProcessList(),
 		vars: vars.NewServer(vars.Config{
 			Version:          cfg.ServerVersion,
 			MaxAllowedPacket: cfg.MaxAllowedPacket,
@@ -209,6 +211,8 @@ func (s *Server) serveConn(raw net.Conn) {
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
 	h.catalog = s.catalog
+	h.procs = s.procs
+	h.users = s.cfg.Users
 	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
 	h.applyGlobals()
 	guarded := hostOnlyConn{newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
@@ -220,6 +224,9 @@ func (s *Server) serveConn(raw net.Conn) {
 	log := s.log.With("conn_id", conn.ConnectionID(), "user", conn.GetUser(), "remote", remote)
 	h.log = log
 	log.Info("connection opened")
+	db, _ := h.sess.Database()
+	h.proc = s.procs.add(conn.ConnectionID(), conn.GetUser(), remote, db)
+	defer s.procs.remove(h.proc)
 	defer h.close()
 	for !conn.Closed() {
 		if err := conn.HandleCommand(); err != nil {

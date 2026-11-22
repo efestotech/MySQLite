@@ -32,6 +32,9 @@ func (h *handler) show(s *dialect.Show) (*mysql.Result, error) {
 		return h.showDiagnostics(s)
 	case dialect.ShowDatabases:
 		defs, rows, err = h.showDatabases(s)
+	case dialect.ShowVariables, dialect.ShowStatus, dialect.ShowEngines, dialect.ShowCharset,
+		dialect.ShowCollation, dialect.ShowProcessList, dialect.ShowGrants:
+		defs, rows, err = h.showServer(s)
 	default:
 		defs, rows, err = h.showCatalog(ctx, s)
 	}

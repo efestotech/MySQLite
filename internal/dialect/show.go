@@ -21,6 +21,13 @@ const (
 	ShowCreateTable
 	ShowIndex
 	ShowTableStatus
+	ShowVariables
+	ShowStatus
+	ShowEngines
+	ShowCharset
+	ShowCollation
+	ShowProcessList
+	ShowGrants
 )
 
 // Show describes a SHOW statement; the executor builds its rows from session or catalog
@@ -29,8 +36,12 @@ type Show struct {
 	Type ShowType
 	// Count is SHOW COUNT(*) WARNINGS / ERRORS.
 	Count bool
-	// Full is SHOW FULL TABLES / COLUMNS.
+	// Full is SHOW FULL TABLES / COLUMNS / PROCESSLIST.
 	Full bool
+	// Global is SHOW GLOBAL VARIABLES / STATUS.
+	Global bool
+	// User is the account of SHOW GRANTS FOR; nil for the current user.
+	User *ShowUser
 	// Database is FROM db or the current database; Table the table of SHOW COLUMNS,
 	// CREATE TABLE and INDEX.
 	Database, Table string
@@ -44,7 +55,19 @@ type Show struct {
 	Refs  []meta.Ref
 }
 
+// ShowUser is a user@host account.
+type ShowUser struct {
+	Name, Host string
+}
+
 var showTypes = map[ast.ShowStmtType]ShowType{
+	ast.ShowVariables:   ShowVariables,
+	ast.ShowStatus:      ShowStatus,
+	ast.ShowEngines:     ShowEngines,
+	ast.ShowCharset:     ShowCharset,
+	ast.ShowCollation:   ShowCollation,
+	ast.ShowProcessList: ShowProcessList,
+	ast.ShowGrants:      ShowGrants,
 	ast.ShowDatabases:   ShowDatabases,
 	ast.ShowTables:      ShowTables,
 	ast.ShowColumns:     ShowColumns,
@@ -54,6 +77,10 @@ var showTypes = map[ast.ShowStmtType]ShowType{
 }
 
 func (e *emitter) show(n *ast.ShowStmt) *Statement {
+	if n.Limit != nil {
+		e.unsupported("SHOW ... LIMIT", reasonLater)
+		return nil
+	}
 	switch n.Tp {
 	case ast.ShowWarnings, ast.ShowErrors:
 		t := ShowWarnings
@@ -67,8 +94,16 @@ func (e *emitter) show(n *ast.ShowStmt) *Statement {
 		e.unsupported(statementName(n), reasonLater)
 		return nil
 	}
-	s := &Show{Type: t, Full: n.Full}
+	s := &Show{Type: t, Full: n.Full, Global: n.GlobalScope}
 	switch t {
+	case ShowGrants:
+		if len(n.Roles) > 0 {
+			e.unsupported("SHOW GRANTS ... USING", reasonLater)
+			return nil
+		}
+		if n.User != nil && !n.User.CurrentUser {
+			s.User = &ShowUser{Name: n.User.Username, Host: n.User.Hostname}
+		}
 	case ShowTables, ShowTableStatus:
 		s.Database = n.DBName
 		if s.Database == "" {

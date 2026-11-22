@@ -445,6 +445,11 @@ func NoSuchTable(database, table string) *Error {
 	return newError(1146, "42S02", "Table '%s.%s' doesn't exist", database, table)
 }
 
+// NoSuchGrant is 1141, SHOW GRANTS FOR an account that does not exist.
+func NoSuchGrant(user, host string) *Error {
+	return newError(1141, "42000", "There is no such grant defined for user '%s' on host '%s'", user, host)
+}
+
 // UnknownTable is 1051, for a qualifier that names no table of the statement (t.*).
 func UnknownTable(table string) *Error {
 	return newError(1051, "42S02", "Unknown table '%s'", table)

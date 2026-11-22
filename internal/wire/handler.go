@@ -44,6 +44,12 @@ type handler struct {
 	authenticated bool
 	pending       string
 
+	// procs is the server's process list and proc this connection's entry, set once
+	// authenticated; users are the configured accounts, for SHOW GRANTS.
+	procs *processList
+	proc  *process
+	users map[string]string
+
 	// conn carries the status flags of every OK and EOF packet; set after
 	// authentication.
 	conn *server.Conn
@@ -58,7 +64,10 @@ func (h *handler) UseDB(dbName string) error {
 		h.pending = dbName
 		return nil
 	}
-	return h.use(dbName)
+	err := h.use(dbName)
+	db, _ := h.sess.Database()
+	h.procs.end(h.proc, db)
+	return err
 }
 
 // afterAuth runs once the password is verified and applies the handshake database.
@@ -119,7 +128,10 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	start := time.Now()
 	current, _ := h.sess.Database()
 	h.beginDiagnostics()
+	h.procs.begin(h.proc, current, query)
 	st, res, err := h.query(query, current)
+	db, _ := h.sess.Database()
+	h.procs.end(h.proc, db)
 	h.endDiagnostics(st, res, err)
 	h.record(query, current, st, res, err, start)
 	return res, err
