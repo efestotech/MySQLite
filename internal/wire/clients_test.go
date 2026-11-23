@@ -12,7 +12,8 @@ import (
 // in-process server when the client runtime is installed on the host; otherwise they
 // are skipped and run in the docker client matrix (ADR 0002).
 
-// TestClientPHPPDO is M4 criterion 1: PHP PDO with ATTR_EMULATE_PREPARES=false.
+// TestClientPHPPDO is M4 criterion 1 (ATTR_EMULATE_PREPARES=false) and the M6 PDO row of
+// the client matrix, which also asks for emulated prepares.
 func TestClientPHPPDO(t *testing.T) {
 	php, err := exec.LookPath("php")
 	if err != nil {
@@ -26,12 +27,17 @@ func TestClientPHPPDO(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command(php, filepath.Join("..", "..", "test", "clients", "php-pdo", "scenario.php"))
-	cmd.Env = append(cmd.Environ(), "MYSQLITE_HOST="+host, "MYSQLITE_PORT="+port,
-		"MYSQLITE_USER="+testUser, "MYSQLITE_PASSWORD="+testPassword, "MYSQLITE_DB=shop")
-	out, err := cmd.CombinedOutput()
-	t.Logf("%s", out)
-	if err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "PASS") {
-		t.Fatalf("scenario failed: %v", err)
+	for _, emulate := range []string{"0", "1"} {
+		t.Run("emulate="+emulate, func(t *testing.T) {
+			cmd := exec.Command(php, filepath.Join("..", "..", "test", "clients", "php-pdo", "scenario.php"))
+			cmd.Env = append(cmd.Environ(), "MYSQLITE_HOST="+host, "MYSQLITE_PORT="+port,
+				"MYSQLITE_USER="+testUser, "MYSQLITE_PASSWORD="+testPassword, "MYSQLITE_DB=shop",
+				"MYSQLITE_EMULATE="+emulate)
+			out, err := cmd.CombinedOutput()
+			t.Logf("%s", out)
+			if err != nil || !strings.HasSuffix(strings.TrimSpace(string(out)), "PASS") {
+				t.Fatalf("scenario failed: %v", err)
+			}
+		})
 	}
 }

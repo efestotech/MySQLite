@@ -2,6 +2,7 @@ package dialect
 
 import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
+	"github.com/pingcap/tidb/pkg/parser/test_driver"
 
 	"mysqlite/internal/dialect/functions"
 	"mysqlite/internal/meta"
@@ -54,7 +55,32 @@ func (e *emitter) writeValue(column string, x ast.ExprNode) *meta.Expr {
 	if _, isDefault := x.(*ast.DefaultExpr); !isDefault && e.wr != nil && e.wr.Meta != nil && e.wr.Meta.IsTimestamp(column) {
 		return e.toUTC(x)
 	}
+	// A binary string literal (_binary'...', X'..', 0x..) stored in a binary column is
+	// just its bytes, bound like a prepared BLOB parameter: the column, not the
+	// context, gives it its type. PDO with emulated prepares quotes LOBs this way.
+	// Elsewhere value() refuses it (docs/agent-notes/discrepancies.md).
+	if v, ok := x.(*test_driver.ValueExpr); ok && e.wr != nil && e.wr.Meta != nil && e.wr.Meta.IsBinary(column) {
+		if b, ok := binaryLiteral(v); ok {
+			e.apply(ruleStringParam)
+			e.args = append(e.args, string(b))
+			e.write("?")
+			return &meta.Expr{Kind: meta.ExprLiteral, Literal: &meta.Literal{Kind: meta.LiteralString, Text: string(b)}}
+		}
+	}
 	return e.expr(x)
+}
+
+// binaryLiteral returns the bytes of a _binary string, hexadecimal or bit literal.
+func binaryLiteral(v *test_driver.ValueExpr) ([]byte, bool) {
+	switch v.Kind() {
+	case test_driver.KindString:
+		if v.Type.GetCharset() == binaryCharset {
+			return v.GetBytes(), true
+		}
+	case test_driver.KindBinaryLiteral:
+		return v.GetBinaryLiteral(), true
+	}
+	return nil, false
 }
 
 // starNeedsList reports whether a * must be written as a column list: one of its

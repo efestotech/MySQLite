@@ -1,6 +1,7 @@
 <?php
 // PHP PDO smoke scenario (docs/07-testing.md section 6, M4 criterion 1): native
-// prepared statements (ATTR_EMULATE_PREPARES=false) through the binary protocol.
+// prepared statements (ATTR_EMULATE_PREPARES=false) through the binary protocol, or
+// emulated prepares (MYSQLITE_EMULATE=1) through the text protocol.
 //
 // Environment: MYSQLITE_HOST, MYSQLITE_PORT, MYSQLITE_USER, MYSQLITE_PASSWORD and
 // MYSQLITE_DB, an existing database where the scenario creates and drops one table.
@@ -22,15 +23,16 @@ $port = getenv('MYSQLITE_PORT') ?: '3307';
 $user = getenv('MYSQLITE_USER') ?: 'test';
 $password = getenv('MYSQLITE_PASSWORD') ?: 'test';
 $db = getenv('MYSQLITE_DB') ?: 'test';
+$emulate = getenv('MYSQLITE_EMULATE') === '1';
 
 try {
     $pdo = new PDO("mysql:host=$host;port=$port;dbname=$db;charset=utf8mb4", $user, $password, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-        PDO::ATTR_EMULATE_PREPARES => false,
+        PDO::ATTR_EMULATE_PREPARES => $emulate,
         PDO::ATTR_STRINGIFY_FETCHES => false,
     ]);
     check('connect', true);
-    check('native prepares', $pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES) === false);
+    check($emulate ? 'emulated prepares' : 'native prepares', $pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES) === $emulate);
 
     $dbs = $pdo->query('SHOW DATABASES')->fetchAll(PDO::FETCH_COLUMN);
     check('list databases', in_array($db, $dbs, true), $dbs);
@@ -126,7 +128,9 @@ try {
         check('duplicate key', $e->errorInfo[1] === 1062 && $e->errorInfo[0] === '23000', $e->errorInfo);
     }
     try {
-        $pdo->prepare("SELECT nope FROM $t WHERE id = ?");
+        // Emulated prepares reach the server only at execute.
+        $bad = $pdo->prepare("SELECT nope FROM $t WHERE id = ?");
+        $bad->execute([1]);
         check('prepare error', false);
     } catch (PDOException $e) {
         check('prepare error', $e->errorInfo[1] === 1054, $e->errorInfo);

@@ -160,6 +160,19 @@ func (t *Table) IsTimestamp(column string) bool {
 	return ok && ti.Type == TypeTimestamp
 }
 
+// IsBinary reports whether column holds binary strings: BINARY, VARBINARY or a BLOB.
+func (t *Table) IsBinary(column string) bool {
+	c, ok := t.column(column)
+	if !ok {
+		return false
+	}
+	ti, ok := ParseType(c.MySQLType())
+	if !ok || ti.Charset != CharsetBinary {
+		return false
+	}
+	return ti.Type == TypeString || ti.Type == TypeVarString || ti.Type == TypeBlob
+}
+
 // isClock names the current-time functions, whose argument is a precision.
 func isClock(op string) bool {
 	switch op {
