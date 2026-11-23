@@ -44,6 +44,7 @@ func TestCIWorkflow(t *testing.T) {
 	for _, want := range []string{
 		"go vet ./...",
 		"golangci/golangci-lint-action",
+		"goinstall", // a released binary built with an older Go refuses go.mod's 1.27.4
 		"go test -race",
 		"go-licenses\" check",
 		"go run ./scripts/notice -check",

@@ -25,11 +25,17 @@ EOF
 
 verb="${1:-}"
 case "$verb" in
-up) "${compose[@]}" up -d --build mysqlite mysql-ref ;;
+up)
+	mkdir -p "$root/logs/mysql-ref" && chmod 0777 "$root/logs/mysql-ref"
+	"${compose[@]}" up -d --build mysqlite mysql-ref
+	;;
 down) "${compose[@]}" --profile tools --profile clients down ;;
 build) "${compose[@]}" --profile tools --profile clients build ;;
 test) "${compose[@]}" run --rm dev sh -c 'go vet ./... && go test -race -count=1 ./...' ;;
 harness)
+	# mysqld runs as uid 999: a directory Docker creates for the bind mount is root's,
+	# and the general log (docs/07-testing.md section 7) would be turned off.
+	mkdir -p "$root/logs/mysql-ref" && chmod 0777 "$root/logs/mysql-ref"
 	"${compose[@]}" up -d --build mysqlite mysql-ref
 	"${compose[@]}" run --rm runner
 	;;

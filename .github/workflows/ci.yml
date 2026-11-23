@@ -31,9 +31,12 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      # goinstall builds golangci-lint with the module's Go (go.mod targets 1.27.4); a
+      # released binary built with an older Go refuses to lint this module.
       - uses: golangci/golangci-lint-action@v8
         with:
           version: v2.1.6
+          install-mode: goinstall
 
   licenses:
     runs-on: ubuntu-latest

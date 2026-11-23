@@ -27,11 +27,15 @@ usage: scripts/dev.ps1 VERB
 "@
 
 switch ($Verb) {
-    "up" { Invoke-Compose up -d --build mysqlite mysql-ref }
+    "up" {
+        New-Item -ItemType Directory -Force -Path (Join-Path $root "logs/mysql-ref") | Out-Null
+        Invoke-Compose up -d --build mysqlite mysql-ref
+    }
     "down" { Invoke-Compose --profile tools --profile clients down }
     "build" { Invoke-Compose --profile tools --profile clients build }
     "test" { Invoke-Compose run --rm dev sh -c "go vet ./... && go test -race -count=1 ./..." }
     "harness" {
+        New-Item -ItemType Directory -Force -Path (Join-Path $root "logs/mysql-ref") | Out-Null
         Invoke-Compose up -d --build mysqlite mysql-ref
         Invoke-Compose run --rm runner
     }
