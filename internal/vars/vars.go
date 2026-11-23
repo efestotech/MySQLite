@@ -100,6 +100,7 @@ var defs = []Def{
 	{Name: "performance_schema", Scope: ScopeGlobal, Kind: KindBool},
 	{Name: "pid_file", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "protocol_version", Scope: ScopeGlobal, Kind: KindUint},
+	{Name: "read_only", Scope: ScopeGlobal, Kind: KindBool},
 	{Name: "socket", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "sql_auto_is_null", Scope: ScopeBoth, Kind: KindBool},
 	{Name: "sql_quote_show_create", Scope: ScopeBoth, Kind: KindBool},
@@ -159,6 +160,8 @@ type Config struct {
 	DataDir  string
 	BaseDir  string
 	Hostname string
+	// ReadOnly is the --readonly setting, reported by @@read_only.
+	ReadOnly bool
 	// Now gives the time for @@timestamp and system_time_zone; time.Now when nil.
 	Now func() time.Time
 }
@@ -223,6 +226,7 @@ func NewServer(cfg Config) *Server {
 		"performance_schema":              "0",
 		"pid_file":                        "",
 		"protocol_version":                "10",
+		"read_only":                       boolText(cfg.ReadOnly),
 		"socket":                          "",
 		"sql_auto_is_null":                "0",
 		"sql_quote_show_create":           "1",
@@ -384,4 +388,12 @@ func Arg(d *Def, v Value) any {
 		}
 	}
 	return v.Text
+}
+
+// boolText is a boolean variable's value.
+func boolText(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }

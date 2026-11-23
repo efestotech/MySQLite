@@ -34,6 +34,8 @@ type handler struct {
 	journal *obs.Journal
 	// skipBackup turns off the copy before an ALTER TABLE rebuild (ADR 0008).
 	skipBackup bool
+	// readOnly refuses writes and DDL with 1290 (--readonly).
+	readOnly bool
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
 	// catalog describes tables; shared by all connections.
@@ -192,6 +194,10 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 	case dialect.KindRead:
 		res, err = h.read(st)
 	case dialect.KindWrite, dialect.KindDDL:
+		if h.readOnly {
+			err = toMySQL(errs.ReadOnlyServer())
+			break
+		}
 		if infoschema.Is(st.Database) {
 			err = h.infoSchemaDenied()
 			break

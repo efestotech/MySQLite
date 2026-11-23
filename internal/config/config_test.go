@@ -143,6 +143,9 @@ func TestInvalidConfigurationsFailWithClearMessage(t *testing.T) {
 		{"too many readers", minimal + "max_read_conns: 65\n", nil, "max_read_conns"},
 		{"negative busy timeout", minimal + "busy_timeout_ms: -1\n", nil, "busy_timeout_ms"},
 		{"bad synchronous", minimal + "synchronous: OFF\n", nil, "synchronous"},
+		{"zero queue depth", minimal + "write_queue_depth: 0\n", nil, "write_queue_depth"},
+		{"negative idle timeout", minimal + "idle_tx_timeout_s: -1\n", nil, "idle_tx_timeout_s"},
+		{"bad queue flag", minimal, []string{"--write-queue-depth", "x"}, "write-queue-depth"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -202,5 +205,30 @@ func TestAddrAndUserMap(t *testing.T) {
 	}
 	if got := cfg.UserPasswords(); got["test"] != "test" || len(got) != 1 {
 		t.Errorf("unexpected user map: %v", got)
+	}
+}
+
+// M5 keys (docs/09-conventions.md section 2, docs/06-transactions.md sections 6-7).
+func TestConcurrencyKeys(t *testing.T) {
+	cfg, err := Load([]string{"--config", writeFile(t, minimal)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.ReadOnly || cfg.WriteQueueDepth != 256 || cfg.IdleTxTimeoutS != 60 {
+		t.Fatalf("defaults: readonly %v, depth %d, idle %d", cfg.ReadOnly, cfg.WriteQueueDepth, cfg.IdleTxTimeoutS)
+	}
+	cfg, err = Load([]string{"--config", writeFile(t, minimal+"readonly: true\nwrite_queue_depth: 8\nidle_tx_timeout_s: 0\n")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ReadOnly || cfg.WriteQueueDepth != 8 || cfg.IdleTxTimeoutS != 0 {
+		t.Fatalf("file: readonly %v, depth %d, idle %d", cfg.ReadOnly, cfg.WriteQueueDepth, cfg.IdleTxTimeoutS)
+	}
+	cfg, err = Load([]string{"--config", writeFile(t, minimal+"write_queue_depth: 8\n"), "--readonly", "--write-queue-depth", "3", "--idle-tx-timeout", "5"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.ReadOnly || cfg.WriteQueueDepth != 3 || cfg.IdleTxTimeoutS != 5 {
+		t.Fatalf("flags: readonly %v, depth %d, idle %d", cfg.ReadOnly, cfg.WriteQueueDepth, cfg.IdleTxTimeoutS)
 	}
 }

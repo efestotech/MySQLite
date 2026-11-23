@@ -353,6 +353,12 @@ const (
 	CheckLengthPrefix = "__mysqlite_length_"
 )
 
+// ReadOnlyServer is 1290: the server runs with --readonly (docs/06-transactions.md
+// section 7).
+func ReadOnlyServer() *Error {
+	return newError(1290, "HY000", "The MySQL server is running with the --read-only option so it cannot execute this statement")
+}
+
 // WrongArguments is 1210: a statement's arguments cannot be used, e.g. a prepared
 // statement's parameter value (ADR 0009; oracle: pending).
 func WrongArguments(what string) *Error {

@@ -63,6 +63,14 @@ type Config struct {
 	MaxReadConns  int    `yaml:"max_read_conns"`
 	BusyTimeoutMS int    `yaml:"busy_timeout_ms"`
 	Synchronous   string `yaml:"synchronous"`
+	// WriteQueueDepth bounds the sessions waiting for a database's writer; one more is
+	// refused with 1205 (docs/06-transactions.md section 6).
+	WriteQueueDepth int `yaml:"write_queue_depth"`
+	// IdleTxTimeoutS rolls back a transaction idle for this many seconds, releasing the
+	// writer; 0 turns it off.
+	IdleTxTimeoutS int `yaml:"idle_tx_timeout_s"`
+	// ReadOnly refuses every write with 1290 (section 7).
+	ReadOnly bool `yaml:"readonly"`
 
 	// AlterBackup copies a database before an ALTER TABLE rebuilds one of its tables
 	// (ADR 0008).
@@ -80,6 +88,8 @@ func Defaults() Config {
 		MaxReadConns:     4,
 		BusyTimeoutMS:    5000,
 		Synchronous:      "NORMAL",
+		WriteQueueDepth:  256,
+		IdleTxTimeoutS:   60,
 		AlterBackup:      true,
 		Log: Log{
 			Level:     "info",
@@ -89,6 +99,15 @@ func Defaults() Config {
 			Journal:   true,
 		},
 	}
+}
+
+// intFlag reads the value of an integer flag.
+func intFlag(name, v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("config: flag --%s: %q is not a number", name, v)
+	}
+	return n, nil
 }
 
 // Load parses args (without the program name), reads the config file, and validates
@@ -101,6 +120,9 @@ func Load(args []string) (Config, error) {
 	port := fs.String("port", "", "listen port (overrides the file)")
 	dataDir := fs.String("data-dir", "", "data directory (overrides the file)")
 	logLevel := fs.String("log-level", "", "log level: debug, info, warn, error (overrides the file)")
+	readOnly := fs.Bool("readonly", false, "refuse every write with error 1290 (overrides the file)")
+	queueDepth := fs.String("write-queue-depth", "", "sessions that may wait for a database's writer (overrides the file)")
+	idleTimeout := fs.String("idle-tx-timeout", "", "seconds before an idle transaction is rolled back, 0 for never (overrides the file)")
 	if err := fs.Parse(args); err != nil {
 		return Config{}, fmt.Errorf("config: %w", err)
 	}
@@ -130,6 +152,20 @@ func Load(args []string) (Config, error) {
 	}
 	if set["log-level"] {
 		cfg.Log.Level = *logLevel
+	}
+	if set["readonly"] {
+		cfg.ReadOnly = *readOnly
+	}
+	var err error
+	if set["write-queue-depth"] {
+		if cfg.WriteQueueDepth, err = intFlag("write-queue-depth", *queueDepth); err != nil {
+			return Config{}, err
+		}
+	}
+	if set["idle-tx-timeout"] {
+		if cfg.IdleTxTimeoutS, err = intFlag("idle-tx-timeout", *idleTimeout); err != nil {
+			return Config{}, err
+		}
 	}
 
 	if err := cfg.Validate(); err != nil {
@@ -190,6 +226,12 @@ func (c Config) Validate() error {
 	}
 	if c.MaxReadConns < 1 || c.MaxReadConns > 64 {
 		return fmt.Errorf("config: max_read_conns %d is out of range 1-64", c.MaxReadConns)
+	}
+	if c.WriteQueueDepth < 1 || c.WriteQueueDepth > 1<<20 {
+		return fmt.Errorf("config: write_queue_depth %d is out of range 1-%d", c.WriteQueueDepth, 1<<20)
+	}
+	if c.IdleTxTimeoutS < 0 {
+		return fmt.Errorf("config: idle_tx_timeout_s %d must not be negative", c.IdleTxTimeoutS)
 	}
 	if c.BusyTimeoutMS < 0 {
 		return fmt.Errorf("config: busy_timeout_ms %d must not be negative", c.BusyTimeoutMS)
