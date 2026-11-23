@@ -7,8 +7,9 @@
 //     MySQL's general_ci.
 //   - mysql_bin is utf8mb4_bin: code point order.
 //
-// Both are PAD SPACE, like the MySQL collations they stand for: trailing spaces do not
-// take part in the comparison, so 'a' = 'a  '.
+// These two are PAD SPACE, like the MySQL collations they stand for: trailing spaces do not
+// take part in the comparison, so 'a' = 'a  '. The NO PAD 0900 collations are in
+// collate0900.go.
 //
 // The weights are derived from Unicode data with golang.org/x/text, not from MySQL's
 // tables. Full parity with MySQL's general_ci table is a non-goal; the differences are
@@ -34,7 +35,12 @@ const (
 
 // Collations returns the collations to register on every connection.
 func Collations() []engine.Collation {
-	return []engine.Collation{{Name: CI, Compare: CompareCI}, {Name: Bin, Compare: CompareBin}}
+	return []engine.Collation{
+		{Name: CI, Compare: CompareCI},
+		{Name: Bin, Compare: CompareBin},
+		{Name: AI0900, Compare: Compare0900AI},
+		{Name: Bin0900, Compare: Compare0900Bin},
+	}
 }
 
 // supplementary is the weight of every character above U+FFFF (MySQL: 0xFFFD).

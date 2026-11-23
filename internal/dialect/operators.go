@@ -30,9 +30,10 @@ func (e *emitter) division(udf string, n *ast.BinaryOperationExpr) (l, r *meta.E
 	return l, r
 }
 
-// like emits [NOT] mysqlite_like(value, pattern, escape, binary). The comparison is
-// binary when a string operand has a binary collation (binary, *_bin), else it follows
-// mysql_ci. Numbers compare as their MySQL string form.
+// like emits [NOT] mysqlite_like(value, pattern, escape, mode). The comparison is binary
+// (mode 1) when a string operand has a binary collation (binary, *_bin), follows
+// utf8mb4_0900_ai_ci (mode 2) when an operand has that collation, else mysql_ci (mode 0).
+// Numbers compare as their MySQL string form.
 func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 	if !n.IsLike {
 		e.unsupported("ILIKE", reasonLater)
@@ -53,15 +54,18 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 	case !e.mode.HasNoBackslashEscapesMode():
 		escape = '\\'
 	}
-	binary := "0"
-	if e.binaryString(vx) || e.binaryString(px) {
-		binary = "1"
+	mode := "0"
+	switch {
+	case e.binaryString(vx) || e.binaryString(px):
+		mode = "1"
+	case e.accentInsensitive0900(vx) || e.accentInsensitive0900(px):
+		mode = "2"
 	}
 	if n.Not {
 		e.write("(NOT ")
 	}
 	e.write(functions.UDFLike, "(", e.textForm(value, vx), ", ", e.textForm(pattern, px), ", ",
-		strconv.Itoa(escape), ", ", binary, ")")
+		strconv.Itoa(escape), ", ", mode, ")")
 	if n.Not {
 		e.write(")")
 	}
@@ -73,6 +77,12 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 func (e *emitter) binaryString(x *meta.Expr) bool {
 	d, err := meta.Infer(x, e.scope())
 	return err == nil && meta.IsString(d) && charset.Binary(d.Charset)
+}
+
+// accentInsensitive0900 reports a string operand collated utf8mb4_0900_ai_ci.
+func (e *emitter) accentInsensitive0900(x *meta.Expr) bool {
+	d, err := meta.Infer(x, e.scope())
+	return err == nil && meta.IsString(d) && d.Charset == charset.ID0900AI
 }
 
 // caseExpr emits CASE natively: SQLite evaluates it as MySQL does, and the simple form

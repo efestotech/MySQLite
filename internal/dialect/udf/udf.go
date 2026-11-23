@@ -195,8 +195,9 @@ func xor(args []any) (any, error) {
 	return int64(0), nil
 }
 
-// like(value, pattern, escape, binary) is MySQL's LIKE: escape is the escape character's
-// code point (negative: none), binary 1 compares code points, 0 the mysql_ci weights.
+// like(value, pattern, escape, mode) is MySQL's LIKE: escape is the escape character's
+// code point (negative: none); mode 1 compares code points, 2 the utf8mb4_0900_ai_ci
+// keys, 0 the mysql_ci weights.
 // NULL if value or pattern is NULL.
 func like(args []any) (any, error) {
 	value, ok1 := text(args[0])
@@ -206,8 +207,11 @@ func like(args []any) (any, error) {
 	}
 	escape, _ := args[2].(int64)
 	match := collate.LikeCI
-	if bin, _ := args[3].(int64); bin != 0 {
+	switch mode, _ := args[3].(int64); mode {
+	case 1:
 		match = collate.LikeBin
+	case 2:
+		match = collate.Like0900AI
 	}
 	if match(value, pattern, rune(escape)) {
 		return int64(1), nil

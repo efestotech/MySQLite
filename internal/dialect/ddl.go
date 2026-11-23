@@ -10,6 +10,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/types"
 
 	"mysqlite/internal/charset"
+	"mysqlite/internal/collate"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
 )
@@ -61,7 +62,7 @@ const binaryCharset = "binary"
 const defaultCollation = "utf8mb4_general_ci"
 
 // reasonCollation0900 explains the refused 0900 collations (ADR 0004).
-const reasonCollation0900 = "0900 collations are NO PAD and accent-folded; they arrive with M3 (ADR 0004)"
+const reasonCollation0900 = "mysqlite implements utf8mb4_0900_ai_ci and utf8mb4_0900_bin only (ADR 0004)"
 
 type ddlColumn struct {
 	name         string
@@ -448,7 +449,7 @@ func (e *emitter) resolveCollation(cs, collation, inherited string) string {
 		return ""
 	}
 	switch {
-	case strings.Contains(co.Name, "_0900_"):
+	case sqliteCollation(co.Name) == "":
 		e.unsupported("COLLATE "+co.Name, reasonCollation0900)
 	case co.Charset == "binary":
 		e.unsupported("CHARACTER SET binary for a table", reasonLater)
@@ -457,11 +458,19 @@ func (e *emitter) resolveCollation(cs, collation, inherited string) string {
 }
 
 // sqliteCollation is the registered SQLite collation that implements a MySQL one.
+// It is empty for a 0900 collation mysqlite does not implement.
 func sqliteCollation(mysqlCollation string) string {
-	if strings.HasSuffix(mysqlCollation, "_bin") {
-		return "mysql_bin"
+	switch {
+	case mysqlCollation == "utf8mb4_0900_ai_ci":
+		return collate.AI0900
+	case mysqlCollation == "utf8mb4_0900_bin":
+		return collate.Bin0900
+	case strings.Contains(mysqlCollation, "_0900_"):
+		return ""
+	case strings.HasSuffix(mysqlCollation, "_bin"):
+		return collate.Bin
 	}
-	return "mysql_ci"
+	return collate.CI
 }
 
 func (e *emitter) column(c *ast.ColumnDef, tableCollation string) *ddlColumn {

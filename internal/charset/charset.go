@@ -33,6 +33,9 @@ var Charsets = []Charset{
 	{Name: "utf8mb4", Description: "UTF-8 Unicode", DefaultCollation: "utf8mb4_general_ci", MaxLen: 4},
 }
 
+// ID0900AI is the ID of utf8mb4_0900_ai_ci.
+const ID0900AI = 255
+
 // Collations lists the supported collations, by name. IDs are MySQL's.
 var Collations = []Collation{
 	{Name: "binary", Charset: "binary", ID: 63, Default: true, PadAttribute: "NO PAD"},

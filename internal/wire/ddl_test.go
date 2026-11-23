@@ -152,7 +152,6 @@ func TestCreateTableErrors(t *testing.T) {
 	for _, q := range []string{
 		"CREATE TABLE x (a ENUM('a','b'))",
 		"CREATE TABLE x (a INT, FOREIGN KEY (a) REFERENCES items (id))",
-		"CREATE TABLE x (a VARCHAR(5)) COLLATE utf8mb4_0900_ai_ci",
 		"CREATE TABLE x (a VARCHAR(5) CHARACTER SET latin1)",
 		"CREATE TABLE x (a DATETIME DEFAULT CURRENT_TIMESTAMP)",
 		"CREATE TABLE x (a VARCHAR(20), KEY (a(5)))",
