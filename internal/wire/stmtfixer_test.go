@@ -3,6 +3,8 @@ package wire
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-mysql-org/go-mysql/client"
@@ -211,4 +213,96 @@ func TestPreparedLongDataLimit(t *testing.T) {
 	if res := execOK(t, conn, "SELECT COUNT(*) FROM f"); decodedText(res) != "0" {
 		t.Fatalf("rows: %s", decodedText(res))
 	}
+}
+
+// Verifier probe: long data that makes the rewritten EXECUTE larger than one 16 MiB
+// chunk. go-mysql numbers its response after the chunks it read, so the response's
+// sequence ids must be brought back to the client's.
+func TestPreparedLongDataOver16MiB(t *testing.T) {
+	conn := blobServer(t) // max_allowed_packet 64 MiB
+	id := rawStmt(t, conn, "INSERT INTO files (id, data) VALUES (?, ?)")
+	big := bytes.Repeat([]byte{'a'}, 17<<20)
+	send(t, conn, longData(id, 1, big[:9<<20]), false)
+	send(t, conn, longData(id, 1, big[9<<20:]), false)
+	types := []byte{mysql.MYSQL_TYPE_LONG, 0, mysql.MYSQL_TYPE_BLOB, 0}
+	requireOKPacket(t, send(t, conn, executePacket(id, 2, nil, types, binary.LittleEndian.AppendUint32(nil, 1)), true))
+	if res := execOK(t, conn, "SELECT LENGTH(data) FROM files WHERE id = 1"); decodedText(res) != "17825792" {
+		t.Fatalf("length %s", decodedText(res))
+	}
+}
+
+// Verifier probe: a flag-0 EXECUTE just under one chunk, which the remembered types push
+// over it.
+func TestPreparedReexecuteAcrossChunk(t *testing.T) {
+	conn := blobServer(t)
+	id := rawStmt(t, conn, "INSERT INTO files (id, data) VALUES (?, ?)")
+	types := []byte{mysql.MYSQL_TYPE_LONG, 0, mysql.MYSQL_TYPE_BLOB, 0}
+	small := binary.LittleEndian.AppendUint32(nil, 1)
+	small = append(small, mysql.PutLengthEncodedString([]byte("x"))...)
+	requireOKPacket(t, send(t, conn, executePacket(id, 2, nil, types, small), true))
+	// Payload: 10 header bytes, 1 bitmap, 1 flag, 4 id, then a 4-byte lenenc prefix.
+	n := maxChunkPayload - 2 - 10 - 1 - 1 - 4 - 4
+	values := binary.LittleEndian.AppendUint32(nil, 2)
+	values = append(values, mysql.PutLengthEncodedString(bytes.Repeat([]byte{'b'}, n))...)
+	p := executePacket(id, 2, nil, nil, values)
+	if len(p) != maxChunkPayload-2 {
+		t.Fatalf("payload %d bytes", len(p))
+	}
+	requireOKPacket(t, send(t, conn, p, true))
+	if res := execOK(t, conn, "SELECT LENGTH(data) FROM files WHERE id = 2"); decodedText(res) != fmt.Sprint(n) {
+		t.Fatalf("length %s", decodedText(res))
+	}
+}
+
+// A1: a flag-0 EXECUTE before any EXECUTE sent types has no types to bind with; it is
+// refused rather than storing NULLs (oracle: pending).
+func TestPreparedReexecuteWithoutAnyTypes(t *testing.T) {
+	conn := blobServer(t)
+	id := rawStmt(t, conn, "INSERT INTO files (id, label) VALUES (?, ?)")
+	v := binary.LittleEndian.AppendUint64(nil, 1)
+	v = append(v, mysql.PutLengthEncodedString([]byte("x"))...)
+	p := send(t, conn, executePacket(id, 2, nil, nil, v), true)
+	if len(p) < 3 || p[0] != mysql.ERR_HEADER || binary.LittleEndian.Uint16(p[1:3]) != mysql.ER_WRONG_ARGUMENTS {
+		t.Fatalf("flag 0 without types: % x", p)
+	}
+	if res := execOK(t, conn, "SELECT COUNT(*) FROM files"); decodedText(res) != "0" {
+		t.Fatalf("rows: %s", decodedText(res))
+	}
+}
+
+// A2: long data wins over the parameter's NULL bit, as in MySQL.
+func TestPreparedLongDataOverNullBit(t *testing.T) {
+	conn := blobServer(t)
+	id := rawStmt(t, conn, "INSERT INTO files (id, data) VALUES (?, ?)")
+	send(t, conn, longData(id, 1, []byte("long")), false)
+	types := []byte{mysql.MYSQL_TYPE_LONG, 0, mysql.MYSQL_TYPE_BLOB, 0}
+	requireOKPacket(t, send(t, conn, executePacket(id, 2, []int{1}, types, binary.LittleEndian.AppendUint32(nil, 30)), true))
+	if got, _ := selectBlob(t, conn, 30); string(got) != "long" {
+		t.Fatalf("data %q", got)
+	}
+}
+
+// A5: M4 criterion 4 through the server's own path (text rows re-encoded as binary).
+func TestPreparedWideNullBitmap(t *testing.T) {
+	conn := blobServer(t)
+	var cols, want []string
+	for i := 0; i < 70; i++ {
+		v := fmt.Sprint(i)
+		if i%3 == 0 || i == 63 || i == 69 {
+			v = "NULL"
+		}
+		cols = append(cols, v)
+		want = append(want, v)
+	}
+	got := rowStrings(execute(t, prepare(t, conn, "SELECT "+strings.Join(cols, ", ")+", ?"), int64(7)))[0]
+	if strings.Join(got[:70], ",") != strings.Join(want, ",") || got[70] != "7" {
+		t.Fatalf("got %v", got)
+	}
+}
+
+// Every parameter NULL: go-mysql's client sends flag 0 and no types, and the NULLs
+// are bound (not refused as A1).
+func TestPreparedAllNullWithoutTypes(t *testing.T) {
+	conn := blobServer(t)
+	sameRows(t, "all NULL", rowStrings(execute(t, prepare(t, conn, "SELECT ? IS NULL, ? IS NULL"), nil, nil)), []string{"1", "1"})
 }

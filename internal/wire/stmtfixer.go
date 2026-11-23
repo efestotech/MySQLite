@@ -31,6 +31,15 @@ type stmtFixer struct {
 	out            []byte // rewritten bytes not yet returned by Read
 	stmts          map[uint32]*fixerStmt
 	pendingPrepare bool // the last command was COM_STMT_PREPARE; its response is next
+
+	// shift is how many more chunks go-mysql read for the current command than the
+	// client sent: go-mysql numbers its response after them, so each response packet's
+	// sequence id is lowered by shift. wRemaining tracks the response's packet framing
+	// across Write calls while shift is not 0.
+	shift      byte
+	wHeader    [4]byte
+	wHeaderLen int
+	wRemaining int
 }
 
 type fixerStmt struct {
@@ -61,11 +70,12 @@ func (f *stmtFixer) Read(p []byte) (int, error) {
 // next reads one logical packet from the client and queues what go-mysql must read
 // instead: the packet itself, a rewritten one, or nothing.
 func (f *stmtFixer) next() error {
-	payload, seq, err := f.readPacket()
+	payload, seq, chunks, err := f.readPacket()
 	if err != nil {
 		return err
 	}
 	f.pendingPrepare = false
+	f.shift, f.wHeaderLen, f.wRemaining = 0, 0, 0
 	if len(payload) > 0 {
 		switch payload[0] {
 		case mysql.COM_STMT_PREPARE:
@@ -74,7 +84,7 @@ func (f *stmtFixer) next() error {
 			f.longData(payload)
 			return nil
 		case mysql.COM_STMT_EXECUTE:
-			if payload, err = f.execute(payload, seq); err != nil || payload == nil {
+			if payload, err = f.execute(payload, seq+byte(chunks)); err != nil || payload == nil {
 				return err
 			}
 		case mysql.COM_STMT_RESET:
@@ -87,46 +97,46 @@ func (f *stmtFixer) next() error {
 			}
 		}
 	}
-	f.queue(payload, seq)
+	f.shift = byte(f.queue(payload, seq) - chunks)
 	return nil
 }
 
-// readPacket reads one logical packet, joining 16 MiB chunks.
-func (f *stmtFixer) readPacket() ([]byte, byte, error) {
+// readPacket reads one logical packet, joining 16 MiB chunks; it returns the first
+// sequence id and the number of chunks.
+func (f *stmtFixer) readPacket() ([]byte, byte, int, error) {
 	var payload []byte
 	var hdr [4]byte
 	var seq byte
-	first := true
-	for {
+	for chunks := 1; ; chunks++ {
 		if _, err := io.ReadFull(f.Conn, hdr[:]); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
-		if first {
-			seq, first = hdr[3], false
+		if chunks == 1 {
+			seq = hdr[3]
 		}
 		n := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
 		start := len(payload)
 		payload = append(payload, make([]byte, n)...)
 		if _, err := io.ReadFull(f.Conn, payload[start:]); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		if n < maxChunkPayload {
-			return payload, seq, nil
+			return payload, seq, chunks, nil
 		}
 	}
 }
 
 // queue appends payload to the bytes Read returns, split into chunks from sequence id
-// seq.
-func (f *stmtFixer) queue(payload []byte, seq byte) {
-	for {
+// seq, and returns the number of chunks.
+func (f *stmtFixer) queue(payload []byte, seq byte) int {
+	for chunks := 1; ; chunks++ {
 		n := min(len(payload), maxChunkPayload)
 		f.out = append(f.out, byte(n), byte(n>>8), byte(n>>16), seq)
 		f.out = append(f.out, payload[:n]...)
 		payload = payload[n:]
 		seq++
 		if n < maxChunkPayload {
-			return
+			return chunks
 		}
 	}
 }
@@ -164,15 +174,15 @@ func (f *stmtFixer) longData(payload []byte) {
 // execute rewrites COM_STMT_EXECUTE: payload is 0x17, statement id (4), flags (1),
 // iteration count (4), then for a statement with parameters the NULL bitmap, the
 // new-params-bound flag, the types when that flag is 1, and the values. A nil result
-// means the fixer answered the client itself.
-func (f *stmtFixer) execute(payload []byte, seq byte) ([]byte, error) {
+// means the fixer answered the client itself, with sequence id reply.
+func (f *stmtFixer) execute(payload []byte, reply byte) ([]byte, error) {
 	s := f.stmt(payload)
 	if s == nil || s.params == 0 {
 		return payload, nil
 	}
 	defer func() { s.longData, s.longSize = nil, 0 }()
 	if s.longSize > f.limit {
-		return nil, f.reply(seq+1, mysql.NewDefaultError(mysql.ER_NET_PACKET_TOO_LARGE))
+		return nil, f.reply(reply, mysql.NewDefaultError(mysql.ER_NET_PACKET_TOO_LARGE))
 	}
 	bitmapLen := (s.params + 7) / 8
 	pos := 10
@@ -192,8 +202,21 @@ func (f *stmtFixer) execute(payload []byte, seq byte) ([]byte, error) {
 		s.types = append([]byte(nil), types...)
 		pos += 2 * s.params
 	}
-	if types == nil || (bound && s.longData == nil) {
+	if types == nil {
+		if allNull(bitmap, s.params) && s.longData == nil {
+			return payload, nil // every parameter NULL needs no types (go-mysql's client sends this)
+		}
+		// Values but no types to read them with: go-mysql would bind NULLs
+		// (oracle: pending).
+		return nil, f.reply(reply, mysql.NewError(mysql.ER_WRONG_ARGUMENTS, "Incorrect arguments to mysqld_stmt_execute"))
+	}
+	if bound && s.longData == nil {
 		return payload, nil // nothing to fix
+	}
+	// Long data wins over the parameter's NULL bit, as in MySQL.
+	bitmap = append([]byte(nil), bitmap...)
+	for i := range s.longData {
+		bitmap[i/8] &^= 1 << (i % 8)
 	}
 	values, ok := f.values(s, bitmap, types, payload[pos:])
 	if !ok {
@@ -234,6 +257,16 @@ func (f *stmtFixer) values(s *fixerStmt, bitmap, types, in []byte) ([]byte, bool
 	return out, true
 }
 
+// allNull reports a NULL bitmap with every parameter set.
+func allNull(bitmap []byte, params int) bool {
+	for i := 0; i < params; i++ {
+		if bitmap[i/8]&(1<<(i%8)) == 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // valueSize is the size of one binary-protocol parameter value of type tp at the start
 // of b.
 func valueSize(tp byte, b []byte) (int, bool) {
@@ -268,7 +301,7 @@ func lengthEncodedType(tp byte) bool {
 	case mysql.MYSQL_TYPE_DECIMAL, mysql.MYSQL_TYPE_NEWDECIMAL, mysql.MYSQL_TYPE_VARCHAR, mysql.MYSQL_TYPE_BIT,
 		mysql.MYSQL_TYPE_ENUM, mysql.MYSQL_TYPE_SET, mysql.MYSQL_TYPE_TINY_BLOB, mysql.MYSQL_TYPE_MEDIUM_BLOB,
 		mysql.MYSQL_TYPE_LONG_BLOB, mysql.MYSQL_TYPE_BLOB, mysql.MYSQL_TYPE_VAR_STRING, mysql.MYSQL_TYPE_STRING,
-		mysql.MYSQL_TYPE_GEOMETRY, mysql.MYSQL_TYPE_DATE, mysql.MYSQL_TYPE_NEWDATE,
+		mysql.MYSQL_TYPE_GEOMETRY, mysql.MYSQL_TYPE_VECTOR, mysql.MYSQL_TYPE_DATE, mysql.MYSQL_TYPE_NEWDATE,
 		mysql.MYSQL_TYPE_TIMESTAMP, mysql.MYSQL_TYPE_DATETIME, mysql.MYSQL_TYPE_TIME:
 		return true
 	}
@@ -296,5 +329,32 @@ func (f *stmtFixer) Write(p []byte) (int, error) {
 			f.stmts[id] = &fixerStmt{params: int(binary.LittleEndian.Uint16(p[11:13]))}
 		}
 	}
-	return f.Conn.Write(p)
+	if f.shift == 0 {
+		return f.Conn.Write(p)
+	}
+	// Lower the sequence id in every packet header of the response; p is the caller's
+	// and is not modified.
+	q := append([]byte(nil), p...)
+	for i := 0; i < len(q); {
+		if f.wRemaining > 0 {
+			step := min(f.wRemaining, len(q)-i)
+			f.wRemaining -= step
+			i += step
+			continue
+		}
+		if f.wHeaderLen == 3 {
+			q[i] -= f.shift
+		}
+		f.wHeader[f.wHeaderLen] = q[i]
+		f.wHeaderLen++
+		i++
+		if f.wHeaderLen == 4 {
+			f.wHeaderLen = 0
+			f.wRemaining = int(f.wHeader[0]) | int(f.wHeader[1])<<8 | int(f.wHeader[2])<<16
+		}
+	}
+	if _, err := f.Conn.Write(q); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
