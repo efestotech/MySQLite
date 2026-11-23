@@ -24,6 +24,7 @@ func (h *handler) resetSession() {
 	h.sink = nil
 	h.diag, h.pendingDiag = nil, nil
 	h.clock = statementClock{}
+	h.tablesLocked = false
 }
 
 // resetConnection answers COM_RESET_CONNECTION: a reset session that keeps the user

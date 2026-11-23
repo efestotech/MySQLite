@@ -45,6 +45,9 @@ type handler struct {
 	fresh func()
 	// fixer rewrites prepared-statement packets (stmtfixer.go).
 	fixer *stmtFixer
+	// tablesLocked is set by LOCK TABLES until UNLOCK TABLES or START TRANSACTION: then
+	// UNLOCK TABLES commits.
+	tablesLocked bool
 	// multiStatements lets one COM_QUERY hold several statements
 	// (CLIENT_MULTI_STATEMENTS, COM_SET_OPTION).
 	multiStatements bool
@@ -232,6 +235,9 @@ func (h *handler) query(query, current string) (*dialect.Statement, *mysql.Resul
 		err = h.use(st.UseDB)
 	case dialect.KindTransaction:
 		err = h.transaction(st.Tx)
+		if err == nil && (st.Tx.Op == dialect.TxLockTables || st.Tx.Op == dialect.TxUnlockTables) {
+			res = &mysql.Result{} // carries the warning count to the OK packet
+		}
 	case dialect.KindRead:
 		res, err = h.read(st)
 	case dialect.KindWrite, dialect.KindDDL:
@@ -378,12 +384,28 @@ func (h *handler) transaction(tx *dialect.Transaction) error {
 	var err error
 	switch tx.Op {
 	case dialect.TxBegin:
+		// MySQL's START TRANSACTION releases the table locks.
+		h.tablesLocked = false
 		readOnly := tx.ReadOnly || !tx.ReadWrite && h.sess.DefaultReadOnly()
 		err = h.sess.Begin(ctx, session.TxOptions{ReadOnly: readOnly, Snapshot: tx.Snapshot})
 	case dialect.TxCommit:
 		err = h.sess.Commit(ctx)
 	case dialect.TxRollback:
 		err = h.sess.Rollback(ctx)
+	case dialect.TxLockTables:
+		if err = h.sess.Commit(ctx); err == nil {
+			h.tablesLocked = true
+			h.warn(errs.LockTablesIgnored())
+		}
+	case dialect.TxUnlockTables:
+		// MySQL commits only when LOCK TABLES took locks.
+		if h.tablesLocked {
+			err = h.sess.Commit(ctx)
+			h.tablesLocked = false
+		}
+		if err == nil {
+			h.warn(errs.UnlockTablesIgnored())
+		}
 	}
 	return h.fail(err, errs.Hint{})
 }

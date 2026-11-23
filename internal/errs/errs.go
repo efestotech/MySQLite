@@ -701,6 +701,16 @@ func UnknownStmtHandler(id uint32, command string) *Error {
 	return newError(1243, "HY000", "Unknown prepared statement handler (%d) given to %s", id, command)
 }
 
+// LockTablesIgnored is the warning of LOCK TABLES, which takes no lock (decision Q7).
+func LockTablesIgnored() *Error {
+	return newError(1235, "42000", "mysqlite: LOCK TABLES takes no table locks: other sessions can still write these tables between this session's statements")
+}
+
+// UnlockTablesIgnored is the warning of UNLOCK TABLES.
+func UnlockTablesIgnored() *Error {
+	return newError(1235, "42000", "mysqlite: UNLOCK TABLES has no table locks to release")
+}
+
 // ClientInteractionTimeout is 4031, sent before the server closes an idle connection
 // (MySQL 8.0.24+; mysqlite sends it for an idle transaction). `oracle: pending`.
 func ClientInteractionTimeout() *Error {

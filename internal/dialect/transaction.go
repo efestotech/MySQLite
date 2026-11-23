@@ -18,6 +18,10 @@ const (
 	TxCommit
 	// TxRollback is ROLLBACK; without a transaction it does nothing.
 	TxRollback
+	// TxLockTables is LOCK TABLES: it commits and takes no lock (decision Q7).
+	TxLockTables
+	// TxUnlockTables is UNLOCK TABLES: it commits after a LOCK TABLES of the session.
+	TxUnlockTables
 )
 
 // Transaction describes a KindTransaction statement (docs/06-transactions.md section 4).

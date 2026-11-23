@@ -266,7 +266,6 @@ func TestUnsupported(t *testing.T) {
 		"DELETE t FROM t JOIN u ON t.a = u.a":                         "multi-table DELETE",
 		"DELETE IGNORE FROM t":                                        "DELETE IGNORE",
 		"SET @a = 1":                                                  "user variable",
-		"LOCK TABLES t READ":                                          "LOCK TABLES",
 		"SHOW PROCEDURE STATUS":                                       "SHOW",
 		"CREATE TEMPORARY TABLE x (a INT)":                            "CREATE TEMPORARY TABLE",
 		"RENAME TABLE x TO y":                                         "RENAME TABLE",
@@ -424,6 +423,12 @@ func TestTransactionStatements(t *testing.T) {
 		{"COMMIT NO RELEASE", Transaction{Op: TxCommit}},
 		{"ROLLBACK", Transaction{Op: TxRollback}},
 		{"ROLLBACK AND NO CHAIN NO RELEASE", Transaction{Op: TxRollback}},
+		// Q7: accepted, no lock is taken (docs/05-dialect.md section 6).
+		{"LOCK TABLES t READ", Transaction{Op: TxLockTables}},
+		{"LOCK TABLES t WRITE, u READ LOCAL", Transaction{Op: TxLockTables}},
+		{"lock table `t` write", Transaction{Op: TxLockTables}},
+		{"UNLOCK TABLES", Transaction{Op: TxUnlockTables}},
+		{"UNLOCK TABLE", Transaction{Op: TxUnlockTables}},
 	}
 	for _, tc := range cases {
 		for _, current := range []string{"shop", ""} {

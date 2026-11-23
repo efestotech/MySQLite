@@ -126,6 +126,12 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 			return nil
 		}
 		return e.completion(TxRollback, n.CompletionType)
+	case *ast.LockTablesStmt:
+		// No lock is taken: the single writer serializes statements and transactions,
+		// not sessions (docs/05-dialect.md section 6, decision Q7).
+		return &Statement{Kind: KindTransaction, Tx: &Transaction{Op: TxLockTables}}
+	case *ast.UnlockTablesStmt:
+		return &Statement{Kind: KindTransaction, Tx: &Transaction{Op: TxUnlockTables}}
 	case *ast.ShowStmt:
 		return e.show(n)
 	case *ast.SetStmt:
