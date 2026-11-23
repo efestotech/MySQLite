@@ -1,0 +1,106 @@
+# CI (docs/07-testing.md section 8). The workflow file only: the agent never pushes.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      # -race needs cgo; the runner has gcc. The release build below is CGO_ENABLED=0.
+      - name: go test -race
+        run: CGO_ENABLED=1 go test -race -count=1 ./...
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.1.6
+
+  licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Forbidden or unknown licenses fail the build (docs/02-research.md section 6).
+      - name: go-licenses check
+        run: |
+          go install github.com/google/go-licenses@v1.6.0
+          "$(go env GOPATH)/bin/go-licenses" check ./cmd/mysqlite --disallowed_types=forbidden,restricted,unknown
+      # The repository's own audit, and NOTICE must be what it generates.
+      - name: notice
+        run: |
+          go run ./scripts/notice -check
+          go run ./scripts/notice -o NOTICE
+          git diff --exit-code NOTICE
+
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: static binary
+        env:
+          CGO_ENABLED: "0"
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags="-s -w" -o dist/mysqlite-linux-${{ matrix.goarch }} ./cmd/mysqlite
+      # No CGO dependency: no dynamic section, no interpreter.
+      - name: verify static
+        run: |
+          file dist/mysqlite-linux-${{ matrix.goarch }}
+          file dist/mysqlite-linux-${{ matrix.goarch }} | grep -q 'statically linked'
+          ! readelf -l dist/mysqlite-linux-${{ matrix.goarch }} | grep -q INTERP
+          ls -l dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mysqlite-linux-${{ matrix.goarch }}
+          path: dist/mysqlite-linux-${{ matrix.goarch }}
+
+  docker:
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: harness (mysql-ref against mysqlite)
+        run: bash scripts/dev.sh harness
+      - name: client matrix
+        run: bash scripts/dev.sh clients
+      - name: upload harness report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: harness-report
+          path: logs/harness/report.json
+          if-no-files-found: warn
+      - name: logs
+        if: always()
+        run: docker compose -f deploy/docker/compose.yaml logs mysqlite
+      - name: down
+        if: always()
+        run: bash scripts/dev.sh down
