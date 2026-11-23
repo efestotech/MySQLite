@@ -59,6 +59,24 @@ func TestEngineKeysFromFile(t *testing.T) {
 	}
 }
 
+// alter_backup is on by default and can be turned off (ADR 0008).
+func TestAlterBackupKey(t *testing.T) {
+	cfg, err := Load([]string{"--config", writeFile(t, minimal)})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.AlterBackup {
+		t.Error("want alter_backup true by default")
+	}
+	cfg, err = Load([]string{"--config", writeFile(t, minimal+"alter_backup: false\n")})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.AlterBackup {
+		t.Error("want alter_backup false from the file")
+	}
+}
+
 // The query journal is on by default: it feeds the corpus (docs/09-conventions.md
 // section 3).
 func TestJournalKey(t *testing.T) {

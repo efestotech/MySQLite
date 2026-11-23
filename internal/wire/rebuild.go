@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/pingcap/tidb/pkg/parser/ast"
 
@@ -18,6 +19,7 @@ import (
 // (https://sqlite.org/lang_altertable.html, "Making Other Kinds Of Table Schema
 // Changes"), with the steps numbered as there:
 //
+//  0. the backup copy of ADR 0008, before the transaction (backup);
 //  1. foreign keys off, before the transaction (prepareRebuild);
 //  2. BEGIN (handler.ddl);
 //  3. the table has no triggers and the database no views, else 1235;
@@ -53,6 +55,31 @@ func (h *handler) prepareRebuild(ctx context.Context, conn *sql.Conn) (restore f
 			h.log.Error("internal error", "error", err.Error())
 		}
 	}, true, nil
+}
+
+// keepBackups is how many backups of a database ADR 0008 keeps.
+const keepBackups = 3
+
+// vacuumInto copies the database conn is connected to into a new file; tests replace it
+// to make the copy fail.
+var vacuumInto = func(ctx context.Context, conn *sql.Conn, path string) error {
+	return exec(ctx, conn, "VACUUM INTO ?", path)
+}
+
+// backup copies the whole database before a rebuild (ADR 0008), on the writer and
+// outside a transaction (VACUUM cannot run in one); the writer is held for the whole
+// statement, so no other write lands between the copy and the rebuild. A failed copy
+// fails the ALTER. Only the newest keepBackups copies are kept.
+func (h *handler) backup(ctx context.Context, conn *sql.Conn, database string) error {
+	path, err := h.eng.BackupPath(database, time.Now())
+	if err != nil {
+		return err
+	}
+	if err := vacuumInto(ctx, conn, path); err != nil {
+		return fmt.Errorf("wire: backup before ALTER TABLE: %w", err)
+	}
+	h.log.Info("backup before ALTER TABLE", "database", database, "file", path)
+	return h.eng.PruneBackups(database, keepBackups)
 }
 
 // mayRebuild reports an ALTER TABLE that may rebuild t: a rebuild spec, or DROP COLUMN

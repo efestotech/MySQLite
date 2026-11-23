@@ -88,6 +88,7 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 		Users:            cfg.UserPasswords(),
 		Engine:           eng,
 		Journal:          journal,
+		SkipAlterBackup:  !cfg.AlterBackup,
 	}, log)
 	if err != nil {
 		return err

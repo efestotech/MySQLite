@@ -31,6 +31,8 @@ type handler struct {
 	log  *slog.Logger
 	// journal records every COM_QUERY; nil records nothing.
 	journal *obs.Journal
+	// skipBackup turns off the copy before an ALTER TABLE rebuild (ADR 0008).
+	skipBackup bool
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
 	// catalog describes tables; shared by all connections.

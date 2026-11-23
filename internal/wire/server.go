@@ -38,6 +38,9 @@ type Config struct {
 	Engine *engine.Engine
 	// Journal receives one entry per COM_QUERY; nil journals nothing.
 	Journal *obs.Journal
+	// SkipAlterBackup turns off the copy of a database before an ALTER TABLE rebuild
+	// (the alter_backup key, ADR 0008). The zero value takes the copy.
+	SkipAlterBackup bool
 }
 
 // Server accepts MySQL client connections.
@@ -214,6 +217,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	tr := dialect.New(dialect.Config{ServerVersion: s.version})
 	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
+	h.skipBackup = s.cfg.SkipAlterBackup
 	h.version = s.cfg.ServerVersion
 	h.catalog = s.catalog
 	h.procs = s.procs

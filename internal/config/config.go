@@ -63,6 +63,10 @@ type Config struct {
 	MaxReadConns  int    `yaml:"max_read_conns"`
 	BusyTimeoutMS int    `yaml:"busy_timeout_ms"`
 	Synchronous   string `yaml:"synchronous"`
+
+	// AlterBackup copies a database before an ALTER TABLE rebuilds one of its tables
+	// (ADR 0008).
+	AlterBackup bool `yaml:"alter_backup"`
 }
 
 // Defaults returns the configuration used for every key the file and flags leave unset.
@@ -76,6 +80,7 @@ func Defaults() Config {
 		MaxReadConns:     4,
 		BusyTimeoutMS:    5000,
 		Synchronous:      "NORMAL",
+		AlterBackup:      true,
 		Log: Log{
 			Level:     "info",
 			Dir:       "logs",

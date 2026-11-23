@@ -29,6 +29,11 @@ func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 			return nil, nil
 		}
 		rebuilding = true
+		if !h.skipBackup {
+			if err := h.backup(ctx, conn, st.Database); err != nil {
+				return nil, err
+			}
+		}
 		restore, on, err := h.prepareRebuild(ctx, conn)
 		fkOn = on
 		return restore, err
