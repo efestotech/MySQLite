@@ -3,6 +3,7 @@ package wire
 import (
 	"crypto/rand"
 	"crypto/subtle"
+	"encoding/binary"
 	"errors"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
@@ -164,4 +165,27 @@ func newSalt() ([]byte, error) {
 		salt[i] = 1 + b%127 // no NUL, 7-bit like MySQL's salt
 	}
 	return salt, nil
+}
+
+// MySQL's COM_SET_OPTION values.
+const (
+	optionMultiStatementsOn  = 0
+	optionMultiStatementsOff = 1
+)
+
+// setOption answers COM_SET_OPTION: multi-statements on or off for the session.
+// go-mysql answers EOF when it returns nil, as MySQL does. `oracle: pending`.
+func (h *handler) setOption(data []byte) error {
+	if len(data) < 2 {
+		return toMySQL(errs.MalformedPacket())
+	}
+	switch binary.LittleEndian.Uint16(data) {
+	case optionMultiStatementsOn:
+		h.multiStatements = true
+	case optionMultiStatementsOff:
+		h.multiStatements = false
+	default:
+		return toMySQL(errs.UnknownCommand())
+	}
+	return nil
 }

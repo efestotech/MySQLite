@@ -227,9 +227,6 @@ func TestCapabilities(t *testing.T) {
 		"CLIENT_SSL":              mysql.CLIENT_SSL,
 		"CLIENT_COMPRESS":         mysql.CLIENT_COMPRESS,
 		"CLIENT_LOCAL_FILES":      mysql.CLIENT_LOCAL_FILES,
-		"CLIENT_MULTI_STATEMENTS": mysql.CLIENT_MULTI_STATEMENTS,
-		"CLIENT_MULTI_RESULTS":    mysql.CLIENT_MULTI_RESULTS,
-		"CLIENT_PS_MULTI_RESULTS": mysql.CLIENT_PS_MULTI_RESULTS,
 		"CLIENT_DEPRECATE_EOF":    mysql.CLIENT_DEPRECATE_EOF,
 	}
 	for name, flag := range forbidden {
@@ -237,7 +234,9 @@ func TestCapabilities(t *testing.T) {
 			t.Errorf("%s must not be advertised", name)
 		}
 	}
-	if caps&mysql.CLIENT_PROTOCOL_41 == 0 || caps&mysql.CLIENT_PLUGIN_AUTH == 0 {
-		t.Error("CLIENT_PROTOCOL_41 and CLIENT_PLUGIN_AUTH must be advertised")
+	required := mysql.CLIENT_PROTOCOL_41 | mysql.CLIENT_PLUGIN_AUTH | mysql.CLIENT_MULTI_STATEMENTS |
+		mysql.CLIENT_MULTI_RESULTS | mysql.CLIENT_PS_MULTI_RESULTS
+	if caps&required != required {
+		t.Errorf("missing flags %#x", required&^caps)
 	}
 }

@@ -85,9 +85,11 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 	auth := newAuthHandler(cfg.Users)
 	conf := server.NewServerWithAuth(cfg.ServerVersion, collationUTF8MB4GeneralCI,
 		mysql.AUTH_NATIVE_PASSWORD, nil, nil, nativeOnlyProvider{users: auth})
-	// Multi-result support arrives with M4/M5 (docs/03-protocol.md section 2).
-	if err := conf.UnsetCapability(mysql.CLIENT_MULTI_RESULTS | mysql.CLIENT_PS_MULTI_RESULTS); err != nil {
-		return nil, fmt.Errorf("wire: unset multi-result capabilities: %w", err)
+	// Multi-results with multi-statements from M5 (docs/03-protocol.md section 2);
+	// CLIENT_MULTI_STATEMENTS itself is added to the handshake by the response filter
+	// (ADR 0003, G11).
+	if err := conf.SetCapability(mysql.CLIENT_MULTI_RESULTS | mysql.CLIENT_PS_MULTI_RESULTS); err != nil {
+		return nil, fmt.Errorf("wire: set multi-result capabilities: %w", err)
 	}
 
 	hostname, _ := os.Hostname()
@@ -126,7 +128,7 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 
 // Capability returns the capability flags advertised in the initial handshake.
 func (s *Server) Capability() uint32 {
-	return s.conf.Capability()
+	return s.conf.Capability() | mysql.CLIENT_MULTI_STATEMENTS
 }
 
 // Serve accepts connections on ln until Close is called. It returns nil after Close.

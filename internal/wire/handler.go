@@ -45,6 +45,9 @@ type handler struct {
 	fresh func()
 	// fixer rewrites prepared-statement packets (stmtfixer.go).
 	fixer *stmtFixer
+	// multiStatements lets one COM_QUERY hold several statements
+	// (CLIENT_MULTI_STATEMENTS, COM_SET_OPTION).
+	multiStatements bool
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
 	// catalog describes tables; shared by all connections.
@@ -166,7 +169,32 @@ func (h *handler) close() {
 }
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
+	if h.multiStatements && h.conn != nil {
+		if parts := h.tr.Split(query); len(parts) > 1 {
+			return h.runMulti(parts)
+		}
+	}
 	return h.run(query)
+}
+
+// runMulti runs the statements of one COM_QUERY in order (CLIENT_MULTI_STATEMENTS).
+// Each result but the last is written here with SERVER_MORE_RESULTS_EXISTS; the last
+// is returned to go-mysql. An error ends the batch: it is the last response and the
+// statements after it do not run (docs/03-protocol.md section 4). `oracle: pending`.
+func (h *handler) runMulti(parts []string) (*mysql.Result, error) {
+	for i, q := range parts {
+		res, err := h.run(q)
+		if err != nil || i == len(parts)-1 {
+			return res, err
+		}
+		h.conn.SetStatus(mysql.SERVER_MORE_RESULTS_EXISTS)
+		werr := h.conn.WriteValue(res)
+		h.conn.UnsetStatus(mysql.SERVER_MORE_RESULTS_EXISTS)
+		if werr != nil {
+			return nil, werr
+		}
+	}
+	return nil, nil
 }
 
 // run is COM_QUERY's pipeline, also used by COM_STMT_EXECUTE once the parameter values

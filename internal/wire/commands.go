@@ -1,6 +1,7 @@
 package wire
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -64,6 +65,8 @@ func (h *handler) HandleOtherCommand(cmd byte, data []byte) error {
 			return h.resetConnection()
 		case mysql.COM_CHANGE_USER:
 			return h.changeUser(data)
+		case mysql.COM_SET_OPTION:
+			return h.setOption(data)
 		}
 	}
 	return unknownCommand()
@@ -92,9 +95,13 @@ func (h *handler) statistics() error {
 // responseFilter sits between go-mysql and the client connection. dropNext discards
 // the next write, which is one whole packet: go-mysql writes each uncompressed packet
 // with one Write call, and mysqlite never negotiates compression.
+//
+// The first write is the initial handshake: the filter adds CLIENT_MULTI_STATEMENTS to
+// its capability flags, which go-mysql cannot advertise (ADR 0003, G11).
 type responseFilter struct {
 	net.Conn
-	drop atomic.Bool
+	drop      atomic.Bool
+	handshake atomic.Bool // the initial handshake was written
 }
 
 func (f *responseFilter) dropNext() { f.drop.Store(true) }
@@ -103,5 +110,30 @@ func (f *responseFilter) Write(p []byte) (int, error) {
 	if f.drop.Swap(false) {
 		return len(p), nil
 	}
+	if !f.handshake.Swap(true) {
+		return f.Conn.Write(advertiseMultiStatements(p))
+	}
 	return f.Conn.Write(p)
+}
+
+// advertiseMultiStatements returns a copy of the initial handshake packet p with
+// CLIENT_MULTI_STATEMENTS set in the upper capability bytes. The layout is protocol 10:
+// header (4), protocol version, server version NUL, connection id (4), salt part 1 (8),
+// filler, capability low (2), character set, status (2), capability high (2). A packet
+// that does not match is returned unchanged.
+func advertiseMultiStatements(p []byte) []byte {
+	if len(p) < 5 || p[4] != 10 {
+		return p
+	}
+	nul := bytes.IndexByte(p[5:], 0)
+	if nul < 0 {
+		return p
+	}
+	high := 5 + nul + 1 + 4 + 8 + 1 + 2 + 1 + 2
+	if high+2 > len(p) {
+		return p
+	}
+	out := bytes.Clone(p)
+	out[high] |= byte(mysql.CLIENT_MULTI_STATEMENTS >> 16)
+	return out
 }
