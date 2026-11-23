@@ -376,3 +376,20 @@ func TestEphemeralIsDiscardedOnClose(t *testing.T) {
 		}
 	}
 }
+
+// A database name is exact, as on Linux: on a case-insensitive filesystem (Windows,
+// macOS) "APP" must not open app.db as a second database with its own writer queue.
+func TestDatabaseNameIsCaseExact(t *testing.T) {
+	e := openEngine(t, testOptions(t))
+	if err := e.CreateDatabase("app"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.Database("app"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"APP", "App"} {
+		if _, err := e.Database(name); !errors.Is(err, ErrUnknownDatabase) {
+			t.Errorf("Database(%q) = %v, want ErrUnknownDatabase", name, err)
+		}
+	}
+}

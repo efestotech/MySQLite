@@ -310,6 +310,10 @@ func Harness(ctx context.Context, ref, sut Target, cases []Case) *HarnessReport 
 // status classifies a case from both outcomes and their difference.
 func status(c *Case, ref, sut Outcome, detail string) Status {
 	switch {
+	case ref.Problem != "" || sut.Problem != "":
+		// A side that could not run is a failure even when a deviation is recorded:
+		// the deviation covers a different answer, not a crash or a lost connection.
+		return Failed
 	case c.KnownDeviation != nil:
 		return Deviated
 	case detail == "":

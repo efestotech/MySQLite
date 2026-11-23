@@ -129,6 +129,12 @@ func runCase(ctx context.Context, t Target, c *Case) string {
 // are the statement's outcome.
 func execute(ctx context.Context, t Target, c *Case) (res *mysql.Result, err error, problem string) {
 	db, err := t.Prepare(ctx, c)
+	var my *mysql.MyError
+	if errors.As(err, &my) && my.Code == 1235 {
+		// The engine refused the case's setup as unsupported: that is its answer to the
+		// case (an unsupported construct), not a failure to run it.
+		return nil, fmt.Errorf("setup: %w", err), ""
+	}
 	if err != nil {
 		return nil, nil, "setup: " + err.Error()
 	}

@@ -183,6 +183,20 @@ func (e *Engine) CreateDatabase(name string) error {
 	return err
 }
 
+// hasExactFile reports whether the data directory holds an entry spelled exactly file.
+func (e *Engine) hasExactFile(file string) (bool, error) {
+	entries, err := os.ReadDir(e.opts.DataDir)
+	if err != nil {
+		return false, fmt.Errorf("engine: list data dir: %w", err)
+	}
+	for _, entry := range entries {
+		if entry.Name() == file {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // Database returns the open database, opening it on first use. It never creates a file.
 func (e *Engine) Database(name string) (*Database, error) {
 	path, err := e.path(name)
@@ -206,6 +220,16 @@ func (e *Engine) Database(name string) (*Database, error) {
 	}
 	if !info.Mode().IsRegular() {
 		return nil, fmt.Errorf("%w: %q is not a regular file", ErrUnknownDatabase, name)
+	}
+	// On a case-insensitive filesystem the Stat above also finds app.db for "APP".
+	// Names are exact, as on Linux, so one file is never two databases with two
+	// writer queues.
+	exact, err := e.hasExactFile(name + fileExt)
+	if err != nil {
+		return nil, err
+	}
+	if !exact {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownDatabase, name)
 	}
 	db, err := openDatabase(name, path, e.opts, e.ext)
 	if err != nil {

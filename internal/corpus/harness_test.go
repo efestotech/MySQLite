@@ -61,6 +61,9 @@ func TestHarnessStatus(t *testing.T) {
 		{"1235 where the reference fails otherwise", plain, refErr, refused, Failed},
 		{"another error", plain, ok, wrong, Failed},
 		{"recorded deviation", deviated, ok, refused, Deviated},
+		// A deviation covers a different answer, never a side that could not run.
+		{"deviation, mysqlite cannot run", deviated, ok, Outcome{Problem: "connection lost"}, Failed},
+		{"deviation, reference cannot run", deviated, Outcome{Problem: "setup"}, ok, Failed},
 	} {
 		if got := status(tc.c, tc.ref, tc.sut, diffOutcomes(tc.ref, tc.sut)); got != tc.want {
 			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
