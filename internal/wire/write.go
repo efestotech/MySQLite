@@ -11,6 +11,7 @@ import (
 	"github.com/go-mysql-org/go-mysql/mysql"
 
 	"mysqlite/internal/dialect"
+	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
 	"mysqlite/internal/vars"
@@ -31,6 +32,26 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 			h.sess.StatementFailed(ctx)
 		}
 	}()
+	if !h.sess.InTransaction() {
+		// Autocommit: take the write lock first, retrying a busy database while nothing
+		// has been written yet (docs/06-transactions.md section 5). Inside a transaction
+		// a busy error goes to the client, which restarts the transaction.
+		retries, berr := engine.BeginImmediate(ctx, conn)
+		h.retries = retries
+		if berr != nil {
+			return nil, h.fail(fmt.Errorf("wire: begin write: %w", berr), errs.Hint{DatabaseArg: st.Database})
+		}
+		defer func() {
+			if err != nil {
+				_, _ = conn.ExecContext(ctx, "ROLLBACK")
+				return
+			}
+			if _, cerr := conn.ExecContext(ctx, "COMMIT"); cerr != nil {
+				_, _ = conn.ExecContext(ctx, "ROLLBACK")
+				res, err = nil, h.fail(fmt.Errorf("wire: commit write: %w", cerr), st.Hint())
+			}
+		}()
+	}
 
 	w := st.Write
 	table, err := h.catalog.Table(ctx, conn, st.Database, w.Table)

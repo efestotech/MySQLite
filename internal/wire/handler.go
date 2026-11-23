@@ -37,6 +37,8 @@ type handler struct {
 	skipBackup bool
 	// readOnly refuses writes and DDL with 1290 (--readonly).
 	readOnly bool
+	// retries counts the statement's attempts to take a busy write lock, for the journal.
+	retries int
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
 	// catalog describes tables; shared by all connections.
@@ -169,6 +171,7 @@ func (h *handler) run(query string) (*mysql.Result, error) {
 	h.beginDiagnostics()
 	h.procs.begin(h.proc, current, query)
 	h.applyLockWait()
+	h.retries = 0
 	st, res, err := h.query(query, current)
 	h.endStatement(st, res, err)
 	db, _ := h.sess.Database()
@@ -287,6 +290,7 @@ func (h *handler) record(query, current string, st *dialect.Statement, res *mysq
 		SQL:      query,
 		Duration: time.Since(start),
 		Outcome:  obs.OutcomeOK,
+		Retries:  h.retries,
 	}
 	if h.conn != nil {
 		e.Session = h.conn.ConnectionID()

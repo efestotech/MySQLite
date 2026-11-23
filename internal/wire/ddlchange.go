@@ -11,6 +11,7 @@ import (
 
 	"mysqlite/internal/catalog"
 	"mysqlite/internal/dialect"
+	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
 	"mysqlite/internal/meta"
 )
@@ -41,7 +42,9 @@ func (h *handler) ddlWith(st *dialect.Statement, prepare func(ctx context.Contex
 			defer after()
 		}
 	}
-	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+	retries, err := engine.BeginImmediate(ctx, conn)
+	h.retries = retries
+	if err != nil {
 		return nil, h.fail(fmt.Errorf("wire: begin DDL: %w", err), st.Hint())
 	}
 	done := false

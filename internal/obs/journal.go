@@ -47,6 +47,8 @@ type Entry struct {
 	Unsupported string
 	// DecimalAsReal marks a statement whose DECIMAL arithmetic ran as REAL (ADR 0006).
 	DecimalAsReal bool
+	// Retries counts the retries of a busy write lock (docs/06-transactions.md section 5).
+	Retries int
 }
 
 type record struct {
@@ -68,6 +70,7 @@ type record struct {
 	Error       string   `json:"error,omitempty"`
 	Unsupported string   `json:"unsupported,omitempty"`
 	DecimalReal bool     `json:"decimal_as_real,omitempty"`
+	Retries     int      `json:"retries,omitempty"`
 }
 
 // Journal is the merged query journal: JSON Lines in <dir>/journal.jsonl, rotated by
@@ -118,6 +121,7 @@ func (j *Journal) Record(e Entry) error {
 		Error:       e.Error,
 		DecimalReal: e.DecimalAsReal,
 		Unsupported: e.Unsupported,
+		Retries:     e.Retries,
 	})
 	if err != nil {
 		return fmt.Errorf("obs: encode journal entry: %w", err)
