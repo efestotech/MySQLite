@@ -701,6 +701,12 @@ func UnknownStmtHandler(id uint32, command string) *Error {
 	return newError(1243, "HY000", "Unknown prepared statement handler (%d) given to %s", id, command)
 }
 
+// ClientInteractionTimeout is 4031, sent before the server closes an idle connection
+// (MySQL 8.0.24+; mysqlite sends it for an idle transaction). `oracle: pending`.
+func ClientInteractionTimeout() *Error {
+	return newError(4031, "HY000", "The client was disconnected by the server because of inactivity. See wait_timeout and interactive_timeout for configuring this behavior.")
+}
+
 // LockWaitTimeout is 1205.
 func LockWaitTimeout() *Error {
 	return newError(1205, "HY000", "Lock wait timeout exceeded; try restarting transaction")

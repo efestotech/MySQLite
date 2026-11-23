@@ -32,6 +32,11 @@ type stmtFixer struct {
 	stmts          map[uint32]*fixerStmt
 	pendingPrepare bool // the last command was COM_STMT_PREPARE; its response is next
 
+	// idle ends a transaction left idle; inTx reports an open transaction. Both are
+	// set once authenticated.
+	idle *idleGuard
+	inTx func() bool
+
 	// shift is how many more chunks go-mysql read for the current command than the
 	// client sent: go-mysql numbers its response after them, so each response packet's
 	// sequence id is lowered by shift. wRemaining tracks the response's packet framing
@@ -78,7 +83,12 @@ func (f *stmtFixer) Read(p []byte) (int, error) {
 // next reads one logical packet from the client and queues what go-mysql must read
 // instead: the packet itself, a rewritten one, or nothing.
 func (f *stmtFixer) next() error {
+	// go-mysql wrote the previous response: the connection waits for a command.
+	f.idle.waiting(f.inTx != nil && f.inTx())
 	payload, seq, chunks, err := f.readPacket()
+	if !f.idle.arrived() {
+		return net.ErrClosed
+	}
 	if err != nil {
 		return err
 	}

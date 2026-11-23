@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
@@ -43,6 +44,9 @@ type Config struct {
 	SkipAlterBackup bool
 	// ReadOnly refuses every write and DDL statement with 1290 (the readonly key).
 	ReadOnly bool
+	// IdleTxTimeout ends a connection whose transaction stays idle this long, which
+	// rolls the transaction back (idle_tx_timeout_s); 0 turns it off.
+	IdleTxTimeout time.Duration
 }
 
 // Server accepts MySQL client connections.
@@ -244,6 +248,8 @@ func (s *Server) serveConn(raw net.Conn) {
 		return
 	}
 	// Authenticated: from now on every packet is a command.
+	fixer.idle = &idleGuard{timeout: s.cfg.IdleTxTimeout, raw: raw}
+	fixer.inTx = func() bool { return h.sess.InTransaction() } // h.sess changes on reset
 	fixer.active.Store(true)
 	log := s.log.With("conn_id", conn.ConnectionID(), "user", conn.GetUser(), "remote", remote)
 	h.log = log
@@ -251,6 +257,7 @@ func (s *Server) serveConn(raw net.Conn) {
 	db, _ := h.sess.Database()
 	h.proc = s.procs.add(conn.ConnectionID(), conn.GetUser(), remote, db)
 	defer s.procs.remove(h.proc)
+	defer h.idleEnded(fixer.idle) // after the rollback
 	defer h.close()
 	for !conn.Closed() {
 		if err := conn.HandleCommand(); err != nil {
