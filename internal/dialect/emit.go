@@ -219,7 +219,36 @@ func (e *emitter) tableName(ts *ast.TableSource) (name, alias, db string, ok boo
 		e.fail(errs.NoDatabaseSelected())
 		return "", "", "", false
 	}
+	e.checkIndexHints(tn, db)
 	return tn.Name.O, ts.AsName.O, db, e.err == nil
+}
+
+// checkIndexHints refuses an index hint naming a key the table does not have (1176), as
+// MySQL does, before R008 drops the hint. Without a catalog the hint is not checked.
+func (e *emitter) checkIndexHints(tn *ast.TableName, db string) {
+	if len(tn.IndexHints) == 0 || e.cat == nil || e.err != nil || strings.EqualFold(db, "information_schema") {
+		return
+	}
+	t, err := e.cat.Table(db, tn.Name.O)
+	if err != nil {
+		e.fail(err)
+		return
+	}
+	for _, h := range tn.IndexHints {
+		for _, key := range h.IndexNames {
+			if strings.EqualFold(key.O, "PRIMARY") && len(t.PrimaryKey) > 0 {
+				continue
+			}
+			found := false
+			for _, ix := range t.Indexes {
+				found = found || strings.EqualFold(ix.Name, key.O)
+			}
+			if !found {
+				e.fail(errs.KeyDoesNotExist(key.O, tn.Name.O))
+				return
+			}
+		}
+	}
 }
 
 func (e *emitter) writeTable(name, alias string) {
@@ -985,11 +1014,17 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			e.unsupported("operator "+name, reasonLater)
 			return nil
 		}
-		e.write("(")
-		l := e.expr(n.L)
-		e.write(" ", op, " ")
-		r := e.expr(n.R)
-		e.write(")")
+		var l, r *meta.Expr
+		switch op {
+		case "=", "<>", "<", "<=", ">", ">=", "IS":
+			l, r = e.comparison(n, op)
+		default:
+			e.write("(")
+			l = e.expr(n.L)
+			e.write(" ", op, " ")
+			r = e.expr(n.R)
+			e.write(")")
+		}
 		switch op {
 		case "+", "-", "*":
 			return e.check(node(meta.ExprArith, op, l, r))

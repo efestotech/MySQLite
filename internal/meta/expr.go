@@ -157,6 +157,13 @@ func Infer(x *Expr, from From) (ColumnDef, *errs.Error) {
 	return newScope(from).infer(x, "")
 }
 
+// InferKnown types x only when every column and system variable in it is known: false
+// where Infer would fall back to a string for a name it cannot resolve.
+func InferKnown(x *Expr, from From) (ColumnDef, bool) {
+	d, err := newScope(from).infer(x, "where clause")
+	return d, err == nil
+}
+
 // ClauseField is the clause error 1054 names for the select list.
 const ClauseField = "field list"
 

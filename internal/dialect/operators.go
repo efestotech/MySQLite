@@ -79,6 +79,40 @@ func (e *emitter) binaryString(x *meta.Expr) bool {
 	return err == nil && meta.IsString(d) && charset.Binary(d.Charset)
 }
 
+// comparison emits (l op r). MySQL compares a string with a number as two doubles
+// ('10' = 10, 'abc' = 0, '1abc' = 1); SQLite finds a TEXT value unequal to any number
+// when no column affinity converts it. The string operand of such a pair becomes
+// CAST(... AS REAL), which takes the numeric prefix as MySQL does. Operands of unknown
+// type are left alone.
+func (e *emitter) comparison(n *ast.BinaryOperationExpr, op string) (l, r *meta.Expr) {
+	lt, l := e.subExpr(n.L)
+	rt, r := e.subExpr(n.R)
+	if l != nil && r != nil {
+		ld, lok := meta.InferKnown(l, e.scope())
+		rd, rok := meta.InferKnown(r, e.scope())
+		if lok && rok {
+			switch {
+			case comparesAsText(ld) && meta.IsNumber(rd):
+				lt = "CAST(" + lt + " AS REAL)"
+			case meta.IsNumber(ld) && comparesAsText(rd):
+				rt = "CAST(" + rt + " AS REAL)"
+			}
+		}
+	}
+	e.write("(", lt, " ", op, " ", rt, ")")
+	return l, r
+}
+
+// comparesAsText is a character or binary string that MySQL converts to a double when
+// compared with a number (not ENUM, SET or JSON, which have their own rules).
+func comparesAsText(d meta.ColumnDef) bool {
+	switch d.Type {
+	case meta.TypeEnum, meta.TypeSet, meta.TypeJSON:
+		return false
+	}
+	return meta.IsString(d)
+}
+
 // accentInsensitive0900 reports a string operand collated utf8mb4_0900_ai_ci.
 func (e *emitter) accentInsensitive0900(x *meta.Expr) bool {
 	d, err := meta.Infer(x, e.scope())

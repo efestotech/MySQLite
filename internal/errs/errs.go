@@ -178,6 +178,10 @@ func fromSQLite(code int, msg string, h Hint) *Error {
 		if e := fromFunction(msg); e != nil {
 			return e
 		}
+		if strings.Contains(msg, "integer overflow") {
+			// SQLite's sum() and abs() stop at 64 bits; MySQL sums integers as DECIMAL.
+			return Unsupported("integer result beyond the BIGINT range", "SQLite computes SUM of integers in 64 bits")
+		}
 		if m := reTable.FindStringSubmatch(msg); m != nil {
 			table := strings.TrimPrefix(m[1], "main.")
 			return NoSuchTable(h.Database, table)
@@ -434,6 +438,12 @@ func IncorrectString(value, column string, row int) *Error {
 		b.WriteString("...")
 	}
 	return newError(1366, "HY000", "Incorrect string value: '%s' for column '%s' at row %d", b.String(), column, row)
+}
+
+// IncorrectTemporal is 1292 in strict mode: value is not a valid kind (date,
+// datetime) for column.
+func IncorrectTemporal(kind, value, column string, row int) *Error {
+	return newError(1292, "22007", "Incorrect %s value: '%s' for column '%s' at row %d", kind, value, column, row)
 }
 
 // DataTooLong is 1406 in strict mode.

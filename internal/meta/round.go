@@ -14,6 +14,15 @@ func IsExact(d ColumnDef) bool {
 	return c == classInt || c == classDecimal
 }
 
+// IsNumber reports an integer, DECIMAL, FLOAT or DOUBLE.
+func IsNumber(d ColumnDef) bool {
+	switch classOf(d) {
+	case classInt, classDecimal:
+		return true
+	}
+	return d.Type == TypeDouble || d.Type == TypeFloat
+}
+
 // IsDecimal reports whether d is a DECIMAL, which mysqlite computes as REAL (ADR 0006).
 func IsDecimal(d ColumnDef) bool {
 	return classOf(d) == classDecimal

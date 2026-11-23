@@ -37,6 +37,9 @@ func CheckInsert(t *Table, columns []string, rows [][]*Literal) (InsertInfo, *er
 type InsertMode struct {
 	// NoAutoValueOnZero stores 0 in the AUTO_INCREMENT column instead of refusing it.
 	NoAutoValueOnZero bool
+	// Strict is STRICT_TRANS_TABLES or STRICT_ALL_TABLES; with it, temporal literals are
+	// checked under NoZeroDate, NoZeroInDate and AllowInvalidDates (checkTemporal).
+	Strict, NoZeroDate, NoZeroInDate, AllowInvalidDates bool
 }
 
 // CheckInsertMode is CheckInsert under the given sql_mode flags.
@@ -88,6 +91,10 @@ func CheckInsertMode(t *Table, columns []string, rows [][]*Literal, mode InsertM
 		for j, v := range row {
 			col := t.Columns[idx[j]]
 			if e := LimitsOf(col.MySQLType()).CheckLiteral(col.Name, v, r+1); e != nil {
+				return info, e
+			}
+			ti, _ := ParseType(col.MySQLType())
+			if e := checkTemporal(ti.Type, col.Name, v, r+1, mode); e != nil {
 				return info, e
 			}
 			values[strings.ToLower(col.Name)] = v

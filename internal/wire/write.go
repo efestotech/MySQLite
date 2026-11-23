@@ -73,9 +73,7 @@ func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statem
 		return h.insertSelect(ctx, conn, st, table, hint)
 	}
 	mode, _, _ := h.vars.Get("sql_mode", vars.ReadSession)
-	info, e := meta.CheckInsertMode(table, w.Columns, w.Rows, meta.InsertMode{
-		NoAutoValueOnZero: vars.HasMode(mode.Text, "NO_AUTO_VALUE_ON_ZERO"),
-	})
+	info, e := meta.CheckInsertMode(table, w.Columns, w.Rows, insertMode(mode.Text))
 	if e != nil {
 		if w.Ignore && adjustedByIgnore(e) {
 			return nil, toMySQL(ignoreAdjusts(e))
@@ -667,4 +665,15 @@ func loseID(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) e
 		return fmt.Errorf("wire: AUTO_INCREMENT of %s: %w", table.Name, err)
 	}
 	return nil
+}
+
+// insertMode reads the sql_mode flags meta.CheckInsertMode needs.
+func insertMode(mode string) meta.InsertMode {
+	return meta.InsertMode{
+		NoAutoValueOnZero: vars.HasMode(mode, "NO_AUTO_VALUE_ON_ZERO"),
+		Strict:            vars.HasMode(mode, "STRICT_TRANS_TABLES") || vars.HasMode(mode, "STRICT_ALL_TABLES"),
+		NoZeroDate:        vars.HasMode(mode, "NO_ZERO_DATE"),
+		NoZeroInDate:      vars.HasMode(mode, "NO_ZERO_IN_DATE"),
+		AllowInvalidDates: vars.HasMode(mode, "ALLOW_INVALID_DATES"),
+	}
 }
