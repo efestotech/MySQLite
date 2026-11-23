@@ -224,10 +224,10 @@ func TestCapabilities(t *testing.T) {
 	}
 	caps := srv.Capability()
 	forbidden := map[string]uint32{
-		"CLIENT_SSL":              mysql.CLIENT_SSL,
-		"CLIENT_COMPRESS":         mysql.CLIENT_COMPRESS,
-		"CLIENT_LOCAL_FILES":      mysql.CLIENT_LOCAL_FILES,
-		"CLIENT_DEPRECATE_EOF":    mysql.CLIENT_DEPRECATE_EOF,
+		"CLIENT_SSL":           mysql.CLIENT_SSL,
+		"CLIENT_COMPRESS":      mysql.CLIENT_COMPRESS,
+		"CLIENT_LOCAL_FILES":   mysql.CLIENT_LOCAL_FILES,
+		"CLIENT_DEPRECATE_EOF": mysql.CLIENT_DEPRECATE_EOF,
 	}
 	for name, flag := range forbidden {
 		if caps&flag != 0 {
