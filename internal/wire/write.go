@@ -85,6 +85,9 @@ func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statem
 	if w.Ignore {
 		return h.insertIgnore(ctx, conn, st, table, hint, info)
 	}
+	if w.Upsert {
+		return h.insertUpsert(ctx, conn, st, table, hint, info)
+	}
 	hint.Entry = func(_ string, cols []string) string { return insertEntry(ctx, conn, table, info, cols) }
 
 	res := &mysql.Result{}
@@ -420,6 +423,10 @@ func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.
 	var ids, explicit []int64
 	duplicates := 0
 	for i, q := range w.RowSQL {
+		seq, err := rowSequence(ctx, conn, table, info, i)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
 		if _, err := conn.ExecContext(ctx, "SAVEPOINT mysqlite_row"); err != nil {
 			return nil, h.fail(err, hint)
 		}
@@ -445,6 +452,9 @@ func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.
 			}
 			h.warn(m)
 			duplicates++
+			if err := loseID(ctx, conn, table, seq); err != nil {
+				return nil, h.fail(err, hint)
+			}
 			continue
 		}
 		if _, err := conn.ExecContext(ctx, "RELEASE mysqlite_row"); err != nil {
@@ -508,4 +518,153 @@ func (h *handler) replace(ctx context.Context, conn *sql.Conn, st *dialect.State
 		res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: %d  Warnings: 0", records, deleted)
 	}
 	return res, nil
+}
+
+// insertUpsert runs INSERT ... ON DUPLICATE KEY UPDATE one row at a time: the row is
+// inserted (1 affected row) or, when it conflicts, the existing row is updated (2) or
+// left as it is because the values do not change (0, or 1 with CLIENT_FOUND_ROWS). The
+// insert id is the first generated id; without one, the id of the last updated row
+// (`oracle: pending`). Any failure undoes the whole statement.
+func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint, info meta.InsertInfo) (res *mysql.Result, err error) {
+	w := st.Write
+	from := meta.Single(table, "")
+	if e := meta.CheckRefs(w.Refs, nil, from); e != nil {
+		return nil, toMySQL(e)
+	}
+	if e := meta.CheckExprs(w.Exprs, from); e != nil {
+		return nil, toMySQL(e)
+	}
+	if _, err := conn.ExecContext(ctx, "SAVEPOINT mysqlite_stmt"); err != nil {
+		return nil, h.fail(err, hint)
+	}
+	defer func() {
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK TO mysqlite_stmt")
+		}
+		_, _ = conn.ExecContext(ctx, "RELEASE mysqlite_stmt")
+	}()
+
+	// run executes q and reports whether it wrote a row, with the row's id.
+	run := func(q string, args []any, rowHint errs.Hint) (bool, []int64, error) {
+		if info.Auto == "" {
+			r, err := conn.ExecContext(ctx, q, args...)
+			if err != nil {
+				return false, nil, h.fail(err, rowHint)
+			}
+			n, err := r.RowsAffected()
+			if err != nil {
+				return false, nil, h.fail(err, rowHint)
+			}
+			return n > 0, nil, nil
+		}
+		ids, err := returning(ctx, conn, q+" RETURNING "+ident(info.Auto), args)
+		if err != nil {
+			return false, nil, h.fail(err, rowHint)
+		}
+		return len(ids) > 0, ids, nil
+	}
+
+	var ids, explicit []int64
+	var updatedID int64
+	var affected uint64
+	duplicates := 0
+	for i := range w.RowSQL {
+		row := meta.InsertInfo{Auto: info.Auto, Values: info.Values[i : i+1]}
+		rowHint := hint
+		rowHint.Entry = func(_ string, cols []string) string { return insertEntry(ctx, conn, table, row, cols) }
+		seq, err := rowSequence(ctx, conn, table, info, i)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		inserted, rowIDs, err := run(w.RowSQL[i], w.RowArgs[i], rowHint)
+		if err != nil {
+			return nil, err
+		}
+		if inserted {
+			affected++
+			ids = append(ids, rowIDs...)
+			if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && v != nil && v.Kind != meta.LiteralNull && len(rowIDs) == 1 {
+				explicit = append(explicit, rowIDs[0])
+			}
+			continue
+		}
+		// The update's own conflicts name the key it hits with the assigned values.
+		updateHint := hint
+		updateHint.Entry = func(_ string, cols []string) string { return updateEntry(w.Set, cols) }
+		updated, rowIDs, err := run(w.UpdateSQL[i], w.UpdateArgs[i], updateHint)
+		if err != nil {
+			return nil, err
+		}
+		if err := loseID(ctx, conn, table, seq); err != nil {
+			return nil, h.fail(err, hint)
+		}
+		switch {
+		case updated:
+			affected += 2
+			duplicates++
+			if len(rowIDs) == 1 {
+				updatedID = rowIDs[0]
+			}
+		case h.foundRows():
+			affected++
+			duplicates++
+		}
+	}
+
+	res = &mysql.Result{AffectedRows: affected}
+	if id, generated := insertID(ids, explicit); generated {
+		res.InsertId = uint64(id)
+		h.lastInsertID = id
+	} else if len(explicit) > 0 {
+		res.InsertId = uint64(id)
+	} else if updatedID != 0 {
+		res.InsertId = uint64(updatedID)
+	}
+	if len(w.RowSQL) > 1 {
+		res.StatusMessage = fmt.Sprintf("Records: %d  Duplicates: %d  Warnings: 0", len(w.RowSQL), duplicates)
+	}
+	return res, nil
+}
+
+// rowSequence is the AUTO_INCREMENT counter before row i of an INSERT run one row at a
+// time, or -1 when the row does not generate an id (no AUTO_INCREMENT column, or the
+// row gives the value).
+func rowSequence(ctx context.Context, conn *sql.Conn, table *meta.Table, info meta.InsertInfo, i int) (int64, error) {
+	if info.Auto == "" {
+		return -1, nil
+	}
+	if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && (v == nil || v.Kind != meta.LiteralNull) {
+		return -1, nil
+	}
+	var seq int64
+	err := conn.QueryRowContext(ctx, "SELECT seq FROM sqlite_sequence WHERE name = ?", table.Name).Scan(&seq)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, fmt.Errorf("wire: AUTO_INCREMENT of %s: %w", table.Name, err)
+	}
+	return seq, nil
+}
+
+// loseID leaves the AUTO_INCREMENT counter one past seq after a row that generated an
+// id but was not inserted (INSERT IGNORE skipped it, ON DUPLICATE KEY UPDATE updated
+// another row). InnoDB allocates one id per such row of a simple INSERT and loses it
+// (innodb_autoinc_lock_mode 2, MySQL 8.0's default); SQLite either gives it back on
+// rollback or uses one per upsert attempt. `oracle: pending`.
+func loseID(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) error {
+	if seq < 0 {
+		return nil
+	}
+	r, err := conn.ExecContext(ctx, "UPDATE sqlite_sequence SET seq = ? WHERE name = ?", seq+1, table.Name)
+	if err == nil {
+		var n int64
+		if n, err = r.RowsAffected(); err == nil && n == 0 {
+			_, err = conn.ExecContext(ctx, "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", table.Name, seq+1)
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("wire: AUTO_INCREMENT of %s: %w", table.Name, err)
+	}
+	return nil
 }

@@ -157,6 +157,12 @@ type Write struct {
 	Ignore  bool
 	RowSQL  []string
 	RowArgs [][]any
+	// Upsert is ON DUPLICATE KEY UPDATE: RowSQL inserts a row with ON CONFLICT DO
+	// NOTHING, UpdateSQL updates the row it conflicts with when its values change. Refs
+	// and Exprs hold the assignments' columns and arithmetic.
+	Upsert     bool
+	UpdateSQL  []string
+	UpdateArgs [][]any
 	// UPDATE: the literal assigned to each column, by lower-case name (nil for an
 	// expression).
 	Set map[string]*meta.Literal

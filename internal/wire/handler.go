@@ -225,6 +225,14 @@ func (h *handler) bindVariables(st *dialect.Statement) *errs.Error {
 		if e := bind(st.Write.MatchArgs); e != nil {
 			return e
 		}
+		// INSERT IGNORE and ON DUPLICATE KEY UPDATE run one statement per row.
+		for _, list := range [][][]any{st.Write.RowArgs, st.Write.UpdateArgs} {
+			for _, args := range list {
+				if e := bind(args); e != nil {
+					return e
+				}
+			}
+		}
 	}
 	if st.Shape != nil {
 		for i := range st.Shape.Items {

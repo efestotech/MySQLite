@@ -39,6 +39,8 @@ type emitter struct {
 
 	// inValues forbids column references, which SQLite does not allow in VALUES.
 	inValues bool
+	// upsert is set in ON DUPLICATE KEY UPDATE, where VALUES(col) is the inserted value.
+	upsert bool
 	// clause, when set, records column references in refs (meta.CheckRefs).
 	clause string
 	refs   *[]meta.Ref
@@ -537,8 +539,10 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		e.unsupported("INSERT IGNORE ... SELECT", "MySQL reports each skipped row with its key value")
 	case n.IgnoreErr && n.IsReplace:
 		e.fail(errs.Internal())
-	case len(n.OnDuplicate) > 0:
-		e.unsupported("ON DUPLICATE KEY UPDATE", reasonLater)
+	case len(n.OnDuplicate) > 0 && n.Select != nil:
+		e.unsupported("INSERT ... SELECT ... ON DUPLICATE KEY UPDATE", reasonLater)
+	case len(n.OnDuplicate) > 0 && n.IgnoreErr:
+		e.unsupported("INSERT IGNORE ... ON DUPLICATE KEY UPDATE", reasonLater)
 	case len(n.PartitionNames) > 0:
 		e.unsupported("PARTITION", reasonSemantics)
 	}
@@ -550,7 +554,7 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		return
 	}
 
-	e.wr = &Write{Table: name, Meta: e.lookup(name), Replace: n.IsReplace, Ignore: n.IgnoreErr}
+	e.wr = &Write{Table: name, Meta: e.lookup(name), Replace: n.IsReplace, Ignore: n.IgnoreErr, Upsert: len(n.OnDuplicate) > 0}
 	e.changes = true
 	for _, c := range n.Columns {
 		e.wr.Columns = append(e.wr.Columns, c.Name.O)
@@ -571,6 +575,10 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 	if len(n.Columns) == 0 && len(n.Lists) == 1 && len(n.Lists[0]) == 0 {
 		e.apply(ruleDefaultValues)
 		e.write(" DEFAULT VALUES")
+		if e.wr.Upsert {
+			e.unsupported("VALUES () with ON DUPLICATE KEY UPDATE", "SQLite has no upsert with DEFAULT VALUES")
+			return
+		}
 		if e.wr.Ignore {
 			e.wr.RowSQL = []string{e.b.String()}
 			e.wr.RowArgs = [][]any{e.args}
@@ -621,12 +629,15 @@ func (e *emitter) insertStmt(n *ast.InsertStmt) {
 		}
 		e.write(text)
 		e.args = append(e.args, args...)
-		if e.wr.Ignore {
+		if e.wr.Ignore || e.wr.Upsert {
 			e.wr.RowSQL = append(e.wr.RowSQL, prefix+text)
 			e.wr.RowArgs = append(e.wr.RowArgs, append(append([]any(nil), prefixArgs...), args...))
 		}
 	}
 	e.inValues = false
+	if e.wr.Upsert {
+		e.onDuplicate(n)
+	}
 }
 
 // insertVerb starts an INSERT or REPLACE. SQLite's REPLACE deletes the rows the new row
@@ -674,49 +685,12 @@ func (e *emitter) updateStmt(n *ast.UpdateStmt) {
 	e.write("UPDATE ")
 	e.writeTable(name, alias)
 	e.write(" SET ")
-	// MySQL applies single-table assignments left to right, so a later expression sees
-	// the new value of an earlier column; SQLite evaluates every expression on the old
-	// row. Refuse the statements where the two differ.
-	assigned := map[string]bool{}
-	for i, a := range n.List {
-		col := a.Column.Name.L
-		if assigned[col] {
-			e.unsupported("column assigned twice", reasonSemantics)
-			return
-		}
-		for _, ref := range columnRefs(a.Expr) {
-			if assigned[ref] {
-				e.unsupported("UPDATE assignment order", "MySQL assigns left to right, SQLite reads the old row")
-				return
-			}
-		}
-		assigned[col] = true
-		if i > 0 {
-			e.write(", ")
-		}
-		e.checkSchema(a.Column.Schema)
-		e.write(quoteIdent(a.Column.Name.O), " = ")
-		e.writeValue(a.Column.Name.O, a.Expr)
-		e.wr.Set[col] = valueLiteral(a.Expr)
+	if !e.assignments(n.List, "UPDATE") {
+		return
 	}
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
 
-	// MySQL's affected rows are the rows whose values change (docs/05-dialect.md
-	// section 6). A row is changed unless every assigned column already holds the new
-	// value, compared byte for byte as MySQL compares records (COLLATE BINARY; IS for
-	// NULL). The expressions read the old row, as the assignments do.
-	pred, predArgs := e.sub(func() {
-		e.write("NOT (")
-		for i, a := range n.List {
-			if i > 0 {
-				e.write(" AND ")
-			}
-			e.write("(", quoteIdent(a.Column.Name.O), " IS (")
-			e.writeValue(a.Column.Name.O, a.Expr)
-			e.write(") COLLATE BINARY)")
-		}
-		e.write(")")
-	})
+	pred, predArgs := e.sub(func() { e.changed(n.List) })
 	if n.Where != nil || n.Order != nil || n.Limit != nil {
 		e.write(" AND ", pred)
 	} else {
@@ -912,6 +886,24 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 			e.write(ref)
 		}
 		return &meta.Expr{Kind: meta.ExprColumn, Qualifier: n.Name.Table.O, Column: n.Name.Name.O}
+	case *ast.ValuesExpr:
+		col := n.Column.Name
+		if !e.upsert {
+			e.unsupported("VALUES() outside ON DUPLICATE KEY UPDATE", "MySQL returns NULL there and deprecates it")
+			return nil
+		}
+		if col.Table.O != "" && !strings.EqualFold(col.Table.O, e.wr.Table) {
+			e.fail(errs.UnknownColumn(col.Table.O+"."+col.Name.O, "field list"))
+			return nil
+		}
+		*e.refs = append(*e.refs, meta.Ref{Column: col.Name.O, Clause: "field list"})
+		ref := "excluded." + quoteIdent(col.Name.O)
+		if e.timestampRef("", col.Name.O) {
+			e.fromUTC(func() { e.write(ref) })
+		} else {
+			e.write(ref)
+		}
+		return &meta.Expr{Kind: meta.ExprColumn, Column: col.Name.O}
 	case *ast.TimeUnitExpr:
 		// An INTERVAL, EXTRACT or TIMESTAMPDIFF unit, passed to the date UDFs as text.
 		unit := n.Unit.String()
@@ -1275,4 +1267,92 @@ func (e *emitter) insertSelect(n *ast.InsertStmt, table string) {
 		e.write(quoteIdent(names[i]))
 	}
 	e.write(" FROM `__mysqlite_rows`")
+}
+
+// assignments emits the SET list of UPDATE or ON DUPLICATE KEY UPDATE. MySQL applies
+// single-table assignments left to right, so a later expression sees the new value of
+// an earlier column; SQLite evaluates every expression on the old row. The statements
+// where the two differ are refused.
+func (e *emitter) assignments(list []*ast.Assignment, stmt string) bool {
+	assigned := map[string]bool{}
+	for i, a := range list {
+		col := a.Column.Name.L
+		if assigned[col] {
+			e.unsupported("column assigned twice", reasonSemantics)
+			return false
+		}
+		for _, ref := range columnRefs(a.Expr) {
+			if assigned[ref] {
+				e.unsupported(stmt+" assignment order", "MySQL assigns left to right, SQLite reads the old row")
+				return false
+			}
+		}
+		assigned[col] = true
+		if i > 0 {
+			e.write(", ")
+		}
+		e.checkSchema(a.Column.Schema)
+		e.write(quoteIdent(a.Column.Name.O), " = ")
+		e.writeValue(a.Column.Name.O, a.Expr)
+		if e.wr.Set != nil {
+			e.wr.Set[col] = valueLiteral(a.Expr)
+		}
+		if e.err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// changed emits the predicate of a row the assignments change. MySQL's affected rows
+// are the rows whose values change (docs/05-dialect.md section 6): a row is changed
+// unless every assigned column already holds the new value, compared byte for byte as
+// MySQL compares records (COLLATE BINARY; IS for NULL). The expressions read the old
+// row, as the assignments do.
+func (e *emitter) changed(list []*ast.Assignment) {
+	e.write("NOT (")
+	for i, a := range list {
+		if i > 0 {
+			e.write(" AND ")
+		}
+		e.write("(", quoteIdent(a.Column.Name.O), " IS (")
+		e.writeValue(a.Column.Name.O, a.Expr)
+		e.write(") COLLATE BINARY)")
+	}
+	e.write(")")
+}
+
+// onDuplicate emits ON DUPLICATE KEY UPDATE as SQLite upserts, one row at a time: each
+// row is first inserted with ON CONFLICT DO NOTHING; when that inserts nothing, the
+// row conflicts and ON CONFLICT DO UPDATE ... WHERE <changed> updates the existing row
+// only when the values change, so the executor can count MySQL's 1, 2 or 0 affected
+// rows. VALUES(col) is SQLite's excluded.col.
+func (e *emitter) onDuplicate(n *ast.InsertStmt) {
+	for _, a := range n.OnDuplicate {
+		if q := a.Column.Table.O; q != "" && !strings.EqualFold(q, e.wr.Table) {
+			e.fail(errs.UnknownColumn(q+"."+a.Column.Name.O, "field list"))
+			return
+		}
+	}
+	e.refs, e.checks, e.clause = &e.wr.Refs, &e.wr.Exprs, "field list"
+	e.upsert = true
+	e.wr.Set = map[string]*meta.Literal{}
+	defer func() { e.refs, e.checks, e.clause, e.upsert = nil, nil, "", false }()
+	for _, a := range n.OnDuplicate {
+		*e.refs = append(*e.refs, meta.Ref{Column: a.Column.Name.O, Clause: "field list"})
+	}
+	set, setArgs := e.sub(func() { e.assignments(n.OnDuplicate, "ON DUPLICATE KEY UPDATE") })
+	pred, predArgs := e.sub(func() { e.changed(n.OnDuplicate) })
+	if e.err != nil {
+		return
+	}
+	suffix := " ON CONFLICT DO UPDATE SET " + set + " WHERE " + pred
+	suffixArgs := append(setArgs, predArgs...)
+	e.write(suffix)
+	e.args = append(e.args, suffixArgs...)
+	for i := range e.wr.RowSQL {
+		e.wr.UpdateSQL = append(e.wr.UpdateSQL, e.wr.RowSQL[i]+suffix)
+		e.wr.UpdateArgs = append(e.wr.UpdateArgs, append(append([]any(nil), e.wr.RowArgs[i]...), suffixArgs...))
+		e.wr.RowSQL[i] += " ON CONFLICT DO NOTHING"
+	}
 }
