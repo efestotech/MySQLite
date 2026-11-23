@@ -49,13 +49,8 @@ func TestAlterTableNative(t *testing.T) {
 		msg   string
 	}{
 		{"ALTER TABLE gadgets ADD COLUMN NAME INT", 1060, "42S21", "Duplicate column name 'NAME'"},
-		{"ALTER TABLE gadgets ADD COLUMN x INT FIRST", 1235, "42000", ""},
-		{"ALTER TABLE gadgets ADD COLUMN x INT AFTER id", 1235, "42000", ""},
-		{"ALTER TABLE gadgets ADD COLUMN x INT NOT NULL", 1235, "42000", ""},
-		{"ALTER TABLE gadgets ADD COLUMN x INT PRIMARY KEY", 1235, "42000", ""},
 		{"ALTER TABLE gadgets ADD COLUMN x TEXT UNIQUE", 1170, "42000", "BLOB/TEXT column 'x' used in key specification without a key length"},
 		{"ALTER TABLE gadgets DROP COLUMN nope", 1091, "42000", "Can't DROP 'nope'; check that column/key exists"},
-		{"ALTER TABLE gadgets DROP COLUMN id", 1235, "42000", ""},
 		{"ALTER TABLE gadgets RENAME COLUMN nope TO x", 1054, "42S22", "Unknown column 'nope' in 'gadgets'"},
 		{"ALTER TABLE gadgets RENAME COLUMN note TO Name", 1060, "42S21", "Duplicate column name 'Name'"},
 		{"ALTER TABLE gadgets RENAME TO shop.items", 1050, "42S01", "Table 'items' already exists"},
@@ -63,14 +58,11 @@ func TestAlterTableNative(t *testing.T) {
 		{"ALTER TABLE gadgets RENAME TO __mysqlite_x", 1235, "42000", ""},
 		{"ALTER TABLE gadgets ADD INDEX Name (qty)", 1061, "42000", "Duplicate key name 'Name'"},
 		{"ALTER TABLE gadgets ADD INDEX x (nope)", 1072, "42000", "Key column 'nope' doesn't exist in table"},
-		{"ALTER TABLE gadgets ADD PRIMARY KEY (name)", 1235, "42000", ""},
 		{"ALTER TABLE gadgets ADD FOREIGN KEY (qty) REFERENCES items (id)", 1235, "42000", ""},
 		{"ALTER TABLE gadgets DROP INDEX nope", 1091, "42000", "Can't DROP 'nope'; check that column/key exists"},
-		{"ALTER TABLE gadgets DROP PRIMARY KEY", 1235, "42000", ""},
 		{"ALTER TABLE gadgets RENAME INDEX nope TO x", 1176, "42000", "Key 'nope' doesn't exist in table 'gadgets'"},
 		{"ALTER TABLE gadgets RENAME INDEX uq TO NAME", 1061, "42000", "Duplicate key name 'NAME'"},
 		{"ALTER TABLE gadgets RENAME INDEX uq TO `PRIMARY`", 1280, "42000", "Incorrect index name 'PRIMARY'"},
-		{"ALTER TABLE gadgets MODIFY name VARCHAR(30) NOT NULL", 1235, "42000", ""},
 		{"ALTER TABLE gadgets AUTO_INCREMENT = 10", 1235, "42000", ""},
 		{"ALTER TABLE missing ADD x INT", 1146, "42S02", "Table 'shop.missing' doesn't exist"},
 		// One statement is atomic: the ADD does not survive the failed DROP.
@@ -136,7 +128,7 @@ func TestAlterTableNative(t *testing.T) {
 	}
 	execOK(t, conn, "INSERT INTO Kit (name) VALUES ('nail')")
 	_, err = conn.Execute("ALTER TABLE kit DROP COLUMN id, DROP COLUMN name, DROP COLUMN note, DROP COLUMN built")
-	requireMyError(t, err, 1235, "42000")
+	requireMyError(t, err, 1090, "42000")
 	execOK(t, conn, "CREATE TABLE one (a INT)")
 	_, err = conn.Execute("ALTER TABLE one DROP COLUMN a")
 	if e := requireMyError(t, err, 1090, "42000"); e.Message != "You can't delete all columns with ALTER TABLE; use DROP TABLE instead" {

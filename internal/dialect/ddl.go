@@ -31,6 +31,11 @@ type CreateTable struct {
 	// AutoIncrement is the AUTO_INCREMENT=n table option; 0 when absent or when the
 	// table has no AUTO_INCREMENT column (MySQL ignores it then).
 	AutoIncrement uint64
+
+	// The translated definition, for an ALTER TABLE rebuild.
+	cols []*ddlColumn
+	pk   []string
+	keys []IndexChange
 }
 
 // Fact is one sidecar row: Column is "" for a table fact, a column name, or
@@ -284,7 +289,9 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 		stmt += "INDEX " + quoteIdent(sqliteName) + " ON " + quoteIdent(table) + " (" + identList(k.columns) + ")"
 		ct.SQL = append(ct.SQL, stmt)
 		ct.Facts = append(ct.Facts, Fact{Column: "index:" + sqliteName, Key: factName, Value: k.name})
+		ct.keys = append(ct.keys, IndexChange{Table: table, Name: k.name, Unique: k.unique, Columns: k.columns})
 	}
+	ct.cols, ct.pk = cols, pk
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Create: ct}
 }
 

@@ -16,6 +16,9 @@ import (
 type Alter struct {
 	Table string // as written
 	Specs []AlterSpec
+	// Rebuild is set when a spec rebuilds the table (AlterRebuild): the executor turns
+	// foreign keys off and copies the database first (ADR 0008).
+	Rebuild bool
 }
 
 // AlterKind is the kind of one ALTER TABLE spec.
@@ -25,21 +28,22 @@ type AlterKind int
 const (
 	AlterAddColumn AlterKind = iota + 1
 	AlterDropColumn
-	AlterRenameColumn
 	AlterRenameTable
 	AlterAddIndex
 	AlterDropIndex
 	AlterRenameIndex
 	AlterTableOption
+	// AlterRebuild re-creates the table with Spec applied (Translator.Rebuild).
+	AlterRebuild
 )
 
 // AlterSpec is one ALTER TABLE spec.
 type AlterSpec struct {
 	Kind AlterKind
-	// Name is the column (ADD, DROP, RENAME COLUMN), the key (DROP, RENAME INDEX) or the
-	// table option's sidecar key.
+	// Name is the column (ADD, DROP COLUMN), the key (DROP, RENAME INDEX) or the table
+	// option's sidecar key.
 	Name string
-	// NewName is the new name of RENAME COLUMN, TABLE or INDEX; the option's value.
+	// NewName is the new name of RENAME TABLE or INDEX; the option's value.
 	NewName string
 	// ColumnSQL is the SQLite column definition of ADD COLUMN, Facts its sidecar rows.
 	ColumnSQL string
@@ -47,6 +51,9 @@ type AlterSpec struct {
 	// Index is the key of ADD INDEX; an empty Name is named by the executor after its
 	// first column, as MySQL names it.
 	Index *IndexChange
+	// Spec is the parsed spec of AlterRebuild, and of DROP COLUMN, which rebuilds the
+	// table when the column is in the primary key.
+	Spec *ast.AlterTableSpec
 }
 
 func (e *emitter) alterTable(n *ast.AlterTableStmt) *Statement {
@@ -69,11 +76,16 @@ func (e *emitter) alterTable(n *ast.AlterTableStmt) *Statement {
 			return nil
 		}
 	}
+	for _, s := range a.Specs {
+		if s.Kind == AlterRebuild {
+			a.Rebuild = true
+		}
+	}
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Alter: a}
 }
 
-// reasonRebuild explains the forms that need SQLite's table rebuild.
-const reasonRebuild = "SQLite changes it only by rebuilding the table, which arrives later in M3"
+// reasonRebuild explains the forms the table rebuild does not cover.
+const reasonRebuild = "the table rebuild does not support it"
 
 func (e *emitter) alterSpec(s *ast.AlterTableSpec, db, table, tableCollation string, a *Alter) {
 	switch s.Tp {
@@ -84,6 +96,10 @@ func (e *emitter) alterSpec(s *ast.AlterTableSpec, db, table, tableCollation str
 	case ast.AlterTableAddColumns:
 		e.addColumns(s, tableCollation, a)
 	case ast.AlterTableAddConstraint:
+		if s.Constraint.Tp == ast.ConstraintPrimaryKey {
+			a.Specs = append(a.Specs, AlterSpec{Kind: AlterRebuild, Spec: s})
+			return
+		}
 		e.addConstraint(s.Constraint, table, a)
 	case ast.AlterTableDropColumn:
 		if s.IfExists {
@@ -91,20 +107,22 @@ func (e *emitter) alterSpec(s *ast.AlterTableSpec, db, table, tableCollation str
 			e.fail(e.parseErrorAtWord("IF"))
 			return
 		}
-		a.Specs = append(a.Specs, AlterSpec{Kind: AlterDropColumn, Name: s.OldColumnName.Name.O})
+		a.Specs = append(a.Specs, AlterSpec{Kind: AlterDropColumn, Name: s.OldColumnName.Name.O, Spec: s})
 	case ast.AlterTableDropIndex:
 		switch {
 		case s.IfExists:
 			e.fail(e.parseErrorAtWord("IF"))
 		case strings.EqualFold(s.Name, "PRIMARY"):
-			e.unsupported("DROP INDEX `PRIMARY`", reasonRebuild)
+			a.Specs = append(a.Specs, AlterSpec{Kind: AlterRebuild, Spec: s})
 		default:
 			a.Specs = append(a.Specs, AlterSpec{Kind: AlterDropIndex, Name: s.Name})
 		}
-	case ast.AlterTableDropPrimaryKey:
-		e.unsupported("DROP PRIMARY KEY", reasonRebuild)
+	case ast.AlterTableDropPrimaryKey, ast.AlterTableModifyColumn, ast.AlterTableChangeColumn, ast.AlterTableAlterColumn:
+		a.Specs = append(a.Specs, AlterSpec{Kind: AlterRebuild, Spec: s})
 	case ast.AlterTableRenameColumn:
-		a.Specs = append(a.Specs, AlterSpec{Kind: AlterRenameColumn, Name: s.OldColumnName.Name.O, NewName: s.NewColumnName.Name.O})
+		// SQLite renames a column in place, but mysqlite's range and length CHECKs are
+		// named after their column (errors report it), so the table is rebuilt.
+		a.Specs = append(a.Specs, AlterSpec{Kind: AlterRebuild, Spec: s})
 	case ast.AlterTableRenameTable:
 		if d := s.NewTable.Schema.O; d != "" && d != db {
 			e.unsupported("ALTER TABLE ... RENAME TO another database", "each database is its own SQLite file")
@@ -124,12 +142,6 @@ func (e *emitter) alterSpec(s *ast.AlterTableSpec, db, table, tableCollation str
 			}
 		}
 		a.Specs = append(a.Specs, AlterSpec{Kind: AlterRenameIndex, Name: s.FromKey.O, NewName: s.ToKey.O})
-	case ast.AlterTableModifyColumn:
-		e.unsupported("MODIFY COLUMN", reasonRebuild)
-	case ast.AlterTableChangeColumn:
-		e.unsupported("CHANGE COLUMN", reasonRebuild)
-	case ast.AlterTableAlterColumn:
-		e.unsupported("ALTER COLUMN", reasonRebuild)
 	default:
 		e.unsupported("ALTER TABLE spec", reasonLater)
 	}
@@ -169,18 +181,16 @@ func (e *emitter) alterOptions(opts []*ast.TableOption, a *Alter) {
 	}
 }
 
-// addColumns translates ADD COLUMN. SQLite appends a column with a constant default; a
-// position, a key of its own or NOT NULL without a default (MySQL fills the rows with
-// the type's implicit default) need the rebuild.
+// addColumns translates ADD COLUMN. SQLite appends a column with a constant default in
+// place; a position, a key of its own, AUTO_INCREMENT or NOT NULL without a default
+// (MySQL fills the rows with the type's implicit default) rebuild the table.
 func (e *emitter) addColumns(s *ast.AlterTableSpec, tableCollation string, a *Alter) {
-	if s.Position != nil && s.Position.Tp != ast.ColumnPositionNone {
-		e.unsupported("ADD COLUMN ... FIRST/AFTER", reasonRebuild)
-		return
-	}
 	if len(s.NewConstraints) > 0 {
 		e.unsupported("ADD (column, key)", reasonLater)
 		return
 	}
+	rebuild := s.Position != nil && s.Position.Tp != ast.ColumnPositionNone
+	var native []AlterSpec
 	for _, c := range s.NewColumns {
 		col := e.column(c, tableCollation)
 		if e.err != nil {
@@ -190,28 +200,25 @@ func (e *emitter) addColumns(s *ast.AlterTableSpec, tableCollation string, a *Al
 		for _, o := range c.Options {
 			switch o.Tp {
 			case ast.ColumnOptionPrimaryKey:
-				e.unsupported("ADD COLUMN ... PRIMARY KEY", reasonRebuild)
+				rebuild = true
 			case ast.ColumnOptionUniqKey:
 				unique = true
 			}
 		}
-		switch {
-		case e.err != nil:
-			return
-		case col.auto:
-			e.unsupported("ADD COLUMN ... AUTO_INCREMENT", reasonRebuild)
-			return
-		case col.notNull && col.dflt == nil:
-			e.unsupported("ADD COLUMN ... NOT NULL without DEFAULT", reasonRebuild)
-			return
+		if col.auto || (col.notNull && col.dflt == nil) {
+			rebuild = true
 		}
 		e.apply(ruleCreateTable)
-		spec := AlterSpec{Kind: AlterAddColumn, Name: col.name, ColumnSQL: e.columnSQL(col, false), Facts: columnFacts(col)}
-		a.Specs = append(a.Specs, spec)
+		native = append(native, AlterSpec{Kind: AlterAddColumn, Name: col.name, ColumnSQL: e.columnSQL(col, false), Facts: columnFacts(col)})
 		if unique {
-			a.Specs = append(a.Specs, AlterSpec{Kind: AlterAddIndex, Index: &IndexChange{Unique: true, Columns: []string{col.name}}})
+			native = append(native, AlterSpec{Kind: AlterAddIndex, Index: &IndexChange{Unique: true, Columns: []string{col.name}}})
 		}
 	}
+	if rebuild {
+		a.Specs = append(a.Specs, AlterSpec{Kind: AlterRebuild, Spec: s})
+		return
+	}
+	a.Specs = append(a.Specs, native...)
 }
 
 // columnFacts are the sidecar rows of one column.
@@ -233,8 +240,6 @@ func (e *emitter) addConstraint(k *ast.Constraint, table string, a *Alter) {
 	case ast.ConstraintKey, ast.ConstraintIndex:
 	case ast.ConstraintUniq, ast.ConstraintUniqKey, ast.ConstraintUniqIndex:
 		unique = true
-	case ast.ConstraintPrimaryKey:
-		e.unsupported("ADD PRIMARY KEY", reasonRebuild)
 	case ast.ConstraintForeignKey:
 		e.unsupported("FOREIGN KEY", reasonLater)
 	case ast.ConstraintCheck:

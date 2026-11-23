@@ -19,12 +19,28 @@ import (
 // commits the open transaction first, and the statement takes effect whole or not at
 // all (MySQL 8.0's DDL is atomic).
 func (h *handler) ddl(st *dialect.Statement, run func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error)) (*mysql.Result, error) {
+	return h.ddlWith(st, nil, run)
+}
+
+// ddlWith is ddl with prepare run on the writer before the transaction starts; the
+// function it returns, if any, runs after the transaction ends, committed or not.
+func (h *handler) ddlWith(st *dialect.Statement, prepare func(ctx context.Context, conn *sql.Conn) (func(), error),
+	run func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error)) (*mysql.Result, error) {
 	ctx := context.Background()
 	conn, release, err := h.sess.DDLConn(ctx, st.Database)
 	if err != nil {
 		return nil, h.fail(err, errs.Hint{DatabaseArg: st.Database})
 	}
 	defer release()
+	if prepare != nil {
+		after, err := prepare(ctx, conn)
+		if err != nil {
+			return nil, h.fail(err, st.Hint())
+		}
+		if after != nil {
+			defer after()
+		}
+	}
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return nil, h.fail(fmt.Errorf("wire: begin DDL: %w", err), st.Hint())
 	}

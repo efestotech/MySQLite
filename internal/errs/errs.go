@@ -486,6 +486,11 @@ func CantRemoveAllFields() *Error {
 	return newError(1090, "42000", "You can't delete all columns with ALTER TABLE; use DROP TABLE instead")
 }
 
+// InvalidUseOfNull is 1138, ALTER TABLE making a column that holds NULLs NOT NULL.
+func InvalidUseOfNull() *Error {
+	return newError(1138, "22004", "Invalid use of NULL value")
+}
+
 // KeyDoesNotExist is 1176, RENAME INDEX of a key the table does not have.
 func KeyDoesNotExist(key, table string) *Error {
 	return newError(1176, "42000", "Key '%s' doesn't exist in table '%s'", key, table)

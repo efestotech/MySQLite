@@ -19,7 +19,21 @@ import (
 // schema version, so the cached catalog of the database is dropped afterwards.
 func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 	defer h.catalog.Forget(st.Database)
-	return h.ddl(st, func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error) {
+	var rebuilding, fkOn bool
+	prepare := func(ctx context.Context, conn *sql.Conn) (func(), error) {
+		t, err := catalog.ReadTable(ctx, conn, st.Database, st.Alter.Table)
+		if err != nil {
+			return nil, err
+		}
+		if !mayRebuild(st.Alter, t) {
+			return nil, nil
+		}
+		rebuilding = true
+		restore, on, err := h.prepareRebuild(ctx, conn)
+		fkOn = on
+		return restore, err
+	}
+	return h.ddlWith(st, prepare, func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error) {
 		name := st.Alter.Table
 		for _, s := range st.Alter.Specs {
 			// Read past the cache: the earlier specs changed the table.
@@ -27,7 +41,7 @@ func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 			if err != nil {
 				return nil, h.fail(err, st.Hint())
 			}
-			if err := h.alterSpec(ctx, conn, t, s); err != nil {
+			if err := h.alterSpec(ctx, conn, t, s, rebuilding, fkOn); err != nil {
 				return nil, h.fail(err, st.Hint())
 			}
 			if s.Kind == dialect.AlterRenameTable {
@@ -43,14 +57,21 @@ func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 	})
 }
 
-func (h *handler) alterSpec(ctx context.Context, conn *sql.Conn, t *meta.Table, s dialect.AlterSpec) error {
+func (h *handler) alterSpec(ctx context.Context, conn *sql.Conn, t *meta.Table, s dialect.AlterSpec, rebuilding, fkOn bool) error {
 	switch s.Kind {
+	case dialect.AlterRebuild:
+		return h.rebuild(ctx, conn, t, s.Spec, fkOn)
 	case dialect.AlterAddColumn:
 		return addColumn(ctx, conn, t, s)
 	case dialect.AlterDropColumn:
+		if containsFold(t.PrimaryKey, s.Name) {
+			if !rebuilding {
+				// An earlier spec of the statement put the column in the key.
+				return errs.Unsupported("DROP COLUMN of a column an earlier spec added to the primary key", "the statement was not prepared for a rebuild")
+			}
+			return h.rebuild(ctx, conn, t, s.Spec, fkOn)
+		}
 		return dropColumn(ctx, conn, t, s.Name)
-	case dialect.AlterRenameColumn:
-		return renameColumn(ctx, conn, t, s.Name, s.NewName)
 	case dialect.AlterRenameTable:
 		return renameTable(ctx, conn, t, s.NewName)
 	case dialect.AlterAddIndex:
@@ -99,11 +120,6 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 	case len(t.Columns) == 1:
 		return errs.CantRemoveAllFields()
 	}
-	for _, pk := range t.PrimaryKey {
-		if strings.EqualFold(pk, c.Name) {
-			return errs.Unsupported("DROP COLUMN of a primary-key column", "SQLite changes the primary key only by rebuilding the table, which arrives later in M3")
-		}
-	}
 	for _, ix := range t.Indexes {
 		var rest []string
 		for _, col := range ix.Columns {
@@ -134,29 +150,6 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 		return err
 	}
 	return catalog.DropSidecarColumn(ctx, conn, t.Name, c.Name)
-}
-
-// renameColumn renames a column; SQLite rewrites the indexes that use it. The range and
-// length CHECKs are named after their column (errors report it), so a column that has
-// one needs the rebuild.
-func renameColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, from, to string) error {
-	c, ok := t.Column(from)
-	if !ok {
-		return errs.UnknownColumn(from, t.Name)
-	}
-	if other, ok := t.Column(to); ok && !strings.EqualFold(other.Name, c.Name) {
-		return errs.DuplicateColumn(to)
-	}
-	if meta.LimitsOf(c.MySQLType()).CheckSQL(c.Name) != "" {
-		return errs.Unsupported("RENAME COLUMN of a column with a range or length CHECK", "the CHECK is named after the column; SQLite renames it only by rebuilding the table, which arrives later in M3")
-	}
-	if c.Name == to {
-		return nil
-	}
-	if err := exec(ctx, conn, "ALTER TABLE "+ident(t.Name)+" RENAME COLUMN "+ident(c.Name)+" TO "+ident(to)); err != nil {
-		return err
-	}
-	return catalog.RenameSidecarColumn(ctx, conn, t.Name, c.Name, to)
 }
 
 // renameTable renames a table with its sidecar facts. SQLite moves the rows, the
