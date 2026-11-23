@@ -167,3 +167,22 @@ func TestSetOption(t *testing.T) {
 	}
 	execOK(t, conn, "SELECT 1")
 }
+
+// Verifier A1: each statement of a batch is split with the sql_mode the statements
+// before it set, as MySQL parses one statement at a time. `oracle: pending`.
+func TestMultiStatementSQLModeChange(t *testing.T) {
+	addr := queueServer(t, 8)
+	conn := dial(t, addr, mysql.CLIENT_MULTI_STATEMENTS)
+	got := executeMultiple(t, conn, "SET sql_mode='NO_BACKSLASH_ESCAPES'; SELECT 'a\\'; SELECT 2")
+	if len(got) != 3 {
+		t.Fatalf("%d results: %v", len(got), got)
+	}
+	for i, r := range got {
+		if r.err != nil {
+			t.Fatalf("result %d: %v", i, r.err)
+		}
+	}
+	if v := decodedText(got[1].res); v != "a\\" {
+		t.Errorf("second result %q", v)
+	}
+}

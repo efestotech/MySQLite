@@ -46,7 +46,9 @@ func TestConcurrentLoad(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			conn := dial(t, addr)
-			id := w%4 + 1
+			// Two writers per row, one autocommit and one read-modify-write: a lost
+			// update needs two writers racing on one row (verifier B2).
+			id := w/2 + 1
 			for i := 0; time.Now().Before(deadline); i++ {
 				if w%2 == 0 {
 					if _, err := conn.Execute(fmt.Sprintf("UPDATE counters SET n = n + 1 WHERE id = %d", id)); err != nil {
@@ -273,6 +275,21 @@ func TestKillDuringWrites(t *testing.T) {
 		}
 		rows.Close()
 		_ = r.Close()
+		// Transaction writers (odd w) insert ids base..base+4: all or none.
+		for id := range present {
+			if (id/10_000_000)%2 == 1 && id%5 == 0 {
+				for k := 1; k < 5; k++ {
+					if !present[id+k] {
+						t.Errorf("round %d: transaction from %d is partial (missing %d)", round, id, id+k)
+					}
+				}
+			}
+		}
+		for id := range present {
+			if (id/10_000_000)%2 == 1 && !present[id-id%5] {
+				t.Errorf("round %d: row %d without its transaction's first row", round, id)
+			}
+		}
 		lost := 0
 		for id := range acked {
 			if !present[id] {

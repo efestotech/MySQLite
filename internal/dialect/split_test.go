@@ -40,3 +40,25 @@ func TestSplitNoBackslashEscapes(t *testing.T) {
 		t.Errorf("got %q, want %q", got, want)
 	}
 }
+
+// With ANSI_QUOTES a double-quoted identifier has no backslash escapes.
+func TestSplitAnsiQuotes(t *testing.T) {
+	tr := New(Config{ServerVersion: 80036})
+	tr.SetSQLMode("ANSI_QUOTES")
+	want := []string{`SELECT 1 AS "a\"`, " SELECT 2"}
+	if got := tr.Split(`SELECT 1 AS "a\"; SELECT 2`); !reflect.DeepEqual(got, want) {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestNext(t *testing.T) {
+	tr := New(Config{ServerVersion: 80036})
+	first, rest, more := tr.Next("SELECT 1; SELECT 2;  -- end")
+	if first != "SELECT 1" || rest != " SELECT 2;  -- end" || !more {
+		t.Fatalf("first %q rest %q more %v", first, rest, more)
+	}
+	first, rest, more = tr.Next(rest)
+	if first != " SELECT 2" || more {
+		t.Fatalf("first %q rest %q more %v", first, rest, more)
+	}
+}

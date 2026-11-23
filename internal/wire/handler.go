@@ -173,21 +173,25 @@ func (h *handler) close() {
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 	if h.multiStatements && h.conn != nil {
-		if parts := h.tr.Split(query); len(parts) > 1 {
-			return h.runMulti(parts)
+		if _, _, more := h.tr.Next(query); more {
+			return h.runMulti(query)
 		}
 	}
 	return h.run(query)
 }
 
 // runMulti runs the statements of one COM_QUERY in order (CLIENT_MULTI_STATEMENTS).
-// Each result but the last is written here with SERVER_MORE_RESULTS_EXISTS; the last
-// is returned to go-mysql. An error ends the batch: it is the last response and the
-// statements after it do not run (docs/03-protocol.md section 4). `oracle: pending`.
-func (h *handler) runMulti(parts []string) (*mysql.Result, error) {
-	for i, q := range parts {
+// Each statement is split off after the one before it ran, so a sql_mode it set
+// applies (verifier A1). Each result but the last is written here with
+// SERVER_MORE_RESULTS_EXISTS; the last is returned to go-mysql. An error ends the
+// batch: it is the last response and the statements after it do not run
+// (docs/03-protocol.md section 4). `oracle: pending`.
+func (h *handler) runMulti(query string) (*mysql.Result, error) {
+	for rest := query; ; {
+		q, after, more := h.tr.Next(rest)
+		rest = after
 		res, err := h.run(q)
-		if err != nil || i == len(parts)-1 {
+		if err != nil || !more {
 			return res, err
 		}
 		h.conn.SetStatus(mysql.SERVER_MORE_RESULTS_EXISTS)
@@ -197,7 +201,6 @@ func (h *handler) runMulti(parts []string) (*mysql.Result, error) {
 			return nil, werr
 		}
 	}
-	return nil, nil
 }
 
 // run is COM_QUERY's pipeline, also used by COM_STMT_EXECUTE once the parameter values

@@ -92,6 +92,10 @@ func (h *handler) changeUser(data []byte) error {
 	if !ok {
 		return h.endConnection(toMySQL(errs.MalformedPacket()))
 	}
+	// Both outcomes end the open transaction (a reset, or a closed connection): end it
+	// now, so a client that never answers the switch does not keep the writer
+	// (verifier B1).
+	h.close()
 	salt, err := newSalt()
 	if err != nil {
 		return err
@@ -112,7 +116,12 @@ func (h *handler) changeUser(data []byte) error {
 		return err
 	}
 	password, known := h.users[req.user]
-	if !known || !nativeMatches(reply, salt, password) {
+	if !known {
+		// The same work as for a known user, so the reply time does not tell users
+		// apart (verifier A5).
+		password = "\x00unknown user"
+	}
+	if !nativeMatches(reply, salt, password) || !known {
 		return h.endConnection(toMySQL(errs.AccessDenied(req.user, h.conn.RemoteAddr().String(), !isEmptyAuthData(reply))))
 	}
 

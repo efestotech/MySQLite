@@ -184,3 +184,23 @@ func TestChangeUserWrongPassword(t *testing.T) {
 		t.Fatal("the connection is still open")
 	}
 }
+
+// Verifier B1: a client that never answers COM_CHANGE_USER's auth switch must not keep
+// its transaction's writer: the transaction ends before the switch.
+func TestChangeUserStallReleasesWriter(t *testing.T) {
+	addr, _ := idleServer(t, 300*time.Millisecond)
+	c := dial(t, addr)
+	execOK(t, c, "BEGIN")
+	execOK(t, c, "INSERT INTO t VALUES (1, 1)")
+	p := append([]byte{mysql.COM_CHANGE_USER}, testUser...)
+	p = append(p, 0, 0, 0) // user NUL, empty auth, no database
+	if data := command(t, c, p...); data[0] != mysql.EOF_HEADER {
+		t.Fatalf("no auth switch: %v", data)
+	} // never answer the switch
+	other := dial(t, addr)
+	execOK(t, other, "SET innodb_lock_wait_timeout = 3")
+	execOK(t, other, "INSERT INTO t VALUES (2, 2)")
+	if n := decodedText(execOK(t, other, "SELECT COUNT(*) FROM t")); n != "1" {
+		t.Fatalf("rows %s: the stalled transaction must be rolled back", n)
+	}
+}
