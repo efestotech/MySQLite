@@ -91,7 +91,7 @@ func (h *handler) alterSpec(ctx context.Context, conn *sql.Conn, t *meta.Table, 
 	return fmt.Errorf("wire: ALTER TABLE spec %d", s.Kind)
 }
 
-func exec(ctx context.Context, conn *sql.Conn, q string, args ...any) error {
+func execSQL(ctx context.Context, conn *sql.Conn, q string, args ...any) error {
 	if _, err := conn.ExecContext(ctx, q, args...); err != nil {
 		return fmt.Errorf("wire: %s: %w", q, err)
 	}
@@ -102,7 +102,7 @@ func addColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, s dialect.Alt
 	if _, ok := t.Column(s.Name); ok {
 		return errs.DuplicateColumn(s.Name)
 	}
-	if err := exec(ctx, conn, "ALTER TABLE "+ident(t.Name)+" ADD COLUMN "+s.ColumnSQL); err != nil {
+	if err := execSQL(ctx, conn, "ALTER TABLE "+ident(t.Name)+" ADD COLUMN "+s.ColumnSQL); err != nil {
 		return err
 	}
 	for _, f := range s.Facts {
@@ -138,7 +138,7 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 		if strings.HasPrefix(ix.SQLiteName, "sqlite_autoindex_") {
 			return errs.Unsupported("DROP COLUMN of a column in a key declared in the SQLite table", "the key is part of the table; changing it rebuilds the table")
 		}
-		if err := exec(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
+		if err := execSQL(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
 			return err
 		}
 		if len(rest) == 0 {
@@ -151,7 +151,7 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 			return err
 		}
 	}
-	if err := exec(ctx, conn, "ALTER TABLE "+ident(t.Name)+" DROP COLUMN "+ident(c.Name)); err != nil {
+	if err := execSQL(ctx, conn, "ALTER TABLE "+ident(t.Name)+" DROP COLUMN "+ident(c.Name)); err != nil {
 		return err
 	}
 	return catalog.DropSidecarColumn(ctx, conn, t.Name, c.Name)
@@ -178,11 +178,11 @@ func renameTable(ctx context.Context, conn *sql.Conn, t *meta.Table, to string) 
 	if strings.EqualFold(from, to) {
 		// SQLite refuses a rename that changes only the case: go through another name.
 		from = catalog.HiddenPrefix + "rename"
-		if err := exec(ctx, conn, "ALTER TABLE "+ident(t.Name)+" RENAME TO "+ident(from)); err != nil {
+		if err := execSQL(ctx, conn, "ALTER TABLE "+ident(t.Name)+" RENAME TO "+ident(from)); err != nil {
 			return err
 		}
 	}
-	if err := exec(ctx, conn, "ALTER TABLE "+ident(from)+" RENAME TO "+ident(to)); err != nil {
+	if err := execSQL(ctx, conn, "ALTER TABLE "+ident(from)+" RENAME TO "+ident(to)); err != nil {
 		return err
 	}
 	if err := catalog.RenameSidecar(ctx, conn, t.Name, to); err != nil {
@@ -247,7 +247,7 @@ func buildIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, sqliteName, 
 		}
 		stmt = "CREATE UNIQUE INDEX "
 	}
-	if err := exec(ctx, conn, stmt+ident(sqliteName)+" ON "+ident(t.Name)+" ("+strings.Join(quoted, ", ")+")"); err != nil {
+	if err := execSQL(ctx, conn, stmt+ident(sqliteName)+" ON "+ident(t.Name)+" ("+strings.Join(quoted, ", ")+")"); err != nil {
 		return err
 	}
 	return catalog.SetSidecarFact(ctx, conn, t.Name, catalog.SidecarFact{Column: catalog.SidecarIndex(sqliteName), Key: catalog.SidecarKeyName, Value: key})
@@ -261,7 +261,7 @@ func dropIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, name string) 
 	if strings.HasPrefix(ix.SQLiteName, "sqlite_autoindex_") {
 		return errs.Unsupported("DROP INDEX of a key declared in the SQLite table", "the key is part of the table; changing it rebuilds the table (ALTER TABLE)")
 	}
-	if err := exec(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
+	if err := execSQL(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
 		return err
 	}
 	return catalog.DropSidecarColumn(ctx, conn, t.Name, catalog.SidecarIndex(ix.SQLiteName))
@@ -284,7 +284,7 @@ func renameIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, from, to st
 // moveIndex re-creates an index as <table>__<key> (rule R010) under its new key name:
 // SQLite cannot rename an index.
 func moveIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ix meta.Index, key string) error {
-	if err := exec(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
+	if err := execSQL(ctx, conn, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
 		return err
 	}
 	if err := catalog.DropSidecarColumn(ctx, conn, t.Name, catalog.SidecarIndex(ix.SQLiteName)); err != nil {

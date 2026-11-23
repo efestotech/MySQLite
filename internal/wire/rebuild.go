@@ -47,15 +47,23 @@ func (h *handler) prepareRebuild(ctx context.Context, conn *sql.Conn) (restore f
 	if !fkOn {
 		return nil, false, nil
 	}
-	if err := exec(ctx, conn, "PRAGMA foreign_keys = OFF"); err != nil {
+	if err := execSQL(ctx, conn, "PRAGMA foreign_keys = OFF"); err != nil {
 		return nil, false, err
 	}
 	return func() {
-		if err := exec(context.Background(), conn, "PRAGMA foreign_keys = ON"); err != nil {
+		if err := execSQL(context.Background(), conn, "PRAGMA foreign_keys = ON"); err != nil {
 			h.log.Error("internal error", "error", err.Error())
 		}
 	}, true, nil
 }
+
+// rebuildSteps name the statements of steps 4 to 7, for rebuildStep.
+var rebuildSteps = []string{"create", "copy", "drop", "rename"}
+
+// rebuildStep runs after each rebuild step ("create", "copy", "drop", "rename", and
+// "checked" before COMMIT); the crash-safety test replaces it to kill the process
+// there.
+var rebuildStep = func(string) {}
 
 // keepBackups is how many backups of a database ADR 0008 keeps.
 const keepBackups = 3
@@ -63,7 +71,7 @@ const keepBackups = 3
 // vacuumInto copies the database conn is connected to into a new file; tests replace it
 // to make the copy fail.
 var vacuumInto = func(ctx context.Context, conn *sql.Conn, path string) error {
-	return exec(ctx, conn, "VACUUM INTO ?", path)
+	return execSQL(ctx, conn, "VACUUM INTO ?", path)
 }
 
 // backup copies the whole database before a rebuild (ADR 0008), on the writer and
@@ -164,19 +172,20 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 		"DROP TABLE " + ident(t.Name),
 		"ALTER TABLE " + ident(rebuildTable) + " RENAME TO " + ident(t.Name),
 	}
-	for _, q := range steps {
+	for i, q := range steps {
 		if _, err := conn.ExecContext(ctx, q); err != nil {
 			// A value the new type's CHECK refuses, mapped like any write.
 			return fmt.Errorf("wire: rebuild %s: %w", t.Name, err)
 		}
+		rebuildStep(rebuildSteps[i])
 	}
 	if r.KeepCounter {
 		// The copy left the counter at the largest id; MySQL keeps the old one when it is
 		// higher (ids lost, AUTO_INCREMENT=n).
-		if err := exec(ctx, conn, "UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = ?", oldSeq, t.Name); err != nil {
+		if err := execSQL(ctx, conn, "UPDATE sqlite_sequence SET seq = max(seq, ?) WHERE name = ?", oldSeq, t.Name); err != nil {
 			return err
 		}
-		if err := exec(ctx, conn, "INSERT INTO sqlite_sequence (name, seq) SELECT ?, ? WHERE ? > 0 AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = ?)",
+		if err := execSQL(ctx, conn, "INSERT INTO sqlite_sequence (name, seq) SELECT ?, ? WHERE ? > 0 AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = ?)",
 			t.Name, oldSeq, oldSeq, t.Name); err != nil {
 			return err
 		}
@@ -202,6 +211,7 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 			return errs.Unsupported("ALTER TABLE that breaks a FOREIGN KEY", "PRAGMA foreign_key_check finds rows without their parent")
 		}
 	}
+	rebuildStep("checked")
 	return nil
 }
 
