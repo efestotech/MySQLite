@@ -107,6 +107,8 @@ type Engine struct {
 	scratch *sql.DB
 	// ephemeral serves information_schema, opened on first use.
 	ephemeral *sql.DB
+	// lock is the instance lock of the data directory (lock.go).
+	lock *os.File
 }
 
 // DataDir is the directory that holds the database files.
@@ -122,7 +124,14 @@ func Open(opts Options, ext Extensions) (*Engine, error) {
 	if err := os.MkdirAll(opts.DataDir, 0o750); err != nil {
 		return nil, fmt.Errorf("engine: create data dir %s: %w", opts.DataDir, err)
 	}
-	return &Engine{opts: opts, ext: ext, dbs: make(map[string]*Database)}, nil
+	if err := checkPermissions(opts.DataDir); err != nil {
+		return nil, err
+	}
+	lock, err := lockDataDir(opts.DataDir)
+	if err != nil {
+		return nil, err
+	}
+	return &Engine{opts: opts, ext: ext, dbs: make(map[string]*Database), lock: lock}, nil
 }
 
 func (e *Engine) path(name string) (string, error) {
@@ -293,6 +302,10 @@ func (e *Engine) Close() error {
 	}
 	if e.scratch != nil {
 		errs = append(errs, e.scratch.Close())
+	}
+	if e.lock != nil {
+		// Closing the file releases the lock.
+		errs = append(errs, e.lock.Close())
 	}
 	return errors.Join(errs...)
 }

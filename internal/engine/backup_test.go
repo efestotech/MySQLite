@@ -49,7 +49,9 @@ func TestBackupNames(t *testing.T) {
 	}
 	var got []string
 	for _, entry := range entries {
-		got = append(got, entry.Name())
+		if entry.Name() != lockFile {
+			got = append(got, entry.Name())
+		}
 	}
 	sort.Strings(got)
 	want := []string{

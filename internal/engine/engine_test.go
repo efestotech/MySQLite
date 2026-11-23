@@ -334,8 +334,10 @@ func TestScratchHasExtensionsAndCannotWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(entries) != 0 {
-		t.Fatalf("scratch must not create files, found %d", len(entries))
+	for _, en := range entries {
+		if en.Name() != lockFile {
+			t.Fatalf("scratch must not create files, found %s", en.Name())
+		}
 	}
 }
 
