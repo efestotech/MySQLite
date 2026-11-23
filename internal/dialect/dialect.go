@@ -138,6 +138,8 @@ type Statement struct {
 	Truncate string
 	// Index is the CREATE INDEX or DROP INDEX of KindDDL.
 	Index *IndexChange
+	// Alter is the ALTER TABLE of KindDDL.
+	Alter *Alter
 }
 
 // Write is what the executor needs about INSERT, UPDATE and DELETE beyond the SQL: the

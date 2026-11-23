@@ -116,19 +116,9 @@ func (e *emitter) createIndex(n *ast.CreateIndexStmt) *Statement {
 		return nil
 	}
 	ic := &IndexChange{Table: table, Name: n.IndexName, Unique: n.KeyType == ast.IndexKeyTypeUnique}
-	for _, p := range n.IndexPartSpecifications {
-		switch {
-		case p.Expr != nil:
-			e.unsupported("functional key part", reasonLater)
-		case p.Length > 0:
-			e.unsupported("key prefix length", "SQLite indexes whole values")
-		case p.Desc:
-			e.unsupported("descending key part", reasonLater)
-		}
-		if e.err != nil {
-			return nil
-		}
-		ic.Columns = append(ic.Columns, p.Column.Name.O)
+	ic.Columns = e.indexParts(n.IndexPartSpecifications)
+	if e.err != nil {
+		return nil
 	}
 	e.apply(ruleCreateIndexes)
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Index: ic}

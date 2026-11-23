@@ -140,6 +140,8 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 		return e.createIndex(n)
 	case *ast.DropIndexStmt:
 		return e.dropIndex(n)
+	case *ast.AlterTableStmt:
+		return e.alterTable(n)
 	case *ast.ExplainStmt:
 		// DESCRIBE t / EXPLAIN t is SHOW COLUMNS.
 		if s, ok := n.Stmt.(*ast.ShowStmt); ok && s.Tp == ast.ShowColumns {

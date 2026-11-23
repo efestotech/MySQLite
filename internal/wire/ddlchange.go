@@ -66,6 +66,8 @@ func (h *handler) ddlStatement(st *dialect.Statement) (*mysql.Result, error) {
 		return h.ddl(st, func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error) {
 			return h.createIndex(ctx, conn, st)
 		})
+	case st.Alter != nil:
+		return h.alterTable(st)
 	}
 	return nil, h.fail(errors.New("wire: DDL statement without a change"), st.Hint())
 }
@@ -133,44 +135,11 @@ func findIndex(t *meta.Table, name string) (meta.Index, bool) {
 }
 
 func (h *handler) createIndex(ctx context.Context, conn *sql.Conn, st *dialect.Statement) (*mysql.Result, error) {
-	ic := st.Index
-	t, err := h.catalog.Table(ctx, conn, st.Database, ic.Table)
+	t, err := h.catalog.Table(ctx, conn, st.Database, st.Index.Table)
+	if err == nil {
+		err = addIndex(ctx, conn, t, st.Index)
+	}
 	if err != nil {
-		return nil, h.fail(err, st.Hint())
-	}
-	if _, ok := findIndex(t, ic.Name); ok {
-		return nil, toMySQL(errs.DuplicateKeyName(ic.Name))
-	}
-	cols := make([]string, len(ic.Columns))
-	for i, c := range ic.Columns {
-		name, e := t.KeyColumn(c)
-		if e != nil {
-			return nil, toMySQL(e)
-		}
-		cols[i] = name
-	}
-	quoted := make([]string, len(cols))
-	for i, c := range cols {
-		quoted[i] = ident(c)
-	}
-	list := strings.Join(quoted, ", ")
-	sqliteName := dialect.IndexSQLiteName(t.Name, ic.Name)
-	if ic.Unique {
-		if entry, ok, err := firstDuplicate(ctx, conn, t.Name, quoted); err != nil {
-			return nil, h.fail(err, st.Hint())
-		} else if ok {
-			return nil, toMySQL(errs.DuplicateEntry(entry, t.Name+"."+ic.Name))
-		}
-	}
-	stmt := "CREATE INDEX "
-	if ic.Unique {
-		stmt = "CREATE UNIQUE INDEX "
-	}
-	if _, err := conn.ExecContext(ctx, stmt+ident(sqliteName)+" ON "+ident(t.Name)+" ("+list+")"); err != nil {
-		return nil, h.fail(fmt.Errorf("wire: create index %s: %w", sqliteName, err), st.Hint())
-	}
-	fact := catalog.SidecarFact{Column: catalog.SidecarIndex(sqliteName), Key: catalog.SidecarKeyName, Value: ic.Name}
-	if err := catalog.SetSidecarFact(ctx, conn, t.Name, fact); err != nil {
 		return nil, h.fail(err, st.Hint())
 	}
 	return &mysql.Result{}, nil
@@ -203,22 +172,11 @@ func firstDuplicate(ctx context.Context, conn *sql.Conn, table string, cols []st
 }
 
 func (h *handler) dropIndex(ctx context.Context, conn *sql.Conn, st *dialect.Statement) (*mysql.Result, error) {
-	ic := st.Index
-	t, err := h.catalog.Table(ctx, conn, st.Database, ic.Table)
+	t, err := h.catalog.Table(ctx, conn, st.Database, st.Index.Table)
+	if err == nil {
+		err = dropIndex(ctx, conn, t, st.Index.Name)
+	}
 	if err != nil {
-		return nil, h.fail(err, st.Hint())
-	}
-	ix, ok := findIndex(t, ic.Name)
-	if !ok {
-		return nil, toMySQL(errs.CantDropKey(ic.Name))
-	}
-	if strings.HasPrefix(ix.SQLiteName, "sqlite_autoindex_") {
-		return nil, toMySQL(errs.Unsupported("DROP INDEX of a key declared in the SQLite table", "the key is part of the table; changing it rebuilds the table (ALTER TABLE)"))
-	}
-	if _, err := conn.ExecContext(ctx, "DROP INDEX "+ident(ix.SQLiteName)); err != nil {
-		return nil, h.fail(fmt.Errorf("wire: drop index %s: %w", ix.SQLiteName, err), st.Hint())
-	}
-	if err := catalog.DropSidecarColumn(ctx, conn, t.Name, catalog.SidecarIndex(ix.SQLiteName)); err != nil {
 		return nil, h.fail(err, st.Hint())
 	}
 	return &mysql.Result{}, nil

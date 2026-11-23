@@ -289,6 +289,11 @@ func selectAlias(items []Item, name string) bool {
 }
 
 // column finds a column by name; MySQL column names are case-insensitive.
+// Column finds a column by name, which is case-insensitive.
+func (t *Table) Column(name string) (Column, bool) {
+	return t.column(name)
+}
+
 func (t *Table) column(name string) (Column, bool) {
 	for _, c := range t.Columns {
 		if strings.EqualFold(c.Name, name) {

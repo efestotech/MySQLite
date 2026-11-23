@@ -262,13 +262,7 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 			b.WriteString(", ")
 		}
 		b.WriteString(e.columnSQL(c, c == auto))
-		ct.Facts = append(ct.Facts, Fact{Column: c.name, Key: factType, Value: c.mysqlType})
-		if c.text {
-			ct.Facts = append(ct.Facts, Fact{Column: c.name, Key: factCollation, Value: c.collation})
-		}
-		if c.comment != "" {
-			ct.Facts = append(ct.Facts, Fact{Column: c.name, Key: factComment, Value: c.comment})
-		}
+		ct.Facts = append(ct.Facts, columnFacts(c)...)
 	}
 	if len(pk) > 0 && auto == nil {
 		b.WriteString(", PRIMARY KEY (")

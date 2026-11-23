@@ -193,8 +193,33 @@ func DropSidecarColumn(ctx context.Context, conn *sql.Conn, table, col string) e
 	if err != nil || !ok {
 		return err
 	}
-	if _, err := conn.ExecContext(ctx, "DELETE FROM "+SidecarTable+" WHERE tbl = ? AND col = ?", table, col); err != nil {
+	if _, err := conn.ExecContext(ctx, "DELETE FROM "+SidecarTable+" WHERE tbl = ? COLLATE NOCASE AND col = ? COLLATE NOCASE", table, col); err != nil {
 		return fmt.Errorf("catalog: sidecar of %s.%s: %w", table, col, err)
+	}
+	return nil
+}
+
+// RenameSidecarColumn moves the facts of column from to column to, when the sidecar
+// exists.
+func RenameSidecarColumn(ctx context.Context, conn *sql.Conn, table, from, to string) error {
+	ok, err := hasSidecar(ctx, conn)
+	if err != nil || !ok {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE "+SidecarTable+" SET col = ? WHERE tbl = ? COLLATE NOCASE AND col = ? COLLATE NOCASE", to, table, from); err != nil {
+		return fmt.Errorf("catalog: sidecar of %s.%s: %w", table, from, err)
+	}
+	return nil
+}
+
+// RenameSidecar moves the facts of table from to table to, when the sidecar exists.
+func RenameSidecar(ctx context.Context, conn *sql.Conn, from, to string) error {
+	ok, err := hasSidecar(ctx, conn)
+	if err != nil || !ok {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "UPDATE "+SidecarTable+" SET tbl = ? WHERE tbl = ? COLLATE NOCASE", to, from); err != nil {
+		return fmt.Errorf("catalog: sidecar of %s: %w", from, err)
 	}
 	return nil
 }

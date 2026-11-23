@@ -481,6 +481,16 @@ func CantDropKey(key string) *Error {
 	return newError(1091, "42000", "Can't DROP '%s'; check that column/key exists", key)
 }
 
+// CantRemoveAllFields is 1090, ALTER TABLE dropping every column.
+func CantRemoveAllFields() *Error {
+	return newError(1090, "42000", "You can't delete all columns with ALTER TABLE; use DROP TABLE instead")
+}
+
+// KeyDoesNotExist is 1176, RENAME INDEX of a key the table does not have.
+func KeyDoesNotExist(key, table string) *Error {
+	return newError(1176, "42000", "Key '%s' doesn't exist in table '%s'", key, table)
+}
+
 // KeyColumnMissing is 1072.
 func KeyColumnMissing(column string) *Error {
 	return newError(1072, "42000", "Key column '%s' doesn't exist in table", column)
