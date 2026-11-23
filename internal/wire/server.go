@@ -224,13 +224,16 @@ func (s *Server) serveConn(raw net.Conn) {
 	h.users = s.cfg.Users
 	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
 	h.applyGlobals()
-	h.filter = &responseFilter{Conn: newPacketGuard(raw, s.cfg.MaxAllowedPacket)}
+	fixer := newStmtFixer(newPacketGuard(raw, s.cfg.MaxAllowedPacket), s.cfg.MaxAllowedPacket)
+	h.filter = &responseFilter{Conn: fixer}
 	guarded := hostOnlyConn{h.filter}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)
 	if err != nil {
 		s.log.Info("handshake failed", "remote", remote, "error", err.Error())
 		return
 	}
+	// Authenticated: from now on every packet is a command.
+	fixer.active.Store(true)
 	log := s.log.With("conn_id", conn.ConnectionID(), "user", conn.GetUser(), "remote", remote)
 	h.log = log
 	log.Info("connection opened")
