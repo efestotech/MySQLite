@@ -42,7 +42,8 @@ public class Scenario {
         String url = "jdbc:mysql://" + env("MYSQLITE_HOST", "127.0.0.1") + ":" + env("MYSQLITE_PORT", "3307")
                 + "/" + env("MYSQLITE_DB", "test")
                 + "?useServerPrepStmts=true&cachePrepStmts=false&useSSL=false&sslMode=DISABLED"
-                + "&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&connectionTimeZone=SERVER";
+                + "&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&connectionTimeZone=SERVER"
+                + "&createDatabaseIfNotExist=true";
         String table = "cj_people_" + Integer.toHexString(new Random().nextInt() & 0x7fffffff);
         byte[] photo = new byte[256];
         for (int i = 0; i < photo.length; i++) {

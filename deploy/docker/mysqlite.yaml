@@ -1,0 +1,13 @@
+# mysqlite configuration for the docker image (docs/09-conventions.md section 2).
+# The container listens on every interface, so allow_remote is required. Change the
+# password before exposing the port beyond your machine.
+listen: 0.0.0.0
+allow_remote: true
+port: 3307
+data_dir: /var/lib/mysqlite/data
+users:
+  - name: test
+    password: test
+log:
+  level: info
+  dir: /var/lib/mysqlite/logs

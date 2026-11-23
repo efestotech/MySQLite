@@ -1,0 +1,158 @@
+# Docker topology (docs/07-testing.md section 2). Run it through scripts/dev.ps1 or
+# scripts/dev.sh, which wrap `docker compose` with the verbs of docs/09-conventions.md
+# section 6. No host environment variables: everything is set here or in mounted files.
+name: mysqlite
+
+x-dev: &dev
+  build:
+    context: ../..
+    dockerfile: deploy/docker/Dockerfile
+    target: build
+  working_dir: /src
+  volumes:
+    - ../..:/src
+    - gomod:/go/pkg/mod
+    - gocache:/root/.cache/go-build
+  environment:
+    # -race needs cgo; the image has gcc. The release binary stays CGO_ENABLED=0.
+    CGO_ENABLED: "1"
+
+services:
+  # System under test.
+  mysqlite:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+      target: runtime
+    ports:
+      - "127.0.0.1:3307:3307"
+    volumes:
+      - mysqlite-data:/var/lib/mysqlite/data
+
+  # Reference oracle: same fixtures, same statements (section 4). The general log is on
+  # for traffic capture (section 7).
+  mysql-ref:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: test
+      MYSQL_PASSWORD: test
+    command:
+      - --general-log=1
+      - --general-log-file=/var/log/mysql/general.log
+      - --log-output=FILE
+    volumes:
+      - ./mysql-ref:/docker-entrypoint-initdb.d:ro
+      - ../../logs/mysql-ref:/var/log/mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+
+  # Go toolchain: tests with -race, vet, the differential harness, a shell.
+  dev:
+    <<: *dev
+    profiles: [tools]
+    command: ["bash"]
+
+  # Differential harness: every corpus case on mysql-ref and on mysqlite.
+  runner:
+    <<: *dev
+    profiles: [tools]
+    depends_on:
+      mysqlite:
+        condition: service_started
+      mysql-ref:
+        condition: service_healthy
+    command:
+      - go
+      - run
+      - ./cmd/mysqlite-corpus
+      - harness
+      - -ref
+      - test:test@mysql-ref:3306
+      - -sut
+      - test:test@mysqlite:3307
+      - -json
+      - logs/harness/report.json
+      - test/corpus
+
+  lint:
+    image: golangci/golangci-lint:v2.1.6
+    profiles: [tools]
+    working_dir: /src
+    volumes:
+      - ../..:/src
+      - gomod:/go/pkg/mod
+    command: ["golangci-lint", "run", "./..."]
+
+  # Client matrix (docs/00-brief.md section 5). Each runs its scenario once and exits.
+  cli80:
+    image: mysql:8.0
+    profiles: [clients]
+    depends_on: [mysqlite]
+    volumes:
+      - ../../test/clients:/clients:ro
+    entrypoint: ["bash", "/clients/mysql-cli/run.sh", "mysql", "mysqlite", "3307", "cli80"]
+
+  cli84:
+    image: mysql:8.4
+    profiles: [clients]
+    depends_on: [mysqlite]
+    volumes:
+      - ../../test/clients:/clients:ro
+    entrypoint: ["bash", "/clients/mysql-cli/run.sh", "mysql", "mysqlite", "3307", "cli84"]
+
+  cli-maria:
+    image: mariadb:11
+    profiles: [clients]
+    depends_on: [mysqlite]
+    volumes:
+      - ../../test/clients:/clients:ro
+    entrypoint: ["bash", "/clients/mysql-cli/run.sh", "mariadb", "mysqlite", "3307", "climaria"]
+
+  php:
+    build:
+      context: .
+      dockerfile: php.Dockerfile
+    profiles: [clients]
+    depends_on: [mysqlite]
+    volumes:
+      - ../../test/clients:/clients:ro
+    environment:
+      MYSQLITE_HOST: mysqlite
+      MYSQLITE_PORT: "3307"
+      MYSQLITE_USER: test
+      MYSQLITE_PASSWORD: test
+      MYSQLITE_DB: clients_php
+    entrypoint: ["bash", "/clients/php-pdo/run.sh"]
+
+  adminer:
+    image: adminer:5.4.1
+    profiles: [clients]
+    depends_on: [mysqlite]
+    ports:
+      - "127.0.0.1:8080:8080"
+
+  # Adminer smoke over HTTP, driven from the Go toolchain image.
+  adminer-smoke:
+    <<: *dev
+    profiles: [clients]
+    depends_on: [adminer]
+    command: ["go", "run", "./test/clients/adminer", "-url", "http://adminer:8080/", "-server", "mysqlite:3307"]
+
+  java:
+    image: eclipse-temurin:21
+    profiles: [clients]
+    depends_on: [mysqlite]
+    volumes:
+      - ../../test/clients:/clients:ro
+    entrypoint: ["bash", "/clients/connector-j/run.sh", "mysqlite", "3307"]
+
+volumes:
+  mysqlite-data:
+  gomod:
+  gocache:
