@@ -53,6 +53,14 @@ func newStmtFixer(c net.Conn, limit int) *stmtFixer {
 	return &stmtFixer{Conn: c, limit: limit, stmts: map[uint32]*fixerStmt{}}
 }
 
+// forgetStatements drops every statement's state (COM_RESET_CONNECTION,
+// COM_CHANGE_USER release the prepared statements).
+func (f *stmtFixer) forgetStatements() {
+	if f != nil {
+		f.stmts = map[uint32]*fixerStmt{}
+	}
+}
+
 func (f *stmtFixer) Read(p []byte) (int, error) {
 	if !f.active.Load() && len(f.out) == 0 {
 		return f.Conn.Read(p)

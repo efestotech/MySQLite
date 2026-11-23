@@ -44,11 +44,7 @@ func (h *handler) infoSchemaConn(ctx context.Context, name string) (*sql.Conn, *
 
 // infoSchemaDenied is the error of a write or DDL on information_schema.
 func (h *handler) infoSchemaDenied() error {
-	user := ""
-	if h.conn != nil {
-		user = h.conn.GetUser()
-	}
-	return toMySQL(errs.DBAccessDenied(user, "%", infoschema.Name))
+	return toMySQL(errs.DBAccessDenied(h.user(), "%", infoschema.Name))
 }
 
 // infoSource feeds information_schema from this connection's view of the catalog.
@@ -86,8 +82,5 @@ func (s infoSource) Processes() []infoschema.Process {
 }
 
 func (s infoSource) User() string {
-	if s.h.conn == nil {
-		return ""
-	}
-	return s.h.conn.GetUser()
+	return s.h.user()
 }

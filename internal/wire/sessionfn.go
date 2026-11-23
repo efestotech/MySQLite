@@ -58,7 +58,11 @@ func (h *handler) sessionValue(sv *dialect.SessionValue) any {
 	return nil
 }
 
+// user is the connection's user: the handshake's, or the last COM_CHANGE_USER's.
 func (h *handler) user() string {
+	if h.account != "" {
+		return h.account
+	}
 	if h.conn == nil {
 		return ""
 	}

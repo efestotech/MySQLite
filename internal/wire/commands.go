@@ -55,9 +55,16 @@ func (h *handler) HandleFieldList(table, wildcard string) ([]*mysql.Field, error
 	return fields(out), nil
 }
 
-func (h *handler) HandleOtherCommand(cmd byte, _ []byte) error {
-	if cmd == mysql.COM_STATISTICS && h.filter != nil && h.conn != nil {
-		return h.statistics()
+func (h *handler) HandleOtherCommand(cmd byte, data []byte) error {
+	if h.filter != nil && h.conn != nil {
+		switch cmd {
+		case mysql.COM_STATISTICS:
+			return h.statistics()
+		case mysql.COM_RESET_CONNECTION:
+			return h.resetConnection()
+		case mysql.COM_CHANGE_USER:
+			return h.changeUser(data)
+		}
 	}
 	return unknownCommand()
 }

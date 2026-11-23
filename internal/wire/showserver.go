@@ -118,10 +118,7 @@ func (h *handler) processRows(s *dialect.Show) [][]any {
 // showGrants reports that every configured user has every privilege: mysqlite has no
 // privilege system (docs/00-brief.md section 6).
 func (h *handler) showGrants(s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
-	user, host := "", "%"
-	if h.conn != nil {
-		user = h.conn.GetUser()
-	}
+	user, host := h.user(), "%"
 	if s.User != nil {
 		user, host = s.User.Name, s.User.Host
 		if _, ok := h.users[user]; !ok || host != "%" {

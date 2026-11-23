@@ -189,6 +189,8 @@ func TestConstructors(t *testing.T) {
 		{NoDefaultValue("a"), 1364, "HY000", "Field 'a' doesn't have a default value"},
 		{BadNull("a"), 1048, "23000", "Column 'a' cannot be null"},
 		{WrongArguments("EXECUTE"), 1210, "HY000", "Incorrect arguments to EXECUTE"},
+		{MalformedPacket(), 1835, "08S01", "Malformed communication packet."},
+		{UnknownStmtHandler(3, "mysqld_stmt_execute"), 1243, "HY000", "Unknown prepared statement handler (3) given to mysqld_stmt_execute"},
 		{ReadOnlyServer(), 1290, "HY000", "The MySQL server is running with the --read-only option so it cannot execute this statement"},
 		{UnknownCommand(), 1047, "08S01", "Unknown command"},
 		{AccessDenied("test", "127.0.0.1", true), 1045, "28000", "Access denied for user 'test'@'127.0.0.1' (using password: YES)"},

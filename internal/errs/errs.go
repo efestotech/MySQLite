@@ -691,6 +691,16 @@ func ColumnCount(row int) *Error {
 	return newError(1136, "21S01", "Column count doesn't match value count at row %d", row)
 }
 
+// MalformedPacket is 1835: a command packet that cannot be parsed.
+func MalformedPacket() *Error {
+	return newError(1835, "08S01", "Malformed communication packet.")
+}
+
+// UnknownStmtHandler is 1243: a prepared statement that was closed or released.
+func UnknownStmtHandler(id uint32, command string) *Error {
+	return newError(1243, "HY000", "Unknown prepared statement handler (%d) given to %s", id, command)
+}
+
 // LockWaitTimeout is 1205.
 func LockWaitTimeout() *Error {
 	return newError(1205, "HY000", "Lock wait timeout exceeded; try restarting transaction")

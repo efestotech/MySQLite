@@ -217,8 +217,7 @@ func (s *Server) serveConn(raw net.Conn) {
 			s.log.Error("connection panic", "remote", remote, "panic", fmt.Sprint(r))
 		}
 	}()
-	tr := dialect.New(dialect.Config{ServerVersion: s.version})
-	h := newHandler(s.cfg.Engine, session.New(s.cfg.Engine), tr, s.log.With("remote", remote))
+	h := newHandler(s.cfg.Engine, nil, nil, s.log.With("remote", remote))
 	h.journal = s.cfg.Journal
 	h.skipBackup = s.cfg.SkipAlterBackup
 	h.readOnly = s.cfg.ReadOnly
@@ -226,9 +225,15 @@ func (s *Server) serveConn(raw net.Conn) {
 	h.catalog = s.catalog
 	h.procs = s.procs
 	h.users = s.cfg.Users
-	h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
-	h.applyGlobals()
+	h.fresh = func() {
+		h.sess = session.New(s.cfg.Engine)
+		h.tr = dialect.New(dialect.Config{ServerVersion: s.version})
+		h.vars = s.vars.NewSession(vars.Hooks{Autocommit: h.sess.Autocommit, Diagnostics: h.diagCounts})
+		h.applyGlobals()
+	}
+	h.fresh()
 	fixer := newStmtFixer(newPacketGuard(raw, s.cfg.MaxAllowedPacket), s.cfg.MaxAllowedPacket)
+	h.fixer = fixer
 	h.filter = &responseFilter{Conn: fixer}
 	guarded := hostOnlyConn{h.filter}
 	conn, err := s.conf.NewCustomizedConn(guarded, connAuth{authHandler: s.auth, h: h}, h)

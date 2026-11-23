@@ -32,6 +32,8 @@ type prepared struct {
 var paramField = (&mysql.Field{Name: []byte("?"), Type: mysql.MYSQL_TYPE_VAR_STRING, Charset: meta.CharsetBinary}).Dump()
 
 func (h *handler) HandleStmtPrepare(query string) (int, int, any, error) {
+	seq := h.stmtSeq + 1
+	h.stmtSeq = seq
 	markers, e := h.tr.Markers(query)
 	if e != nil {
 		return 0, 0, nil, toMySQL(e)
@@ -40,7 +42,9 @@ func (h *handler) HandleStmtPrepare(query string) (int, int, any, error) {
 	if err != nil {
 		return 0, 0, nil, err
 	}
-	ps := &stmt.PreparedStmt{}
+	// go-mysql numbers statements by counting COM_STMT_PREPARE before calling the
+	// handler (server/command.go, v1.16.0), failed ones included.
+	ps := &stmt.PreparedStmt{ID: seq}
 	for range markers {
 		ps.RawParamFields = append(ps.RawParamFields, paramField)
 	}
@@ -105,9 +109,15 @@ func (h *handler) executeError(err error) error {
 }
 
 func (h *handler) execute(context any, args []any) (*mysql.Result, error) {
-	p := h.stmts[asPrepared(context)]
+	ps := asPrepared(context)
+	p := h.stmts[ps]
 	if p == nil {
-		return nil, toMySQL(errs.UnknownCommand())
+		// Released by COM_RESET_CONNECTION or COM_CHANGE_USER; go-mysql still knows it.
+		id := uint32(0)
+		if ps != nil {
+			id = ps.ID
+		}
+		return nil, toMySQL(errs.UnknownStmtHandler(id, "mysqld_stmt_execute"))
 	}
 	values := make([]string, len(p.markers))
 	for i, m := range p.markers {

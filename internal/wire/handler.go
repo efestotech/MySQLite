@@ -39,6 +39,12 @@ type handler struct {
 	readOnly bool
 	// retries counts the statement's attempts to take a busy write lock, for the journal.
 	retries int
+	// account is the user after a COM_CHANGE_USER; "" means the handshake's user.
+	account string
+	// fresh replaces sess, tr and vars with those of a new connection.
+	fresh func()
+	// fixer rewrites prepared-statement packets (stmtfixer.go).
+	fixer *stmtFixer
 	// vars is this connection's view of the system variables.
 	vars *vars.Session
 	// catalog describes tables; shared by all connections.
@@ -79,7 +85,9 @@ type handler struct {
 	// stmts are the connection's prepared statements (prepared.go), keyed by the
 	// context go-mysql hands back at EXECUTE and CLOSE; describe makes read return its
 	// column definitions without running the query, for PREPARE.
-	stmts    map[*stmt.PreparedStmt]*prepared
+	stmts map[*stmt.PreparedStmt]*prepared
+	// stmtSeq mirrors go-mysql's statement ids, for 1243's message.
+	stmtSeq  uint32
 	describe bool
 }
 
@@ -294,7 +302,7 @@ func (h *handler) record(query, current string, st *dialect.Statement, res *mysq
 	}
 	if h.conn != nil {
 		e.Session = h.conn.ConnectionID()
-		e.User = h.conn.GetUser()
+		e.User = h.user()
 	}
 	if st != nil {
 		e.Kind = st.Kind.String()

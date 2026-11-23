@@ -63,6 +63,16 @@ func (l *processList) remove(p *process) {
 	delete(l.procs, p.id)
 }
 
+// rename gives p a new user (COM_CHANGE_USER).
+func (l *processList) rename(p *process, user string) {
+	if l == nil || p == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	p.user = user
+}
+
 // begin marks p as running query.
 func (l *processList) begin(p *process, db, query string) {
 	if l == nil || p == nil {
