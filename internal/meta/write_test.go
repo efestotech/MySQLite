@@ -21,6 +21,8 @@ func TestCheckInsertAutoIncrement(t *testing.T) {
 		{"explicit", []string{"id", "name"}, [][]*Literal{{lit(LiteralInt, "10"), lit(LiteralString, "a")}, {lit(LiteralInt, "-3"), lit(LiteralString, "b")}}, 0, []int64{10, -3}},
 		{"mixed", []string{"id", "name"}, [][]*Literal{{null, lit(LiteralString, "a")}, {lit(LiteralInt, "7"), nil}}, 1, []int64{7}},
 		{"no column list", nil, [][]*Literal{{null, lit(LiteralString, "a"), nil, nil, nil, nil, nil}}, 1, nil},
+		// MySQL converts a string of digits; PDO's execute(array) binds keys that way.
+		{"digit string", []string{"id", "name"}, [][]*Literal{{lit(LiteralString, "12"), lit(LiteralString, "a")}, {lit(LiteralString, "-4"), nil}}, 0, []int64{12, -4}},
 	}
 	for _, tc := range cases {
 		info, err := CheckInsert(shop(), tc.columns, tc.rows)
@@ -65,9 +67,13 @@ func TestCheckInsertErrors(t *testing.T) {
 		{"zero for auto increment", nil, []string{"id", "name"}, [][]*Literal{{lit(LiteralInt, "0"), str}}, 1235,
 			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; use NULL, or SET sql_mode with NO_AUTO_VALUE_ON_ZERO to store 0"},
 		{"text for auto increment", nil, []string{"id", "name"}, [][]*Literal{{str, str}}, 1235,
-			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: value conversion on insert arrives with M3"},
+			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: only integers and strings of decimal digits are converted"},
+		{"digits and text for auto increment", nil, []string{"id", "name"}, [][]*Literal{{lit(LiteralString, "1a"), str}}, 1235,
+			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: only integers and strings of decimal digits are converted"},
+		{"zero string for auto increment", nil, []string{"id", "name"}, [][]*Literal{{lit(LiteralString, "0"), str}}, 1235,
+			"mysqlite: unsupported construct value 0 for an AUTO_INCREMENT column: MySQL generates a value, SQLite would store 0; use NULL, or SET sql_mode with NO_AUTO_VALUE_ON_ZERO to store 0"},
 		{"expression for auto increment", nil, []string{"id", "name"}, [][]*Literal{{nil, str}}, 1235,
-			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: value conversion on insert arrives with M3"},
+			"mysqlite: unsupported construct non-integer value for an AUTO_INCREMENT column: only integers and strings of decimal digits are converted"},
 		// An INTEGER PRIMARY KEY without AUTOINCREMENT generates a rowid for NULL; for
 		// MySQL the column is a plain NOT NULL key.
 		{"null in a key that is not auto increment", func(t *Table) { t.AutoIncrement = "" }, []string{"id", "name"},

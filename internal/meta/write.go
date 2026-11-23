@@ -1,6 +1,7 @@
 package meta
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -123,17 +124,20 @@ func CheckInsertMode(t *Table, columns []string, rows [][]*Literal, mode InsertM
 }
 
 // autoValue reads a value given for the AUTO_INCREMENT column: NULL generates, a
-// non-zero integer is stored as is, and so is 0 under NO_AUTO_VALUE_ON_ZERO.
+// non-zero integer is stored as is, and so is 0 under NO_AUTO_VALUE_ON_ZERO. A string
+// of decimal digits counts as its integer, as MySQL converts it and SQLite's INTEGER
+// affinity stores it as one: clients that bind every parameter as a string (PHP PDO's
+// execute(array)) send keys that way.
 func autoValue(v *Literal, zeroIsValue bool) (n int64, generated bool, err *errs.Error) {
 	if v != nil && v.Kind == LiteralNull {
 		return 0, true, nil
 	}
-	if v == nil || v.Kind != LiteralInt {
-		return 0, false, errs.Unsupported("non-integer value for an AUTO_INCREMENT column", "value conversion on insert arrives with M3")
+	if v == nil || (v.Kind != LiteralInt && !(v.Kind == LiteralString && integerText.MatchString(v.Text))) {
+		return 0, false, errs.Unsupported("non-integer value for an AUTO_INCREMENT column", "only integers and strings of decimal digits are converted")
 	}
 	n, perr := strconv.ParseInt(v.Text, 10, 64)
 	if perr != nil {
-		return 0, false, errs.Unsupported("non-integer value for an AUTO_INCREMENT column", "value conversion on insert arrives with M3")
+		return 0, false, errs.Unsupported("non-integer value for an AUTO_INCREMENT column", "only integers and strings of decimal digits are converted")
 	}
 	if n == 0 && !zeroIsValue {
 		return 0, false, errs.Unsupported("value 0 for an AUTO_INCREMENT column",
@@ -141,6 +145,9 @@ func autoValue(v *Literal, zeroIsValue bool) (n int64, generated bool, err *errs
 	}
 	return n, false, nil
 }
+
+// integerText is a string literal autoValue reads as an integer.
+var integerText = regexp.MustCompile(`^-?[0-9]+$`)
 
 // requiresValue reports a column an INSERT must name in strict mode: NOT NULL (primary
 // keys are), no default, not AUTO_INCREMENT.

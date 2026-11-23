@@ -185,3 +185,21 @@ func TestPreparedPrepareErrors(t *testing.T) {
 	}
 	sameRows(t, "show", rowStrings(execute(t, show)), []string{"items"})
 }
+
+// A key bound as a string of digits (PDO's execute(array)) is stored as an integer:
+// the next generated id follows it.
+func TestAutoIncrementDigitString(t *testing.T) {
+	conn := shopServer(t)
+	execute(t, prepare(t, conn, "INSERT INTO items (id, name) VALUES (?, ?)"), "12", "digits")
+	execOK(t, conn, "INSERT INTO items (id, name) VALUES ('20', 'text protocol')")
+	res := execOK(t, conn, "INSERT INTO items (name) VALUES ('next')")
+	if res.InsertId != 21 {
+		t.Fatalf("next id %d", res.InsertId)
+	}
+	r := execOK(t, conn, "SELECT id FROM items WHERE id = 12 AND name = 'digits'")
+	if len(r.Values) != 1 {
+		t.Fatalf("id 12: %d rows", len(r.Values))
+	}
+	_, err := conn.Execute("INSERT INTO items (id, name) VALUES ('1x', 'bad')")
+	requireMyError(t, err, 1235, "42000")
+}
