@@ -52,6 +52,9 @@ type Options struct {
 	BusyTimeout  time.Duration
 	// Synchronous is NORMAL or FULL (docs/06-transactions.md section 7).
 	Synchronous string
+	// WriteQueueDepth bounds the sessions waiting for one database's writer
+	// (section 6); 0 is DefaultWriteQueueDepth.
+	WriteQueueDepth int
 }
 
 func (o Options) validate() error {
@@ -315,12 +318,14 @@ type Database struct {
 	name  string
 	read  *sql.DB
 	write *sql.DB
+	// queue orders the sessions waiting for write (queue.go).
+	queue *writerQueue
 	// opened counts physical connections initialized by the hook, for tests.
 	opened atomic.Int64
 }
 
 func openDatabase(name, path string, opts Options, ext Extensions) (*Database, error) {
-	db := &Database{name: name}
+	db := &Database{name: name, queue: newWriterQueue(opts.WriteQueueDepth)}
 	common := []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA synchronous=" + opts.Synchronous,
@@ -370,10 +375,15 @@ func (db *Database) Read(ctx context.Context) (*sql.Conn, error) {
 	return c, nil
 }
 
-// Writer returns the single writer connection, waiting while another session holds
-// it. Connection-scoped state (last_insert_rowid, changes, transactions) stays valid
-// until the caller closes it (docs/06-transactions.md section 3).
+// Writer returns the single writer connection, waiting in arrival order while another
+// session holds it; ErrWriteQueueFull when WriteQueueDepth sessions already wait.
+// Connection-scoped state (last_insert_rowid, changes, transactions) stays valid until
+// the caller closes it (docs/06-transactions.md sections 3 and 6).
 func (db *Database) Writer(ctx context.Context) (*sql.Conn, error) {
+	if err := db.queue.enter(ctx); err != nil {
+		return nil, fmt.Errorf("engine: writer connection: %w", err)
+	}
+	defer db.queue.leave()
 	c, err := db.write.Conn(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("engine: writer connection: %w", err)

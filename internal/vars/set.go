@@ -82,6 +82,7 @@ var rules = map[string]rule{
 	"transaction_isolation":           {write: Writable, values: []string{"READ-COMMITTED", "REPEATABLE-READ", "SERIALIZABLE"}},
 	"transaction_read_only":           {write: Writable},
 	"unique_checks":                   {write: Writable},
+	"innodb_lock_wait_timeout":        {write: Writable, min: 1, max: 1073741824},
 	"wait_timeout":                    {write: Writable, min: 1, max: maxTimeout, advisory: reasonNotApplied},
 }
 

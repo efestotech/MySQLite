@@ -114,8 +114,9 @@ func Map(err error, h Hint) *Error {
 		return newError(1007, "HY000", "Can't create database '%s'; database exists", h.DatabaseArg)
 	case errors.Is(err, engine.ErrInvalidDatabaseName):
 		return newError(1102, "42000", "Incorrect database name '%s'", h.DatabaseArg)
-	case errors.Is(err, context.DeadlineExceeded):
-		// Waiting for the single writer timed out (docs/06-transactions.md section 4).
+	case errors.Is(err, context.DeadlineExceeded), errors.Is(err, engine.ErrWriteQueueFull):
+		// Waiting for the single writer timed out, or too many sessions already wait for
+		// it (docs/06-transactions.md sections 4 and 6).
 		return LockWaitTimeout()
 	case errors.Is(err, context.Canceled):
 		return newError(1317, "70100", "Query execution was interrupted")

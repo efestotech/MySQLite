@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
 	"strings"
 	"time"
 
@@ -167,6 +168,7 @@ func (h *handler) run(query string) (*mysql.Result, error) {
 	current, _ := h.sess.Database()
 	h.beginDiagnostics()
 	h.procs.begin(h.proc, current, query)
+	h.applyLockWait()
 	st, res, err := h.query(query, current)
 	h.endStatement(st, res, err)
 	db, _ := h.sess.Database()
@@ -493,4 +495,19 @@ func (c sessionCatalog) Table(database, table string) (*meta.Table, *errs.Error)
 		return nil, c.h.mapErr(err, errs.Hint{Database: database})
 	}
 	return t, nil
+}
+
+// applyLockWait gives the session the statement's innodb_lock_wait_timeout, the longest
+// wait for a database's writer before 1205.
+func (h *handler) applyLockWait() {
+	if h.vars == nil {
+		return
+	}
+	v, _, e := h.vars.Get("innodb_lock_wait_timeout", vars.ReadSession)
+	if e != nil {
+		return
+	}
+	if n, err := strconv.Atoi(v.Text); err == nil && n > 0 {
+		h.sess.SetLockWait(time.Duration(n) * time.Second)
+	}
 }

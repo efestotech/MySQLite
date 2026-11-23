@@ -7,7 +7,10 @@
 package session
 
 import (
+	"context"
+	"database/sql"
 	"errors"
+	"time"
 
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
@@ -26,6 +29,22 @@ type Session struct {
 	// transaction only (SET TRANSACTION without a scope).
 	readOnly     bool
 	nextReadOnly *bool
+	// lockWait bounds the wait for a database's writer (innodb_lock_wait_timeout);
+	// 0 waits without a bound.
+	lockWait time.Duration
+}
+
+// SetLockWait sets how long a statement waits for the writer before 1205.
+func (s *Session) SetLockWait(d time.Duration) { s.lockWait = d }
+
+// writer takes db's writer, waiting at most lockWait.
+func (s *Session) writer(ctx context.Context, db *engine.Database) (*sql.Conn, error) {
+	if s.lockWait > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.lockWait)
+		defer cancel()
+	}
+	return db.Writer(ctx)
 }
 
 // New returns a session with no current database.

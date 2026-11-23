@@ -63,10 +63,11 @@ func run(ctx context.Context, args []string, console io.Writer, onListen func(ne
 	}
 
 	eng, err := engine.Open(engine.Options{
-		DataDir:      cfg.DataDir,
-		MaxReadConns: cfg.MaxReadConns,
-		BusyTimeout:  time.Duration(cfg.BusyTimeoutMS) * time.Millisecond,
-		Synchronous:  cfg.Synchronous,
+		DataDir:         cfg.DataDir,
+		MaxReadConns:    cfg.MaxReadConns,
+		BusyTimeout:     time.Duration(cfg.BusyTimeoutMS) * time.Millisecond,
+		Synchronous:     cfg.Synchronous,
+		WriteQueueDepth: cfg.WriteQueueDepth,
 	}, udf.Extensions())
 	if err != nil {
 		return err

@@ -180,7 +180,7 @@ func (s *Session) Conn(ctx context.Context, database string, write bool) (*sql.C
 	}
 	var c *sql.Conn
 	if write {
-		c, err = db.Writer(ctx)
+		c, err = s.writer(ctx, db)
 	} else {
 		c, err = db.Read(ctx)
 	}
@@ -221,7 +221,7 @@ func (s *Session) DDLConn(ctx context.Context, database string) (*sql.Conn, func
 	if err != nil {
 		return nil, nil, err
 	}
-	c, err := db.Writer(ctx)
+	c, err := s.writer(ctx, db)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -259,7 +259,7 @@ func (s *Session) bind(ctx context.Context, t *tx, database string) error {
 	if t.opts.ReadOnly {
 		c, err = db.Read(ctx)
 	} else {
-		c, err = db.Writer(ctx)
+		c, err = s.writer(ctx, db)
 	}
 	if err != nil {
 		return err
