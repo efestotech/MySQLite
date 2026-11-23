@@ -117,24 +117,35 @@ func Run(ctx context.Context, t Target, cases []Case) *Report {
 
 // runCase returns "" when the case matches its expectation, else what differs.
 func runCase(ctx context.Context, t Target, c *Case) string {
+	res, err, problem := execute(ctx, t, c)
+	if problem != "" {
+		return problem
+	}
+	return compare(&c.Expect, res, err)
+}
+
+// execute prepares the case on t and runs its statement. problem is set when the case
+// could not run at all (setup, connection or session statement); otherwise res and err
+// are the statement's outcome.
+func execute(ctx context.Context, t Target, c *Case) (res *mysql.Result, err error, problem string) {
 	db, err := t.Prepare(ctx, c)
 	if err != nil {
-		return "setup: " + err.Error()
+		return nil, nil, "setup: " + err.Error()
 	}
 	conn, err := t.Dial(db, c.FoundRows)
 	if err != nil {
-		return "connect: " + err.Error()
+		return nil, nil, "connect: " + err.Error()
 	}
 	defer conn.Close()
 	// {{db}} is the case's database, whose name the target chooses.
 	bind := func(s string) string { return strings.ReplaceAll(s, "{{db}}", db) }
 	for _, s := range c.Session {
 		if _, err := conn.Execute(bind(s)); err != nil {
-			return fmt.Sprintf("session statement %q: %v", s, err)
+			return nil, nil, fmt.Sprintf("session statement %q: %v", s, err)
 		}
 	}
-	res, err := conn.Execute(bind(c.SQL))
-	return compare(&c.Expect, res, err)
+	res, err = conn.Execute(bind(c.SQL))
+	return res, err, ""
 }
 
 func compare(e *Expect, res *mysql.Result, err error) string {

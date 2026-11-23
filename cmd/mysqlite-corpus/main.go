@@ -1,10 +1,15 @@
-// Command mysqlite-corpus works on the query journal (docs/07-testing.md section 5).
+// Command mysqlite-corpus works on the query journal and the corpus (docs/07-testing.md
+// sections 4 and 5).
 //
 //	mysqlite-corpus report [-json] [-top N] PATH...
+//	mysqlite-corpus harness -ref DSN -sut DSN [-milestone M] [-json FILE] [-golden DIR] CORPUS_DIR
 //
 // report ranks the constructs mysqlite refused with 1235 by how often clients sent
 // them, the roadmap of docs/05-dialect.md section 2. A PATH is a journal file or a log
 // directory, whose journal.jsonl and rotated journal-*.jsonl are all read.
+//
+// harness is the differential harness: every corpus case runs on the reference engine
+// (mysql-ref) and on mysqlite, and the outcomes are compared.
 package main
 
 import (
@@ -20,10 +25,17 @@ import (
 )
 
 const usage = `usage: mysqlite-corpus report [-json] [-top N] PATH...
+       mysqlite-corpus harness -ref DSN -sut DSN [-milestone M] [-json FILE] [-golden DIR] CORPUS_DIR
 
-report  rank the unsupported constructs (1235) of the query journal by frequency.
-        PATH is a journal file or a log directory (journal.jsonl and its rotated
-        journal-*.jsonl files).
+report   rank the unsupported constructs (1235) of the query journal by frequency.
+         PATH is a journal file or a log directory (journal.jsonl and its rotated
+         journal-*.jsonl files).
+harness  run every corpus case on the reference engine and on mysqlite and compare
+         rows, column type codes, affected rows, insert id, info and errors. DSN is
+         user:password@host:port; the user must be able to CREATE DATABASE. -json
+         writes the full report, -golden writes the reference outcome of each case to
+         DIR/<id>.json. Exit status 1 on a failed or unsupported case, or on an
+         expectation the reference contradicts.
 `
 
 func main() {
@@ -32,6 +44,9 @@ func main() {
 
 // run executes a command and returns the exit code: 0 done, 1 failed, 2 bad usage.
 func run(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "harness" {
+		return harness(args[1:], stdout, stderr)
+	}
 	if len(args) == 0 || args[0] != "report" {
 		fmt.Fprint(stderr, usage)
 		return 2
