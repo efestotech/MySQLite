@@ -245,33 +245,63 @@ func rebuildable(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
 	if others > 0 {
 		return errs.Unsupported(why, "the database has views or the table has triggers, which the rebuild would have to re-create")
 	}
+	return indexesRebuildable(ctx, conn, t)
+}
+
+// indexesRebuildable refuses a table with an index the rebuild would not re-create as
+// it is: one the catalog does not list, a partial index, or a key part that is an
+// expression or descending (another tool's CREATE INDEX).
+func indexesRebuildable(ctx context.Context, conn *sql.Conn, t *meta.Table) error {
+	const why = "ALTER TABLE rebuild of a table with an index mysqlite cannot re-create"
+	type index struct {
+		name    string
+		partial bool
+	}
+	rows, err := conn.QueryContext(ctx, "SELECT name, partial FROM pragma_index_list(?) WHERE origin <> 'pk'", t.Name)
+	if err != nil {
+		return fmt.Errorf("wire: indexes of %s: %w", t.Name, err)
+	}
+	var list []index
+	for rows.Next() {
+		var ix index
+		if err := rows.Scan(&ix.name, &ix.partial); err != nil {
+			rows.Close()
+			return fmt.Errorf("wire: indexes of %s: %w", t.Name, err)
+		}
+		list = append(list, ix)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("wire: indexes of %s: %w", t.Name, err)
+	}
+	for _, ix := range list {
+		known := false
+		for _, k := range t.Indexes {
+			if strings.EqualFold(k.SQLiteName, ix.name) {
+				known = true
+			}
+		}
+		if !known || ix.partial {
+			return errs.Unsupported(why, "index "+ix.name+" is partial or not one mysqlite describes")
+		}
+		var odd int
+		if err := conn.QueryRowContext(ctx,
+			"SELECT count(*) FROM pragma_index_xinfo(?) WHERE key = 1 AND (cid < 0 OR desc = 1)", ix.name).Scan(&odd); err != nil {
+			return fmt.Errorf("wire: columns of index %s: %w", ix.name, err)
+		}
+		if odd > 0 {
+			return errs.Unsupported(why, "index "+ix.name+" has an expression or a descending key part")
+		}
+	}
 	return nil
 }
 
 // keepsReferences refuses a rebuild that drops or renames a column another table's
 // FOREIGN KEY references: with foreign keys off, SQLite would not follow the change.
 func keepsReferences(ctx context.Context, conn *sql.Conn, t *meta.Table, r *dialect.Rebuild) error {
-	rows, err := conn.QueryContext(ctx,
-		`SELECT p."to" FROM sqlite_schema m, pragma_foreign_key_list(m.name) p
-		 WHERE m.type = 'table' AND p."table" = ? COLLATE NOCASE AND m.name <> ? COLLATE NOCASE`, t.Name, t.Name)
+	referenced, err := referencedColumns(ctx, conn, t)
 	if err != nil {
-		return fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
-	}
-	defer rows.Close()
-	var referenced []string
-	for rows.Next() {
-		var to sql.NullString
-		if err := rows.Scan(&to); err != nil {
-			return fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
-		}
-		if to.Valid {
-			referenced = append(referenced, to.String)
-		} else {
-			referenced = append(referenced, t.PrimaryKey...)
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
+		return err
 	}
 	for _, col := range referenced {
 		kept := false
@@ -285,6 +315,59 @@ func keepsReferences(ctx context.Context, conn *sql.Conn, t *meta.Table, r *dial
 		}
 	}
 	return nil
+}
+
+// foreignKeyColumns are t's columns a foreign key uses: its own child columns and the
+// columns other tables' foreign keys reference.
+func foreignKeyColumns(ctx context.Context, conn *sql.Conn, t *meta.Table) ([]string, error) {
+	cols, err := referencedColumns(ctx, conn, t)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := conn.QueryContext(ctx, `SELECT "from" FROM pragma_foreign_key_list(?)`, t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("wire: foreign keys of %s: %w", t.Name, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var from string
+		if err := rows.Scan(&from); err != nil {
+			return nil, fmt.Errorf("wire: foreign keys of %s: %w", t.Name, err)
+		}
+		cols = append(cols, from)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("wire: foreign keys of %s: %w", t.Name, err)
+	}
+	return cols, nil
+}
+
+// referencedColumns are the columns of t other tables' foreign keys reference; a key
+// without a column list references t's primary key.
+func referencedColumns(ctx context.Context, conn *sql.Conn, t *meta.Table) ([]string, error) {
+	rows, err := conn.QueryContext(ctx,
+		`SELECT p."to" FROM sqlite_schema m, pragma_foreign_key_list(m.name) p
+		 WHERE m.type = 'table' AND p."table" = ? COLLATE NOCASE AND m.name <> ? COLLATE NOCASE`, t.Name, t.Name)
+	if err != nil {
+		return nil, fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
+	}
+	defer rows.Close()
+	var referenced []string
+	for rows.Next() {
+		var to sql.NullString
+		if err := rows.Scan(&to); err != nil {
+			return nil, fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
+		}
+		if to.Valid {
+			referenced = append(referenced, to.String)
+		} else {
+			referenced = append(referenced, t.PrimaryKey...)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("wire: foreign keys referencing %s: %w", t.Name, err)
+	}
+	return referenced, nil
 }
 
 // fkViolations counts the rows PRAGMA foreign_key_check reports. It fails when a

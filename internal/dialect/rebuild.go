@@ -177,6 +177,16 @@ func (p *rebuildPlan) apply(s *ast.AlterTableSpec) {
 			return
 		}
 		p.n.Constraints = append(p.n.Constraints, s.Constraint)
+		// A key column becomes NOT NULL; the DEFAULT NULL SHOW CREATE TABLE printed for a
+		// nullable column goes, as MySQL leaves the column without a default.
+		for _, part := range s.Constraint.Keys {
+			if part.Column == nil {
+				continue
+			}
+			if i := p.find(part.Column.Name.O); i >= 0 {
+				p.dropNullDefault(p.n.Cols[i])
+			}
+		}
 	case ast.AlterTableDropPrimaryKey, ast.AlterTableDropIndex:
 		if !p.dropPrimaryKey() {
 			e.fail(errs.CantDropKey("PRIMARY"))
@@ -184,6 +194,20 @@ func (p *rebuildPlan) apply(s *ast.AlterTableSpec) {
 	default:
 		e.unsupported("ALTER TABLE spec", reasonLater)
 	}
+}
+
+// dropNullDefault removes a DEFAULT NULL option.
+func (p *rebuildPlan) dropNullDefault(c *ast.ColumnDef) {
+	var opts []*ast.ColumnOption
+	for _, o := range c.Options {
+		if o.Tp == ast.ColumnOptionDefaultValue {
+			if lit := valueLiteral(o.Expr); lit != nil && lit.Kind == meta.LiteralNull {
+				continue
+			}
+		}
+		opts = append(opts, o)
+	}
+	c.Options = opts
 }
 
 // position moves column i as FIRST or AFTER another column.
@@ -311,11 +335,20 @@ func (p *rebuildPlan) plan(ct *CreateTable, old *meta.Table) (*Rebuild, *errs.Er
 			r.KeepCounter = strings.EqualFold(oc.Name, old.AutoIncrement)
 		}
 	}
+	newCols := map[string]*ddlColumn{}
+	for _, c := range ct.cols {
+		newCols[strings.ToLower(c.name)] = c
+	}
 	for _, k := range ct.pk {
 		expr, ok := source[strings.ToLower(k)]
 		if !ok {
 			r.PrimaryKey = nil
 			break
+		}
+		// Duplicates are looked for under the new collation, which may fold values the
+		// old one kept apart.
+		if c := newCols[strings.ToLower(k)]; c != nil && c.text {
+			expr += " COLLATE " + sqliteCollation(c.collation)
 		}
 		r.PrimaryKey = append(r.PrimaryKey, expr)
 	}

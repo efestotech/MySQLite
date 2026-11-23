@@ -125,6 +125,15 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 	case len(t.Columns) == 1:
 		return errs.CantRemoveAllFields()
 	}
+	// MySQL refuses to drop a column a foreign key uses (1828); SQLite would drop the
+	// child's FOREIGN KEY with it, or leave other tables' keys dangling.
+	used, err := foreignKeyColumns(ctx, conn, t)
+	if err != nil {
+		return err
+	}
+	if containsFold(used, c.Name) {
+		return errs.Unsupported("DROP COLUMN of a column a FOREIGN KEY uses", "MySQL refuses it; SQLite would drop or break the foreign key")
+	}
 	for _, ix := range t.Indexes {
 		var rest []string
 		for _, col := range ix.Columns {
