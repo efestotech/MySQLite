@@ -1,0 +1,464 @@
+# Corpus subset m3, traps: one case per trap of docs/05-dialect.md sections 3, 8, 9
+# and 10 (docs/07-testing.md section 5 item 3, M3 criterion 2). A case either passes or
+# carries a known_deviation that docs/agent-notes/discrepancies.md approves.
+# Expectations come from the MySQL 8.0 documentation (oracle: pending, ADR 0002).
+
+fixtures:
+  shop: &shop
+    - CREATE TABLE items (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(20) NOT NULL, price DECIMAL(10,2), qty INT, note TEXT)
+    - INSERT INTO items (name, price, qty, note) VALUES ('pen', 1.50, 3, NULL), ('ink', 10.00, 1, 'x'), ('cap', NULL, 2, 'x')
+  words: &words
+    - CREATE TABLE words (id INT PRIMARY KEY, g VARCHAR(20), w VARCHAR(20) COLLATE utf8mb4_0900_ai_ci, b VARCHAR(20) COLLATE utf8mb4_bin)
+    - INSERT INTO words VALUES (1, 'città', 'città', 'città'), (2, 'perché', 'perché', 'perché'), (3, 'Bar', 'Bar', 'Bar'), (4, 'apple', 'apple', 'apple')
+
+cases:
+  # Section 3: lexical and literal traps.
+  - id: trap.lexical.001
+    tags: [trap, lexical, backslash]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 'a\nb', 'c\\d', 'e\'f', CHAR_LENGTH('a\nb')
+    expect:
+      rows: [["a\nb", 'c\d', "e'f", "3"]]
+
+  - id: trap.lexical.002
+    tags: [trap, lexical, backslash, sql_mode]
+    milestone: m3
+    oracle: pending
+    session: ["SET sql_mode = 'NO_BACKSLASH_ESCAPES'"]
+    sql: SELECT 'c\\d', CHAR_LENGTH('c\\d')
+    expect:
+      rows: [['c\\d', "4"]]
+
+  - id: trap.lexical.003
+    tags: [trap, lexical, quotes]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    # A double-quoted word is a string, even when a column has that name.
+    sql: SELECT "name" FROM items WHERE id = 1
+    expect:
+      rows: [[name]]
+
+  - id: trap.lexical.004
+    tags: [trap, lexical, quotes, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    session: ["SET sql_mode = 'ANSI_QUOTES'"]
+    sql: SELECT "name" FROM items WHERE id = 1
+    expect:
+      rows: [[pen]]
+
+  - id: trap.lexical.005
+    tags: [trap, lexical, quotes]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT `name` AS `the name` FROM `items` WHERE `id` = 2
+    expect:
+      columns: [the name]
+      rows: [[ink]]
+
+  - id: trap.lexical.006
+    tags: [trap, lexical, operators]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 0 || 1, 0 || 0, 'a' || 'b'
+    expect:
+      rows: [["1", "0", "0"]]
+
+  - id: trap.lexical.007
+    tags: [trap, lexical, operators, sql_mode]
+    milestone: m3
+    oracle: pending
+    session: ["SET sql_mode = 'PIPES_AS_CONCAT'"]
+    sql: SELECT 'a' || 'b' || 1
+    expect:
+      rows: [[ab1]]
+
+  - id: trap.lexical.008
+    tags: [trap, lexical, literals]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 'a' 'b' "c"
+    expect:
+      rows: [[abc]]
+
+  - id: trap.lexical.009
+    tags: [trap, lexical, literals, hex]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 0x41, X'42', b'1000011'
+    expect:
+      rows: [[A, B, C]]
+    known_deviation:
+      reason: hexadecimal and bit literals are 1235 (their type depends on the context, which mysqlite does not infer yet)
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.lexical.010
+    tags: [trap, lexical, literals, hex]
+    milestone: m3
+    oracle: pending
+    # In a numeric context a hexadecimal literal is a number.
+    sql: SELECT 0x41 + 0, b'11' + 0
+    expect:
+      rows: [["65", "3"]]
+    known_deviation:
+      reason: hexadecimal and bit literals are 1235 (their type depends on the context, which mysqlite does not infer yet)
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.lexical.011
+    tags: [trap, lexical, literals]
+    milestone: m3
+    oracle: pending
+    sql: SELECT _utf8mb4'x', N'y'
+    expect:
+      rows: [[x, y]]
+
+  - id: trap.lexical.015
+    tags: [trap, lexical, literals]
+    milestone: m3
+    oracle: pending
+    sql: SELECT _binary'z'
+    expect:
+      rows: [[z]]
+    known_deviation:
+      reason: _binary string literals are 1235, like hexadecimal literals
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.lexical.012
+    tags: [trap, lexical, comments]
+    milestone: m3
+    oracle: pending
+    sql: "SELECT 1 /* inline */ + 1 # to the end of the line"
+    expect:
+      rows: [["2"]]
+
+  - id: trap.lexical.013
+    tags: [trap, lexical, comments]
+    milestone: m3
+    oracle: pending
+    # -- starts a comment only when a space follows: 1--1 is 1 - (-1).
+    sql: SELECT 1--1, 1 -- 1
+    expect:
+      rows: [["2", "1"]]
+
+  - id: trap.lexical.014
+    tags: [trap, lexical, comments]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 1 /*!40000 + 1 */ /*!90000 + 100 */
+    expect:
+      rows: [["2"]]
+
+  # Section 8: collation and comparison semantics.
+  - id: trap.collation.001
+    tags: [trap, collation, general_ci]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT id FROM words WHERE g = 'CITTA' OR g = 'PERCHE' ORDER BY id
+    expect:
+      ordered: true
+      rows: [["1"], ["2"]]
+
+  - id: trap.collation.002
+    tags: [trap, collation, "0900"]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT id FROM words WHERE w = 'CITTA' OR w = 'Perche' ORDER BY id
+    expect:
+      ordered: true
+      rows: [["1"], ["2"]]
+
+  - id: trap.collation.003
+    tags: [trap, collation, bin]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT count(*) FROM words WHERE b = 'CITTA' OR b = 'citta' OR b = 'bar'
+    expect:
+      rows: [["0"]]
+
+  - id: trap.collation.004
+    tags: [trap, collation, like]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT id FROM words WHERE g LIKE 'CITT_' OR w LIKE 'PERCH%' OR b LIKE 'bar' ORDER BY id
+    expect:
+      ordered: true
+      rows: [["1"], ["2"]]
+
+  - id: trap.collation.005
+    tags: [trap, collation, pad]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    # general_ci and utf8mb4_bin are PAD SPACE, utf8mb4_0900_ai_ci is NO PAD.
+    sql: SELECT (SELECT count(*) FROM words WHERE g = 'Bar  '), (SELECT count(*) FROM words WHERE b = 'Bar '), (SELECT count(*) FROM words WHERE w = 'Bar ')
+    expect:
+      rows: [["1", "1", "0"]]
+
+  - id: trap.collation.006
+    tags: [trap, collation, order]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT g FROM words ORDER BY g
+    expect:
+      ordered: true
+      rows: [[apple], [Bar], [città], [perché]]
+
+  - id: trap.collation.007
+    tags: [trap, collation, order, bin]
+    milestone: m3
+    oracle: pending
+    setup: *words
+    sql: SELECT b FROM words ORDER BY b
+    expect:
+      ordered: true
+      rows: [[Bar], [apple], [città], [perché]]
+
+  - id: trap.collation.008
+    tags: [trap, collation, unique, "0900"]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE cities (name VARCHAR(20) COLLATE utf8mb4_0900_ai_ci, UNIQUE KEY un (name))
+      - INSERT INTO cities VALUES ('città')
+    sql: INSERT INTO cities VALUES ('CITTA')
+    expect:
+      error: {code: 1062, sqlstate: "23000"}
+
+  # Section 9: DECIMAL policy (ADR 0006: REAL storage).
+  - id: trap.decimal.002
+    tags: [trap, decimal]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT price * qty, price + 0.005 FROM items WHERE id = 1
+    expect:
+      rows: [["4.50", "1.505"]]
+
+  - id: trap.decimal.003
+    tags: [trap, decimal]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT SUM(price), AVG(price) FROM items
+    expect:
+      rows: [["11.50", "5.750000"]]
+
+  - id: trap.decimal.004
+    tags: [trap, decimal]
+    milestone: m3
+    oracle: pending
+    # Exact in MySQL; REAL arithmetic in mysqlite (ADR 0006).
+    sql: SELECT 0.1 + 0.2 = 0.3
+    expect:
+      rows: [["1"]]
+    known_deviation:
+      reason: DECIMAL is computed as REAL (ADR 0006); 0.1 + 0.2 is not exactly 0.3
+      ref: docs/adr/0006-decimal.md
+
+  # Section 10: other traps.
+  - id: trap.zerodate.001
+    tags: [trap, date, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE d (x DATE)
+    # Strict mode with NO_ZERO_DATE (the default sql_mode) refuses the zero date.
+    sql: INSERT INTO d VALUES ('0000-00-00')
+    expect:
+      error: {code: 1292, sqlstate: "22007"}
+
+  - id: trap.zerodate.002
+    tags: [trap, date, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE d (x DATE)
+    session: ["SET sql_mode = ''", "INSERT INTO d VALUES ('0000-00-00')"]
+    sql: SELECT x, x = '0000-00-00' FROM d
+    expect:
+      rows: [[0000-00-00, "1"]]
+
+  - id: trap.divzero.001
+    tags: [trap, division]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 1 / 0, 1 DIV 0, 1 % 0
+    expect:
+      rows: [[null, null, null]]
+
+  - id: trap.divzero.002
+    tags: [trap, division, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE n (x DECIMAL(10,4))
+    sql: INSERT INTO n VALUES (1 / 0)
+    expect:
+      error: {code: 1365, sqlstate: "22012"}
+
+  - id: trap.divzero.003
+    tags: [trap, division, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE n (x DECIMAL(10,4))
+    session: ["SET sql_mode = 'STRICT_TRANS_TABLES'"]
+    # Without ERROR_FOR_DIVISION_BY_ZERO the row takes NULL.
+    sql: INSERT INTO n VALUES (1 / 0)
+    expect:
+      affected_rows: 1
+
+  - id: trap.groupby.001
+    tags: [trap, group]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    # No ORDER BY: the group order is not part of the result.
+    sql: SELECT note, COUNT(*) FROM items GROUP BY note
+    expect:
+      rows: [[x, "2"], [null, "1"]]
+
+  - id: trap.coercion.001
+    tags: [trap, coercion]
+    milestone: m3
+    oracle: pending
+    sql: SELECT '10' = 10, '10.0' = 10, 'abc' = 0, '1abc' = 1, '' = 0
+    expect:
+      rows: [["1", "1", "1", "1", "1"]]
+
+  - id: trap.coercion.002
+    tags: [trap, coercion]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT name FROM items WHERE qty = '3'
+    expect:
+      rows: [[pen]]
+
+  - id: trap.nullorder.001
+    tags: [trap, null, order]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT name FROM items ORDER BY price
+    expect:
+      ordered: true
+      rows: [[cap], [pen], [ink]]
+
+  - id: trap.nullorder.002
+    tags: [trap, null, order]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    sql: SELECT name FROM items ORDER BY price DESC
+    expect:
+      ordered: true
+      rows: [[ink], [pen], [cap]]
+
+  - id: trap.boolean.001
+    tags: [trap, boolean]
+    milestone: m3
+    oracle: pending
+    sql: SELECT TRUE, FALSE, 2 IS TRUE, 0 IS FALSE, NULL IS TRUE, NULL IS NOT FALSE, TRUE + TRUE
+    expect:
+      rows: [["1", "0", "1", "1", "0", "1", "2"]]
+
+  - id: trap.overflow.001
+    tags: [trap, overflow, sum]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE big (x BIGINT)
+      - INSERT INTO big VALUES (9223372036854775807), (1)
+    # SUM of integers is DECIMAL: no overflow.
+    sql: SELECT SUM(x) FROM big
+    expect:
+      rows: [["9223372036854775808"]]
+    known_deviation:
+      reason: SQLite sums integers in 64 bits; mysqlite reports 1235 where MySQL returns the DECIMAL sum
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.overflow.002
+    tags: [trap, overflow, unsigned]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE ub (x BIGINT UNSIGNED)
+      - INSERT INTO ub VALUES (18446744073709551615)
+    sql: SELECT x FROM ub
+    expect:
+      rows: [["18446744073709551615"]]
+    known_deviation:
+      reason: BIGINT UNSIGNED values above 9223372036854775807 are 1235 (SQLite integers are signed 64-bit)
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.overflow.003
+    tags: [trap, overflow, unsigned]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE ub (x BIGINT UNSIGNED)
+      - INSERT INTO ub VALUES (18446744073709551615)
+    sql: SELECT x + 1 FROM ub
+    expect:
+      error: {code: 1690, sqlstate: "22003"}
+    known_deviation:
+      reason: BIGINT UNSIGNED values above 9223372036854775807 are 1235 (SQLite integers are signed 64-bit)
+      ref: docs/agent-notes/discrepancies.md
+
+  - id: trap.overflow.004
+    tags: [trap, overflow]
+    milestone: m3
+    oracle: pending
+    sql: SELECT 9223372036854775807 + 1
+    expect:
+      error: {code: 1690, sqlstate: "22003"}
+
+  - id: trap.coercion.003
+    tags: [trap, coercion]
+    milestone: m3
+    oracle: pending
+    setup: *shop
+    # A text column compared with a number compares as doubles: 'pen' is 0.
+    sql: SELECT count(*) FROM items WHERE name = 0
+    expect:
+      rows: [["3"]]
+
+  - id: trap.zerodate.003
+    tags: [trap, date, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE d (x DATE, y DATETIME)
+    sql: INSERT INTO d VALUES ('2024-02-30', NULL)
+    expect:
+      error: {code: 1292, sqlstate: "22007"}
+
+  - id: trap.zerodate.004
+    tags: [trap, date, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE d (x DATE, y DATETIME)
+    sql: INSERT INTO d VALUES ('2024-02-29', '2024-05-00 10:00:00')
+    expect:
+      error: {code: 1292, sqlstate: "22007"}
+
+  - id: trap.zerodate.005
+    tags: [trap, date, sql_mode]
+    milestone: m3
+    oracle: pending
+    setup:
+      - CREATE TABLE d (x DATE, y DATETIME)
+    sql: INSERT INTO d VALUES ('2024-02-29', '2024-05-31 23:59:59.5')
+    expect:
+      affected_rows: 1
