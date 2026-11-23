@@ -13,6 +13,7 @@ import (
 	"mysqlite/internal/dialect"
 	"mysqlite/internal/engine"
 	"mysqlite/internal/errs"
+	"mysqlite/internal/infoschema"
 	"mysqlite/internal/meta"
 )
 
@@ -67,6 +68,8 @@ func (h *handler) ddlWith(st *dialect.Statement, prepare func(ctx context.Contex
 // ddlStatement dispatches KindDDL.
 func (h *handler) ddlStatement(st *dialect.Statement) (*mysql.Result, error) {
 	switch {
+	case st.CreateDB != nil:
+		return h.createDatabase(st.CreateDB)
 	case st.Create != nil:
 		return h.createTable(st)
 	case st.Drop != nil:
@@ -89,6 +92,26 @@ func (h *handler) ddlStatement(st *dialect.Statement) (*mysql.Result, error) {
 		return h.alterTable(st)
 	}
 	return nil, h.fail(errors.New("wire: DDL statement without a change"), st.Hint())
+}
+
+// createDatabase creates a database file. Like any DDL it commits the open transaction
+// first. With IF NOT EXISTS an existing database is a Note 1007, as in MySQL.
+func (h *handler) createDatabase(c *dialect.CreateDatabase) (*mysql.Result, error) {
+	if infoschema.Is(c.Name) {
+		return nil, h.infoSchemaDenied()
+	}
+	if err := h.sess.Commit(context.Background()); err != nil {
+		return nil, h.fail(err, errs.Hint{})
+	}
+	err := h.eng.CreateDatabase(c.Name)
+	if errors.Is(err, engine.ErrDatabaseExists) && c.IfNotExists {
+		h.note(errs.Map(err, errs.Hint{DatabaseArg: c.Name}))
+		return &mysql.Result{}, nil
+	}
+	if err != nil {
+		return nil, h.fail(err, errs.Hint{DatabaseArg: c.Name})
+	}
+	return &mysql.Result{AffectedRows: 1}, nil
 }
 
 // dropTable drops every table or, when one is missing and IF EXISTS is absent, none:
