@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-mysql-org/go-mysql/mysql"
 	"github.com/go-mysql-org/go-mysql/server"
+	"github.com/go-mysql-org/go-mysql/stmt"
 
 	"mysqlite/internal/catalog"
 	"mysqlite/internal/dialect"
@@ -69,6 +70,12 @@ type handler struct {
 	sink         *statementSink
 	// clock is the running statement's time (ADR 0007).
 	clock statementClock
+
+	// stmts are the connection's prepared statements (prepared.go), keyed by the
+	// context go-mysql hands back at EXECUTE and CLOSE; describe makes read return its
+	// column definitions without running the query, for PREPARE.
+	stmts    map[*stmt.PreparedStmt]*prepared
+	describe bool
 }
 
 func newHandler(eng *engine.Engine, sess *session.Session, tr *dialect.Translator, log *slog.Logger) *handler {
@@ -146,6 +153,12 @@ func (h *handler) close() {
 }
 
 func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
+	return h.run(query)
+}
+
+// run is COM_QUERY's pipeline, also used by COM_STMT_EXECUTE once the parameter values
+// are written into the statement (ADR 0009).
+func (h *handler) run(query string) (*mysql.Result, error) {
 	defer h.syncStatus()
 	start := time.Now()
 	h.clock = statementClock{}
@@ -383,6 +396,10 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 		}
 	}
 
+	if h.describe {
+		return mysql.NewResult(&mysql.Resultset{Fields: fields(defs)}), nil
+	}
+
 	rows, err := conn.QueryContext(ctx, st.SQL, st.Args...)
 	if err != nil {
 		return nil, h.fail(err, st.Hint())
@@ -439,18 +456,6 @@ func fields(defs []meta.ColumnDef) []*mysql.Field {
 		}
 	}
 	return out
-}
-
-func (h *handler) HandleStmtPrepare(string) (int, int, any, error) {
-	return 0, 0, nil, unknownCommand()
-}
-
-func (h *handler) HandleStmtExecute(any, string, []any) (*mysql.Result, error) {
-	return nil, unknownCommand()
-}
-
-func (h *handler) HandleStmtClose(any) error {
-	return nil
 }
 
 // unknownCommand is ER_UNKNOWN_COM_ERROR (1047 / 08S01), docs/03-protocol.md section 4.

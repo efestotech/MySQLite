@@ -353,6 +353,12 @@ const (
 	CheckLengthPrefix = "__mysqlite_length_"
 )
 
+// WrongArguments is 1210: a statement's arguments cannot be used, e.g. a prepared
+// statement's parameter value (ADR 0009; oracle: pending).
+func WrongArguments(what string) *Error {
+	return newError(1210, "HY000", "Incorrect arguments to %s", what)
+}
+
 // WrongParamCount is 1582: a native function called with the wrong number of
 // arguments. name is as written.
 func WrongParamCount(name string) *Error {
