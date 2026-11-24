@@ -32,7 +32,7 @@ services:
   # Reference oracle: same fixtures, same statements (section 4). The general log is on
   # for traffic capture (section 7).
   mysql-ref:
-    image: mysql:8.0
+    image: mysql:8.0-debian # Debian build: runs on x86-64-v1 CPUs (Oracle Linux 9 needs v2)
     environment:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: test
@@ -89,7 +89,7 @@ services:
 
   # Client matrix (docs/00-brief.md section 5). Each runs its scenario once and exits.
   cli80:
-    image: mysql:8.0
+    image: mysql:8.0-debian
     profiles: [clients]
     depends_on: [mysqlite]
     volumes:
