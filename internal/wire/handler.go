@@ -48,6 +48,8 @@ type handler struct {
 	// tablesLocked is set by LOCK TABLES until UNLOCK TABLES or START TRANSACTION: then
 	// UNLOCK TABLES commits.
 	tablesLocked bool
+	// copied counts the rows an ALTER TABLE copied (ALGORITHM=COPY in MySQL).
+	copied uint64
 	// multiStatements lets one COM_QUERY hold several statements
 	// (CLIENT_MULTI_STATEMENTS, COM_SET_OPTION).
 	multiStatements bool

@@ -87,9 +87,17 @@ func processDefs(s *dialect.Show) []meta.ColumnDef {
 	if s.Full {
 		infoLen = 65535
 	}
+	// MySQL 8.0.46's column definitions (oracle, --column-type-info).
+	notNull := func(d meta.ColumnDef) meta.ColumnDef {
+		d.Flags |= meta.FlagNotNull
+		return d
+	}
 	return []meta.ColumnDef{
-		numCol("Id"), textCol("User", 32), textCol("Host", 261), textCol("db", 64),
-		textCol("Command", 16), numCol("Time"), textCol("State", 30), textCol("Info", infoLen),
+		{Name: "Id", Charset: meta.CharsetBinary, Type: meta.TypeLongLong, Flags: meta.FlagNotNull | meta.FlagBinary | meta.FlagNum, Length: 22},
+		notNull(textCol("User", 32)), notNull(textCol("Host", 255)), textCol("db", 64),
+		notNull(textCol("Command", 16)),
+		{Name: "Time", Charset: meta.CharsetBinary, Type: meta.TypeLong, Flags: meta.FlagNotNull | meta.FlagBinary | meta.FlagNum, Length: 8},
+		textCol("State", 30), textCol("Info", infoLen),
 	}
 }
 
@@ -109,6 +117,9 @@ func (h *handler) processRows(s *dialect.Show) [][]any {
 				}
 			}
 			info, state = text, "executing"
+			if h.proc != nil && p.ID == h.proc.id {
+				state = "init" // the session running SHOW PROCESSLIST, as MySQL shows it
+			}
 		}
 		rows = append(rows, []any{int64(p.ID), p.User, p.Host, db, p.Command, int64(now.Sub(p.Since).Seconds()), state, info})
 	}

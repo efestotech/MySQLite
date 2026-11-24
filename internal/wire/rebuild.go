@@ -183,12 +183,20 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 		"ALTER TABLE " + ident(rebuildTable) + " RENAME TO " + ident(t.Name),
 	}
 	for i, q := range steps {
-		if _, err := conn.ExecContext(ctx, q); err != nil {
+		res, err := conn.ExecContext(ctx, q)
+		if err != nil {
 			if i == 1 && errs.CopyRowError(err, 1) != nil {
 				// A value the new type's CHECK refuses: MySQL names the row.
 				return copyRowError(ctx, conn, q, err)
 			}
 			return fmt.Errorf("wire: rebuild %s: %w", t.Name, err)
+		}
+		if i == 1 && r.Copy {
+			n, err := res.RowsAffected()
+			if err != nil {
+				return fmt.Errorf("wire: rebuild %s: %w", t.Name, err)
+			}
+			h.copied += uint64(n)
 		}
 		rebuildStep(rebuildSteps[i])
 	}

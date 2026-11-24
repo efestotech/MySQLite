@@ -39,6 +39,7 @@ func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 		return restore, err
 	}
 	return h.ddlWith(st, prepare, func(ctx context.Context, conn *sql.Conn) (*mysql.Result, error) {
+		h.copied = 0
 		name := st.Alter.Table
 		for _, s := range st.Alter.Specs {
 			// Read past the cache: the earlier specs changed the table.
@@ -57,9 +58,23 @@ func (h *handler) alterTable(st *dialect.Statement) (*mysql.Result, error) {
 			if _, err := catalog.ReadTable(ctx, conn, st.Database, name); err != nil {
 				return nil, h.fail(err, st.Hint())
 			}
+			return &mysql.Result{}, nil
+		}
+		// A rename alone is a plain OK in MySQL; every other ALTER reports the rows it
+		// copied (MySQL 8.0.46).
+		for _, s := range st.Alter.Specs {
+			if s.Kind != dialect.AlterRenameTable {
+				return alterResult(h.copied), nil
+			}
 		}
 		return &mysql.Result{}, nil
 	})
+}
+
+// alterResult is the OK of an ALTER TABLE, CREATE INDEX or DROP INDEX that copied rows
+// rows: MySQL's info string with them as Records and affected rows.
+func alterResult(rows uint64) *mysql.Result {
+	return &mysql.Result{AffectedRows: rows, StatusMessage: fmt.Sprintf("Records: %d  Duplicates: 0  Warnings: 0", rows)}
 }
 
 func (h *handler) alterSpec(ctx context.Context, conn *sql.Conn, t *meta.Table, s dialect.AlterSpec, rebuilding, fkOn bool) error {

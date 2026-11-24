@@ -40,6 +40,9 @@ type Rebuild struct {
 	Auto, KeepCounter bool
 	// Kept maps each old column that survives to its new name.
 	Kept map[string]string
+	// Copy is set when MySQL runs this change with ALGORITHM=COPY, a column type change:
+	// the copied rows are the statement's affected rows and its info string's Records.
+	Copy bool
 	// ZeroDates are added DATE / DATETIME / TIMESTAMP NOT NULL columns without a
 	// default: existing rows would take the zero date, which strict mode with
 	// NO_ZERO_DATE refuses (1292 for row 1). A table without rows takes them.
@@ -336,6 +339,9 @@ func (p *rebuildPlan) plan(ct *CreateTable, old *meta.Table) (*Rebuild, *errs.Er
 		if !sameStorage(oc.MySQLType(), c.mysqlType) {
 			return nil, errs.Unsupported("changing a column from "+oc.MySQLType()+" to "+c.mysqlType, "the conversion of stored values is not implemented")
 		}
+		if copiesRows(oc.MySQLType(), c.mysqlType) {
+			r.Copy = true
+		}
 		expr := quoteIdent(oc.Name)
 		r.Kept[oc.Name] = c.name
 		r.Columns = append(r.Columns, c.name)
@@ -397,6 +403,23 @@ func sameStorage(from, to string) bool {
 	}
 	f, t := storageFamily(from), storageFamily(to)
 	return f != "" && f == t
+}
+
+// copiesRows reports whether MySQL changes a column from type from to type to with
+// ALGORITHM=COPY: any type change, except a VARCHAR that grows within the same size of
+// length prefix (one byte below 256 bytes), which runs in place.
+func copiesRows(from, to string) bool {
+	if strings.EqualFold(from, to) {
+		return false
+	}
+	f, fok := meta.ParseType(from)
+	t, tok := meta.ParseType(to)
+	varchar := func(ti meta.TypeInfo) bool { return ti.Type == meta.TypeVarString || ti.Type == meta.TypeVarchar }
+	if fok && tok && varchar(f) && varchar(t) && f.Charset == t.Charset &&
+		t.Length >= f.Length && (f.Length < 256) == (t.Length < 256) {
+		return false
+	}
+	return true
 }
 
 func storageFamily(mysqlType string) string {

@@ -188,7 +188,9 @@ func columnDDL(t *meta.Table, c meta.Column, tableCS, tableCo string) string {
 		if co != tableCo {
 			parts = append(parts, "CHARACTER SET "+cs)
 		}
-		if co != mysqlPrimary[cs] {
+		// MySQL 8.0.46 names the collation unless it is both the table's and the
+		// primary one of its character set.
+		if co != mysqlPrimary[cs] || co != tableCo {
 			parts = append(parts, "COLLATE "+co)
 		}
 	}

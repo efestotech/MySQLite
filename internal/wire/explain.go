@@ -30,7 +30,8 @@ var explainDefs = []meta.ColumnDef{
 		return d
 	}(),
 	explainText("table", 64),
-	explainText("partitions", 8192),
+	// MEDIUM_BLOB in MySQL 8.0.46 (oracle), with the text's character set.
+	{Name: "partitions", Charset: meta.CollationUTF8MB3, Type: meta.TypeMediumBlob, Flags: meta.FlagBlob, Length: 8192 * 3},
 	explainText("type", 10),
 	explainText("possible_keys", 4096),
 	explainText("key", 64),

@@ -38,8 +38,9 @@ func TestMinimumSetIsRegistered(t *testing.T) {
 			t.Errorf("%s is not registered", name)
 		}
 	}
-	// Removed in MySQL 8.0: reading them is 1193 there.
-	for _, name := range []string{"tx_isolation", "tx_read_only", "storage_engine", "query_cache_size", "query_cache_type", "have_query_cache"} {
+	// Removed in MySQL 8.0: reading them is 1193 there (checked against 8.0.46, which
+	// still has have_query_cache).
+	for _, name := range []string{"tx_isolation", "tx_read_only", "storage_engine", "query_cache_size", "query_cache_type"} {
 		if _, ok := Lookup(name); ok {
 			t.Errorf("%s was removed in MySQL 8.0 and must not be registered", name)
 		}

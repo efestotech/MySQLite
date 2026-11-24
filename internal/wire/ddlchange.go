@@ -184,7 +184,7 @@ func (h *handler) createIndex(ctx context.Context, conn *sql.Conn, st *dialect.S
 	if err != nil {
 		return nil, h.fail(err, st.Hint())
 	}
-	return &mysql.Result{}, nil
+	return alterResult(0), nil
 }
 
 // firstDuplicate finds the smallest key value that two rows share, NULLs excepted (a
@@ -221,5 +221,5 @@ func (h *handler) dropIndex(ctx context.Context, conn *sql.Conn, st *dialect.Sta
 	if err != nil {
 		return nil, h.fail(err, st.Hint())
 	}
-	return &mysql.Result{}, nil
+	return alterResult(0), nil
 }

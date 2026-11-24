@@ -40,6 +40,7 @@ const (
 	TypeNewDecimal uint8 = 0xf6
 	TypeEnum       uint8 = 0xf7
 	TypeSet        uint8 = 0xf8
+	TypeMediumBlob uint8 = 0xfa
 	TypeBlob       uint8 = 0xfc
 	TypeVarString  uint8 = 0xfd
 	TypeString     uint8 = 0xfe

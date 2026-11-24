@@ -83,6 +83,7 @@ var defs = []Def{
 	{Name: "foreign_key_checks", Scope: ScopeBoth, Kind: KindBool},
 	{Name: "group_concat_max_len", Scope: ScopeBoth, Kind: KindUint},
 	{Name: "gtid_mode", Scope: ScopeGlobal, Kind: KindString},
+	{Name: "have_query_cache", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "hostname", Scope: ScopeGlobal, Kind: KindString},
 	{Name: "information_schema_stats_expiry", Scope: ScopeBoth, Kind: KindUint},
 	{Name: "init_connect", Scope: ScopeGlobal, Kind: KindString},
@@ -210,6 +211,7 @@ func NewServer(cfg Config) *Server {
 		"foreign_key_checks":              "1",
 		"group_concat_max_len":            "1024",
 		"gtid_mode":                       "OFF",
+		"have_query_cache":                "NO", // still present in MySQL 8.0.46
 		"hostname":                        cfg.Hostname,
 		"information_schema_stats_expiry": "86400",
 		"init_connect":                    "",

@@ -50,3 +50,31 @@ func TestAlterAddZeroDate(t *testing.T) {
 		t.Errorf("rows %q", got)
 	}
 }
+
+// ALTER TABLE and CREATE INDEX answer with MySQL's info string. A column type change
+// copies the rows (affected rows and Records count them); the other forms run in place
+// (MySQL 8.0.46, oracle probes o.87.1 to o.87.6).
+func TestAlterInfo(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE t87 (a INT, s VARCHAR(10))")
+	execOK(t, conn, "INSERT INTO t87 VALUES (1, 'x'), (2, 'y')")
+	const zero = "Records: 0  Duplicates: 0  Warnings: 0"
+	for _, c := range []struct {
+		query    string
+		affected uint64
+		info     string
+	}{
+		{"ALTER TABLE t87 ADD b INT", 0, zero},
+		{"CREATE INDEX i ON t87 (a)", 0, zero},
+		{"ALTER TABLE t87 ADD INDEX j (a)", 0, zero},
+		{"ALTER TABLE t87 RENAME COLUMN b TO z", 0, zero},
+		{"ALTER TABLE t87 ADD UNIQUE KEY k (a)", 0, zero},
+		{"ALTER TABLE t87 MODIFY a BIGINT", 2, "Records: 2  Duplicates: 0  Warnings: 0"},
+		{"ALTER TABLE t87 MODIFY s VARCHAR(20)", 0, zero},
+		{"ALTER TABLE t87 MODIFY s VARCHAR(5)", 2, "Records: 2  Duplicates: 0  Warnings: 0"},
+		{"ALTER TABLE t87 MODIFY s VARCHAR(5) NOT NULL", 0, zero},
+		{"DROP INDEX j ON t87", 0, zero},
+	} {
+		requireOK(t, conn, c.query, c.affected, 0, c.info)
+	}
+}
