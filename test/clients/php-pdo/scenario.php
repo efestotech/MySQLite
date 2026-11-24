@@ -32,7 +32,7 @@ try {
         PDO::ATTR_STRINGIFY_FETCHES => false,
     ]);
     check('connect', true);
-    check($emulate ? 'emulated prepares' : 'native prepares', $pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES) === $emulate);
+    check($emulate ? 'emulated prepares' : 'native prepares', (bool) $pdo->getAttribute(PDO::ATTR_EMULATE_PREPARES) === $emulate); // PHP 8.3 returns an int, 8.4 a bool
 
     $dbs = $pdo->query('SHOW DATABASES')->fetchAll(PDO::FETCH_COLUMN);
     check('list databases', in_array($db, $dbs, true), $dbs);
