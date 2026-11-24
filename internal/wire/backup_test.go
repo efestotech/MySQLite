@@ -77,7 +77,7 @@ func TestAlterBackup(t *testing.T) {
 		t.Errorf("backup integrity_check %q, %v", check, err)
 	}
 	w.Close()
-	if ddl := showCreate(t, conn, "restored.gadgets"); !strings.Contains(ddl, "`name` varchar(20) NOT NULL") || !strings.Contains(ddl, "KEY `name` (`name`)") {
+	if ddl := showCreate(t, conn, "restored.gadgets"); !strings.Contains(ddl, "`name` varchar(20) COLLATE utf8mb4_general_ci NOT NULL") || !strings.Contains(ddl, "KEY `name` (`name`)") {
 		t.Errorf("backup holds\n%s\nwant the table before the ALTER", ddl)
 	}
 	if got := rowsOf(t, execOK(t, conn, "SELECT name FROM restored.gadgets ORDER BY id")); got != "pen;ink" {

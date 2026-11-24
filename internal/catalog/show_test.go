@@ -66,7 +66,7 @@ func TestCreateTableSQLQuoting(t *testing.T) {
 		Options: map[string]string{SidecarKeyComment: "it's"},
 	}
 	got := CreateTableSQL(tbl, 0)
-	for _, want := range []string{"CREATE TABLE `we``ird`", "`x``y` varchar(5) DEFAULT 'a\\\\b''c'", "ENGINE=SQLite", "COMMENT='it''s'"} {
+	for _, want := range []string{"CREATE TABLE `we``ird`", "`x``y` varchar(5) COLLATE utf8mb4_general_ci DEFAULT 'a\\\\b''c'", "ENGINE=SQLite", "COMMENT='it''s'"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("want %s in:\n%s", want, got)
 		}

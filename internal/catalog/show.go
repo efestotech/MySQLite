@@ -165,13 +165,30 @@ func CreateTableSQL(t *meta.Table, next int64) string {
 	return b.String()
 }
 
+// mysqlPrimary is MySQL 8.0's default collation of each character set. It decides how
+// SHOW CREATE TABLE spells a column; mysqlite's own utf8mb4 default (general_ci, ADR
+// 0004) does not change what MySQL would print.
+var mysqlPrimary = map[string]string{
+	"binary":  "binary",
+	"utf8mb3": "utf8mb3_general_ci",
+	"utf8mb4": "utf8mb4_0900_ai_ci",
+}
+
 func columnDDL(t *meta.Table, c meta.Column, tableCS, tableCo string) string {
 	mysqlType := c.MySQLType()
 	parts := []string{quote(c.Name), mysqlType}
 	if co := ColumnCollation(c); co != "" {
-		if cs := charsetOf(co); cs != tableCS {
-			parts = append(parts, "CHARACTER SET "+cs, "COLLATE "+co)
-		} else if co != tableCo {
+		// MySQL 8.0.46 (harness against mysql-ref, corpus catalog.show-create-table):
+		// CHARACTER SET when the column's collation is not the table's, COLLATE when it
+		// is not MySQL's primary collation of its character set. So a general_ci column
+		// of a general_ci table still says COLLATE utf8mb4_general_ci, because MySQL's
+		// utf8mb4 primary is utf8mb4_0900_ai_ci. A primary collation that differs from
+		// the table's prints CHARACTER SET alone (`oracle: pending`).
+		cs := charsetOf(co)
+		if co != tableCo {
+			parts = append(parts, "CHARACTER SET "+cs)
+		}
+		if co != mysqlPrimary[cs] {
 			parts = append(parts, "COLLATE "+co)
 		}
 	}

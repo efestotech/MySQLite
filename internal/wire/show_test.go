@@ -154,11 +154,11 @@ func TestShowCreateTable(t *testing.T) {
 	got := column(t, res, 0, "Create Table")
 	want := "CREATE TABLE `gadgets` (\n" +
 		"  `id` int unsigned NOT NULL AUTO_INCREMENT,\n" +
-		"  `name` varchar(10) NOT NULL,\n" +
-		"  `code` varchar(8) COLLATE utf8mb4_bin DEFAULT NULL,\n" +
+		"  `name` varchar(10) COLLATE utf8mb4_general_ci NOT NULL,\n" +
+		"  `code` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,\n" +
 		"  `qty` tinyint NOT NULL DEFAULT '1',\n" +
 		"  `price` decimal(8,2) unsigned DEFAULT NULL,\n" +
-		"  `note` text,\n" +
+		"  `note` text COLLATE utf8mb4_general_ci,\n" +
 		"  `added` date DEFAULT '2024-01-01',\n" +
 		"  PRIMARY KEY (`id`),\n" +
 		"  UNIQUE KEY `name` (`name`),\n" +

@@ -92,7 +92,7 @@ func TestAlterTableForeignKeys(t *testing.T) {
 	}
 	if got := showCreate(t, conn, "owners"); got != "CREATE TABLE `owners` (\n"+
 		"  `id` int NOT NULL,\n"+
-		"  `name` varchar(40) NOT NULL DEFAULT '',\n"+
+		"  `name` varchar(40) COLLATE utf8mb4_general_ci NOT NULL DEFAULT '',\n"+
 		"  PRIMARY KEY (`id`),\n"+
 		"  KEY `name` (`name`)\n"+
 		") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci" {

@@ -17,10 +17,10 @@ func TestAlterTableNative(t *testing.T) {
 		"ENGINE = MyISAM, COMMENT = 'stock', ALGORITHM = INPLACE, LOCK = NONE")
 	want := "CREATE TABLE `gadgets` (\n" +
 		"  `id` int NOT NULL AUTO_INCREMENT,\n" +
-		"  `name` varchar(20) NOT NULL,\n" +
-		"  `note` text,\n" +
+		"  `name` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,\n" +
+		"  `note` text COLLATE utf8mb4_general_ci,\n" +
 		"  `qty` tinyint DEFAULT '1' COMMENT 'count',\n" +
-		"  `code` varchar(8) COLLATE utf8mb4_bin DEFAULT NULL,\n" +
+		"  `code` varchar(8) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,\n" +
 		"  PRIMARY KEY (`id`),\n" +
 		"  UNIQUE KEY `code` (`code`),\n" +
 		"  UNIQUE KEY `uq` (`name`,`code`),\n" +
@@ -89,8 +89,8 @@ func TestAlterTableNative(t *testing.T) {
 	execOK(t, conn, "ALTER TABLE gadgets DROP COLUMN code, DROP qty, RENAME INDEX uq TO uq_name, DROP INDEX name")
 	want = "CREATE TABLE `gadgets` (\n" +
 		"  `id` int NOT NULL AUTO_INCREMENT,\n" +
-		"  `name` varchar(20) NOT NULL,\n" +
-		"  `note` text,\n" +
+		"  `name` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,\n" +
+		"  `note` text COLLATE utf8mb4_general_ci,\n" +
 		"  PRIMARY KEY (`id`),\n" +
 		"  UNIQUE KEY `uq_name` (`name`)\n" +
 		") ENGINE=MyISAM AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='stock'"

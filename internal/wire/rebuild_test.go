@@ -17,11 +17,11 @@ func TestAlterTableRebuild(t *testing.T) {
 	execOK(t, conn, "ALTER TABLE gadgets MODIFY name VARCHAR(30) NOT NULL DEFAULT 'x' COMMENT 'label', "+
 		"ADD qty INT NOT NULL AFTER id, ADD flag VARCHAR(3) NOT NULL FIRST")
 	want := "CREATE TABLE `gadgets` (\n" +
-		"  `flag` varchar(3) NOT NULL,\n" +
+		"  `flag` varchar(3) COLLATE utf8mb4_general_ci NOT NULL,\n" +
 		"  `id` int NOT NULL AUTO_INCREMENT,\n" +
 		"  `qty` int NOT NULL,\n" +
-		"  `name` varchar(30) NOT NULL DEFAULT 'x' COMMENT 'label',\n" +
-		"  `note` text,\n" +
+		"  `name` varchar(30) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'x' COMMENT 'label',\n" +
+		"  `note` text COLLATE utf8mb4_general_ci,\n" +
 		"  PRIMARY KEY (`id`),\n" +
 		"  KEY `by_name` (`name`)\n" +
 		") ENGINE=InnoDB AUTO_INCREMENT=4 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"
@@ -42,11 +42,11 @@ func TestAlterTableRebuild(t *testing.T) {
 	requireMyError(t, err, 1406, "22001")
 
 	execOK(t, conn, "ALTER TABLE gadgets ALTER COLUMN name DROP DEFAULT")
-	if got := showCreate(t, conn, "gadgets"); !strings.Contains(got, "`name` varchar(30) NOT NULL COMMENT 'label',") {
+	if got := showCreate(t, conn, "gadgets"); !strings.Contains(got, "`name` varchar(30) COLLATE utf8mb4_general_ci NOT NULL COMMENT 'label',") {
 		t.Errorf("after DROP DEFAULT:\n%s", got)
 	}
 	execOK(t, conn, "ALTER TABLE gadgets ALTER name SET DEFAULT 'y'")
-	if got := showCreate(t, conn, "gadgets"); !strings.Contains(got, "`name` varchar(30) NOT NULL DEFAULT 'y' COMMENT 'label',") {
+	if got := showCreate(t, conn, "gadgets"); !strings.Contains(got, "`name` varchar(30) COLLATE utf8mb4_general_ci NOT NULL DEFAULT 'y' COMMENT 'label',") {
 		t.Errorf("after SET DEFAULT:\n%s", got)
 	}
 
@@ -58,11 +58,11 @@ func TestAlterTableRebuild(t *testing.T) {
 	}
 	execOK(t, conn, "ALTER TABLE gadgets CHANGE title label VARCHAR(30) NOT NULL AFTER flag")
 	want = "CREATE TABLE `gadgets` (\n" +
-		"  `flag` varchar(3) NOT NULL,\n" +
-		"  `label` varchar(30) NOT NULL,\n" +
+		"  `flag` varchar(3) COLLATE utf8mb4_general_ci NOT NULL,\n" +
+		"  `label` varchar(30) COLLATE utf8mb4_general_ci NOT NULL,\n" +
 		"  `id` int NOT NULL AUTO_INCREMENT,\n" +
 		"  `qty` int NOT NULL,\n" +
-		"  `note` text,\n" +
+		"  `note` text COLLATE utf8mb4_general_ci,\n" +
 		"  PRIMARY KEY (`id`),\n" +
 		"  KEY `by_name` (`label`)\n" +
 		") ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"

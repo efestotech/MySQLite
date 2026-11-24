@@ -15,7 +15,7 @@ func TestAlterAddPrimaryKeyNullableDefault(t *testing.T) {
 	execOK(t, conn, "CREATE TABLE np (a INT, b VARCHAR(5))")
 	execOK(t, conn, "INSERT INTO np VALUES (1, 'x')")
 	execOK(t, conn, "ALTER TABLE np ADD PRIMARY KEY (a)")
-	want := "CREATE TABLE `np` (\n  `a` int NOT NULL,\n  `b` varchar(5) DEFAULT NULL,\n  PRIMARY KEY (`a`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"
+	want := "CREATE TABLE `np` (\n  `a` int NOT NULL,\n  `b` varchar(5) COLLATE utf8mb4_general_ci DEFAULT NULL,\n  PRIMARY KEY (`a`)\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci"
 	if got := showCreate(t, conn, "np"); got != want {
 		t.Errorf("got\n%s", got)
 	}

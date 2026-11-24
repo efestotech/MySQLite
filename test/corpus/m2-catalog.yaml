@@ -123,10 +123,10 @@ cases:
           - |-
             CREATE TABLE `items` (
               `id` int unsigned NOT NULL AUTO_INCREMENT,
-              `name` varchar(20) NOT NULL,
+              `name` varchar(20) COLLATE utf8mb4_general_ci NOT NULL,
               `price` decimal(10,2) DEFAULT NULL,
               `qty` smallint NOT NULL DEFAULT '0',
-              `note` text,
+              `note` text COLLATE utf8mb4_general_ci,
               PRIMARY KEY (`id`),
               UNIQUE KEY `name` (`name`),
               KEY `by_price` (`price`)
@@ -143,8 +143,8 @@ cases:
         - - tags
           - |-
             CREATE TABLE `tags` (
-              `code` char(4) NOT NULL,
-              `label` varchar(10) COLLATE utf8mb4_bin DEFAULT NULL,
+              `code` char(4) COLLATE utf8mb4_general_ci NOT NULL,
+              `label` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin DEFAULT NULL,
               PRIMARY KEY (`code`)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci
 

@@ -37,7 +37,7 @@ func TestCollation0900(t *testing.T) {
 	got := showCreate(t, conn, "words")
 	for _, part := range []string{
 		"`w` varchar(20) NOT NULL,",
-		"`b` varchar(20) COLLATE utf8mb4_0900_bin DEFAULT NULL,",
+		"`b` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin DEFAULT NULL,",
 		"DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci",
 	} {
 		if !strings.Contains(got, part) {
