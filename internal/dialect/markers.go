@@ -24,7 +24,7 @@ func (t *Translator) Markers(query string) ([]Marker, *errs.Error) {
 	gated, _ := gateVersionComments(query, t.cfg.ServerVersion, t.mode.HasNoBackslashEscapesMode())
 	stmts, _, err := t.p.ParseSQL(gated)
 	if err != nil {
-		return nil, parseError(err, gated)
+		return nil, parseError(err, gated, "")
 	}
 	switch len(stmts) {
 	case 0:

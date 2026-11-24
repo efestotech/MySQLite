@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -150,6 +151,15 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 			return errs.DuplicateEntry(entry, t.Name+".PRIMARY")
 		}
 	}
+	if len(r.ZeroDates) > 0 {
+		var rows bool
+		if err := conn.QueryRowContext(ctx, "SELECT EXISTS (SELECT 1 FROM "+ident(t.Name)+")").Scan(&rows); err != nil {
+			return fmt.Errorf("wire: look for rows in %s: %w", t.Name, err)
+		}
+		if z := r.ZeroDates[0]; rows {
+			return errs.IncorrectTemporal(z.Kind, z.Value, z.Column, 1)
+		}
+	}
 	if len(r.Columns) == 0 {
 		return errs.Unsupported("ALTER TABLE that keeps no column's values", "the copy has nothing to select")
 	}
@@ -174,7 +184,10 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 	}
 	for i, q := range steps {
 		if _, err := conn.ExecContext(ctx, q); err != nil {
-			// A value the new type's CHECK refuses, mapped like any write.
+			if i == 1 && errs.CopyRowError(err, 1) != nil {
+				// A value the new type's CHECK refuses: MySQL names the row.
+				return copyRowError(ctx, conn, q, err)
+			}
 			return fmt.Errorf("wire: rebuild %s: %w", t.Name, err)
 		}
 		rebuildStep(rebuildSteps[i])
@@ -213,6 +226,24 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 	}
 	rebuildStep("checked")
 	return nil
+}
+
+// copyRowError finds the first row, in copy order, that the copy statement refuses, by
+// copying the rows one at a time, and returns MySQL's error for it. A failed statement
+// leaves nothing behind, and the rebuild is undone by the ALTER's savepoint.
+func copyRowError(ctx context.Context, conn *sql.Conn, copySQL string, first error) error {
+	for row := 1; ; row++ {
+		r, err := conn.ExecContext(ctx, copySQL+" LIMIT 1 OFFSET "+strconv.Itoa(row-1))
+		if err != nil {
+			if e := errs.CopyRowError(err, row); e != nil {
+				return e
+			}
+			return err
+		}
+		if n, err := r.RowsAffected(); err != nil || n == 0 {
+			return errs.CopyRowError(first, 1)
+		}
+	}
 }
 
 // rebuildable refuses the tables the rebuild could damage: one mysqlite did not create

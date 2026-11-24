@@ -149,9 +149,13 @@ func TestPreparedLimit(t *testing.T) {
 	sameRows(t, "limit 1 offset 1", rowStrings(execute(t, st, 1, 1)), []string{"città"})
 	sameRows(t, "limit as text", rowStrings(execute(t, st, "1", "0")), []string{"pen"})
 	sameRows(t, "limit 0", rowStrings(execute(t, st, 0, 0)))
+	// MySQL 8.0.46 (oracle, EXECUTE ... USING): a negative count is 1690, NULL is 0.
 	_, err := st.Execute(-1, 0)
-	requireMyError(t, err, 1210, "HY000")
-	_, err = st.Execute(nil, 0)
+	if e := requireMyError(t, err, 1690, "22003"); e.Message != "unsigned integer value is out of range in 'EXECUTE'" {
+		t.Errorf("message %q", e.Message)
+	}
+	sameRows(t, "limit NULL", rowStrings(execute(t, st, nil, 0)))
+	_, err = st.Execute(1.5, 0)
 	requireMyError(t, err, 1210, "HY000")
 	sameRows(t, "limit a, b", rowStrings(execute(t, prepare(t, conn, "SELECT id FROM items ORDER BY id LIMIT ?, ?"), 1, 5)), []string{"2"})
 }

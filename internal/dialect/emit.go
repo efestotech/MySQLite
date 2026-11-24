@@ -129,7 +129,19 @@ func (e *emitter) statement(n ast.StmtNode) *Statement {
 	case *ast.LockTablesStmt:
 		// No lock is taken: the single writer serializes statements and transactions,
 		// not sessions (docs/05-dialect.md section 6, decision Q7).
-		return &Statement{Kind: KindTransaction, Tx: &Transaction{Op: TxLockTables}}
+		tx := &Transaction{Op: TxLockTables}
+		for _, tl := range n.TableLocks {
+			db := tl.Table.Schema.O
+			if db == "" {
+				db = e.current
+			}
+			if db == "" {
+				e.fail(errs.NoDatabaseSelected())
+				return nil
+			}
+			tx.Tables = append(tx.Tables, [2]string{db, tl.Table.Name.O})
+		}
+		return &Statement{Kind: KindTransaction, Tx: tx}
 	case *ast.UnlockTablesStmt:
 		return &Statement{Kind: KindTransaction, Tx: &Transaction{Op: TxUnlockTables}}
 	case *ast.ShowStmt:

@@ -80,9 +80,9 @@ func TestAlterTableRebuild(t *testing.T) {
 		msg   string
 	}{
 		{"ALTER TABLE gadgets MODIFY label INT", 1235, "42000", ""},
-		{"ALTER TABLE gadgets MODIFY label VARCHAR(2) NOT NULL", 1406, "22001", "Data too long for column 'label' at row 1"},
+		{"ALTER TABLE gadgets MODIFY label VARCHAR(2) NOT NULL", 1265, "01000", "Data truncated for column 'label' at row 1"},
 		{"ALTER TABLE gadgets MODIFY note TEXT NOT NULL", 1138, "22004", "Invalid use of NULL value"},
-		{"ALTER TABLE gadgets ADD d DATE NOT NULL", 1235, "42000", ""},
+		{"ALTER TABLE gadgets ADD d DATE NOT NULL", 1292, "22007", "Incorrect date value: '0000-00-00' for column 'd' at row 1"},
 		{"ALTER TABLE gadgets MODIFY nope INT", 1054, "42S22", "Unknown column 'nope' in 'gadgets'"},
 		{"ALTER TABLE gadgets CHANGE label flag INT", 1060, "42S21", "Duplicate column name 'flag'"},
 		{"ALTER TABLE gadgets ADD x INT AFTER nope", 1054, "42S22", "Unknown column 'nope' in 'gadgets'"},

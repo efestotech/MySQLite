@@ -66,4 +66,8 @@ func TestLockTables(t *testing.T) {
 	if n := count(); n != "2" {
 		t.Fatalf("UNLOCK TABLES after START TRANSACTION committed: %s rows", n)
 	}
+
+	// A table that does not exist is 1146 (MySQL 8.0.46, oracle probe o.103.1).
+	_, err := conn.Execute("LOCK TABLES t READ, nosuch WRITE")
+	requireMyError(t, err, 1146, "42S02")
 }

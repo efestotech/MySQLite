@@ -185,11 +185,17 @@ func (h *handler) HandleQuery(query string) (*mysql.Result, error) {
 // applies (verifier A1). Each result but the last is written here with
 // SERVER_MORE_RESULTS_EXISTS; the last is returned to go-mysql. An error ends the
 // batch: it is the last response and the statements after it do not run
-// (docs/03-protocol.md section 4). `oracle: pending`.
+// (docs/03-protocol.md section 4). Checked against MySQL 8.0.46.
 func (h *handler) runMulti(query string) (*mysql.Result, error) {
+	defer h.tr.SetTail("")
 	for rest := query; ; {
 		q, after, more := h.tr.Next(rest)
 		rest = after
+		// A syntax error's "near" text runs to the end of the COM_QUERY, as in MySQL.
+		h.tr.SetTail("")
+		if more {
+			h.tr.SetTail(";" + rest)
+		}
 		res, err := h.run(q)
 		if err != nil || !more {
 			return res, err
@@ -396,10 +402,16 @@ func (h *handler) transaction(tx *dialect.Transaction) error {
 	case dialect.TxRollback:
 		err = h.sess.Rollback(ctx)
 	case dialect.TxLockTables:
-		if err = h.sess.Commit(ctx); err == nil {
-			h.tablesLocked = true
-			h.warn(errs.LockTablesIgnored())
+		if err = h.sess.Commit(ctx); err != nil {
+			break
 		}
+		for _, t := range tx.Tables {
+			if _, e := (sessionCatalog{h}).Table(t[0], t[1]); e != nil {
+				return toMySQL(e)
+			}
+		}
+		h.tablesLocked = true
+		h.warn(errs.LockTablesIgnored())
 	case dialect.TxUnlockTables:
 		// MySQL commits only when LOCK TABLES took locks.
 		if h.tablesLocked {

@@ -372,6 +372,12 @@ func WrongParamCount(name string) *Error {
 	return newError(1582, "42000", "Incorrect parameter count in the call to native function '%s'", name)
 }
 
+// UnsignedOutOfRange is 1690 for a negative value where an unsigned integer is needed,
+// such as a LIMIT placeholder (MySQL 8.0.46 names the statement: 'EXECUTE').
+func UnsignedOutOfRange(where string) *Error {
+	return newError(1690, "22003", "unsigned integer value is out of range in '%s'", where)
+}
+
 // BigintOutOfRange is 1690: integer arithmetic left the 64-bit range. expr is the
 // expression as the select list names it; MySQL prints it normalized and qualified
 // (`oracle: pending`).
@@ -462,6 +468,32 @@ func IncorrectTemporal(kind, value, column string, row int) *Error {
 // DataTooLong is 1406 in strict mode.
 func DataTooLong(column string, row int) *Error {
 	return newError(1406, "22001", "Data too long for column '%s' at row %d", column, row)
+}
+
+// DataTruncated is 1265: ALTER TABLE copying a string that the new type cuts short.
+func DataTruncated(column string, row int) *Error {
+	return newError(1265, "01000", "Data truncated for column '%s' at row %d", column, row)
+}
+
+// CopyRowError maps a range or length CHECK failure of an ALTER TABLE row copy to
+// MySQL's error for that row: 1264, or 1265 for a string (MySQL 8.0.46). It returns
+// nil for any other error.
+func CopyRowError(err error, row int) *Error {
+	code, msg, ok := engine.ErrorCode(err)
+	if !ok || code != sqliteConstraintCheck {
+		return nil
+	}
+	m := reCheck.FindStringSubmatch(msg)
+	if m == nil {
+		return nil
+	}
+	if col, ok := strings.CutPrefix(m[1], CheckRangePrefix); ok {
+		return OutOfRange(col, row)
+	}
+	if col, ok := strings.CutPrefix(m[1], CheckLengthPrefix); ok {
+		return DataTruncated(col, row)
+	}
+	return nil
 }
 
 // TableExists is 1050.

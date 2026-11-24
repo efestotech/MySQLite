@@ -377,15 +377,28 @@ func (h *handler) insertSelect(ctx context.Context, conn *sql.Conn, st *dialect.
 				"mysqlite cannot tell generated ids from given ones for the insert id; list the other columns"))
 		}
 	}
+	// A NOT NULL column without a default is 1364 for each inserted row, as in MySQL
+	// 8.0.46: a SELECT without rows inserts nothing and succeeds. With rows, SQLite's
+	// NOT NULL failure stands for it.
+	var noDefault *errs.Error
 	if _, e := meta.CheckInsertMode(table, w.Columns, [][]*meta.Literal{row}, meta.InsertMode{}); e != nil {
-		return nil, toMySQL(e)
+		if e.Code != 1364 {
+			return nil, toMySQL(e)
+		}
+		noDefault = e
+	}
+	fail := func(err error) error {
+		if noDefault != nil {
+			return toMySQL(noDefault)
+		}
+		return h.fail(err, hint)
 	}
 
 	res := &mysql.Result{}
 	if table.AutoIncrement == "" {
 		r, err := conn.ExecContext(ctx, st.SQL, st.Args...)
 		if err != nil {
-			return nil, h.fail(err, hint)
+			return nil, fail(err)
 		}
 		n, err := r.RowsAffected()
 		if err != nil {
@@ -395,7 +408,7 @@ func (h *handler) insertSelect(ctx context.Context, conn *sql.Conn, st *dialect.
 	} else {
 		ids, err := returning(ctx, conn, st.SQL+" RETURNING "+ident(table.AutoIncrement), st.Args)
 		if err != nil {
-			return nil, h.fail(err, hint)
+			return nil, fail(err)
 		}
 		res.AffectedRows = uint64(len(ids))
 		if id, generated := insertID(ids, nil); generated {

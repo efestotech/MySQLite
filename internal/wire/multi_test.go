@@ -134,6 +134,23 @@ func TestMultiStatementError(t *testing.T) {
 	if v := decodedText(execOK(t, conn, "SELECT COUNT(*) FROM t")); v != "2" {
 		t.Errorf("rows %s", v)
 	}
+
+	// MySQL 8.0.46 (oracle): the "near" text runs to the end of the whole query, and an
+	// empty statement between two semicolons is a syntax error.
+	for _, c := range []struct{ query, near string }{
+		{"SELECT 1; SELEC 2; SELECT 3", "SELEC 2; SELECT 3"},
+		{"SELECT 4;; SELECT 5;", "; SELECT 5;"},
+		{"SELECT 4; /* c */ ; SELECT 5", "; SELECT 5"},
+	} {
+		got = executeMultiple(t, conn, c.query)
+		if len(got) != 2 || got[0].err != nil {
+			t.Fatalf("%s: results %v", c.query, got)
+		}
+		want := "You have an error in your SQL syntax; check the manual that corresponds to your MySQL server version for the right syntax to use near '" + c.near + "' at line 1"
+		if e := requireMyError(t, got[1].err, 1064, "42000"); e.Message != want {
+			t.Errorf("%s: message %q", c.query, e.Message)
+		}
+	}
 }
 
 // Without CLIENT_MULTI_STATEMENTS a second statement is a syntax error; COM_SET_OPTION

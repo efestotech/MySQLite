@@ -33,6 +33,9 @@ type Transaction struct {
 	// Snapshot is WITH CONSISTENT SNAPSHOT: the snapshot starts with the statement, not
 	// with the first read.
 	Snapshot bool
+	// Tables are LOCK TABLES' tables, database and name: they must exist (1146), which
+	// MySQL checks after the implicit commit.
+	Tables [][2]string
 }
 
 func (e *emitter) begin(n *ast.BeginStmt) *Statement {

@@ -255,14 +255,18 @@ func quote(b []byte, noBackslashEscapes bool) string {
 }
 
 // limitLiteral is the value of a LIMIT or OFFSET marker: a non-negative integer, sent
-// as an integer or as its decimal text (oracle: pending for the other cases).
+// as an integer or as its decimal text. As in MySQL 8.0.46, a negative integer is 1690
+// and NULL is 0; a fraction is 1210. Text is accepted when it is a decimal integer
+// (MySQL's EXECUTE ... USING refuses a string; the binary protocol is not checked).
 func limitLiteral(v any) (string, *errs.Error) {
 	var n uint64
 	switch x := v.(type) {
+	case nil:
+		return "0", nil
 	case int8, int16, int32, int64:
 		i := toInt64(x)
 		if i < 0 {
-			return "", errs.WrongArguments("EXECUTE")
+			return "", errs.UnsignedOutOfRange("EXECUTE")
 		}
 		n = uint64(i)
 	case uint8:

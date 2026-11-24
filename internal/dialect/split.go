@@ -3,8 +3,10 @@ package dialect
 // Next returns the first statement of a COM_QUERY text for CLIENT_MULTI_STATEMENTS: the
 // text up to the first ';' outside string literals, quoted identifiers and comments,
 // with the current sql_mode (NO_BACKSLASH_ESCAPES, ANSI_QUOTES). A /*! ... */ comment
-// is kept whole, and pieces holding only whitespace and comments are skipped. rest is
-// the text after that ';'; more reports whether rest holds another statement.
+// is kept whole. An empty statement (only whitespace and comments before a ';') with
+// more text after it is returned from its ';', which Translate refuses with 1064 as
+// MySQL 8.0.46 does; at the end of the query it is skipped. rest is the text after
+// that ';'; more reports whether rest holds another statement.
 //
 // The caller runs first before splitting rest, so a statement that changes sql_mode
 // affects how the next one is split, as in MySQL's statement-by-statement parse; a
@@ -17,6 +19,9 @@ func (t *Translator) Next(q string) (first, rest string, more bool) {
 				return piece, "", false
 			}
 			return piece, after, !blank(after)
+		}
+		if !blank(after) {
+			return q[len(piece):], "", false
 		}
 		q = after
 	}
@@ -93,4 +98,14 @@ func blank(s string) bool {
 		}
 	}
 	return true
+}
+
+// emptyStatement returns the offset of the ';' that ends an empty first statement of
+// q (only whitespace and comments before it), with more text after it; -1 otherwise.
+func (t *Translator) emptyStatement(q string) int {
+	piece, after, cut := t.cut(q)
+	if cut && blank(piece) && !blank(after) {
+		return len(piece)
+	}
+	return -1
 }

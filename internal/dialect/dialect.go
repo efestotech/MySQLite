@@ -212,7 +212,14 @@ type Translator struct {
 	cfg  Config
 	p    *parser.Parser
 	mode mysql.SQLMode
+	// tail is the rest of a multi-statement COM_QUERY after the statement being
+	// translated, for the "near" text of a syntax error (SetTail).
+	tail string
 }
+
+// SetTail sets the text that follows the next statements to translate in their
+// COM_QUERY, from the ';' that ends them; "" outside a multi-statement.
+func (t *Translator) SetTail(tail string) { t.tail = tail }
 
 // New returns a Translator using the MySQL 8.0 default sql_mode.
 func New(cfg Config) *Translator {
@@ -260,9 +267,13 @@ func (t *Translator) Translate(query, currentDB string) (*Statement, *errs.Error
 // not exist fails the translation with the catalog's error.
 func (t *Translator) TranslateIn(query, currentDB string, cat Catalog) (*Statement, *errs.Error) {
 	gated, gatedAny := gateVersionComments(query, t.cfg.ServerVersion, t.mode.HasNoBackslashEscapesMode())
+	// The parser skips an empty statement; MySQL's grammar has none.
+	if off := t.emptyStatement(gated); off >= 0 {
+		return nil, parseErrorAt(gated+t.tail, off)
+	}
 	stmts, _, err := t.p.ParseSQL(gated)
 	if err != nil {
-		return nil, parseError(err, gated)
+		return nil, parseError(err, gated, t.tail)
 	}
 	switch len(stmts) {
 	case 0:
@@ -315,7 +326,9 @@ var reUnknownCollation = regexp.MustCompile(`\[ddl:1273\]Unknown collation: '([^
 
 var reUnknownCharset = regexp.MustCompile(`\[parser:1115\]Unknown character set: '([^']*)'`)
 
-func parseError(err error, query string) *errs.Error {
+// parseError maps a parser error. tail is the text that follows query in the COM_QUERY
+// (the next statements of a multi-statement): MySQL's "near" text runs to its end.
+func parseError(err error, query, tail string) *errs.Error {
 	// The parser checks the character set of SET NAMES / SET CHARACTER SET itself;
 	// MySQL reports it as 1115 too, not as a syntax error.
 	if m := reUnknownCharset.FindStringSubmatch(err.Error()); m != nil {
@@ -329,7 +342,11 @@ func parseError(err error, query string) *errs.Error {
 	}
 	if m := reParseError.FindStringSubmatch(err.Error()); m != nil {
 		line, _ := strconv.Atoi(m[1])
-		return errs.Parse(truncateNear(m[2]), line)
+		near := m[2]
+		if strings.HasSuffix(query, near) {
+			near += tail
+		}
+		return errs.Parse(truncateNear(near), line)
 	}
 	// Errors without a position (an unknown character set in an introducer, for
 	// example) are reported from the start of the query.

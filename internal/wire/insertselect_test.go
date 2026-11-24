@@ -62,4 +62,8 @@ func TestInsertSelect(t *testing.T) {
 			t.Errorf("%s: message %q, want %q", c.query, e.Message, c.msg)
 		}
 	}
+
+	// 1364 is raised for an inserted row: a SELECT without rows inserts nothing and
+	// succeeds (MySQL 8.0.46, oracle probes o.77.1 and o.77.2).
+	requireOK(t, conn, "INSERT INTO copies (price) SELECT price FROM items WHERE id < 0", 0, 0, "Records: 0  Duplicates: 0  Warnings: 0")
 }

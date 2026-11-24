@@ -40,6 +40,15 @@ type Rebuild struct {
 	Auto, KeepCounter bool
 	// Kept maps each old column that survives to its new name.
 	Kept map[string]string
+	// ZeroDates are added DATE / DATETIME / TIMESTAMP NOT NULL columns without a
+	// default: existing rows would take the zero date, which strict mode with
+	// NO_ZERO_DATE refuses (1292 for row 1). A table without rows takes them.
+	ZeroDates []ZeroDate
+}
+
+// ZeroDate is an added column whose implicit default is the zero date.
+type ZeroDate struct {
+	Column, Kind, Value string
 }
 
 // Rebuild plans the rebuild of old for spec. createSQL is old's SHOW CREATE TABLE text
@@ -309,6 +318,11 @@ func (p *rebuildPlan) plan(ct *CreateTable, old *meta.Table) (*Rebuild, *errs.Er
 			case c.dflt != nil || !c.notNull:
 			default:
 				v, ok := implicitDefault(c.mysqlType)
+				if z, zero := zeroDate(c.mysqlType); !ok && zero && p.e.mode.HasStrictMode() && p.e.mode.HasNoZeroDateMode() {
+					z.Column = c.name
+					r.ZeroDates = append(r.ZeroDates, z)
+					v, ok = "NULL", true // never copied: the table has no rows
+				}
 				if !ok {
 					return nil, errs.Unsupported("ADD COLUMN "+c.mysqlType+" NOT NULL without DEFAULT", "the implicit default of the type is not implemented")
 				}
@@ -405,6 +419,21 @@ func storageFamily(mysqlType string) string {
 // implicitDefault is MySQL's implicit default of a NOT NULL column for the rows that
 // exist when it is added: 0 for integers and floating point, the empty string for strings. Other
 // types (DECIMAL's scale, the zero dates) are refused for now.
+// zeroDate is the zero value MySQL gives existing rows of an added temporal column.
+func zeroDate(mysqlType string) (ZeroDate, bool) {
+	ti, ok := meta.ParseType(mysqlType)
+	if !ok {
+		return ZeroDate{}, false
+	}
+	switch ti.Type {
+	case meta.TypeDate:
+		return ZeroDate{Kind: "date", Value: "0000-00-00"}, true
+	case meta.TypeDatetime, meta.TypeTimestamp:
+		return ZeroDate{Kind: "datetime", Value: "0000-00-00 00:00:00"}, true
+	}
+	return ZeroDate{}, false
+}
+
 func implicitDefault(mysqlType string) (string, bool) {
 	ti, ok := meta.ParseType(mysqlType)
 	if !ok {

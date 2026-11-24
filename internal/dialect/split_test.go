@@ -16,8 +16,10 @@ func TestSplit(t *testing.T) {
 		{"SELECT 1; -- done", []string{"SELECT 1; -- done"}},
 		{"SELECT 1; SELECT 2", []string{"SELECT 1", " SELECT 2"}},
 		{"SELECT 1;SELECT 2;", []string{"SELECT 1", "SELECT 2"}},
-		{"SELECT 1;; SELECT 2", []string{"SELECT 1", " SELECT 2"}},
-		{"SELECT 1; /* c */ ; # c\nSELECT 2", []string{"SELECT 1", " # c\nSELECT 2"}},
+		// An empty statement is passed on from its ';', for the parser to refuse (1064).
+		{"SELECT 1;; SELECT 2", []string{"SELECT 1", "; SELECT 2"}},
+		{"SELECT 1; /* c */ ; # c\nSELECT 2", []string{"SELECT 1", "; # c\nSELECT 2"}},
+		{"SELECT 1;;", []string{"SELECT 1;;"}},
 		{"SELECT 'a;b'; SELECT \"c;d\"", []string{"SELECT 'a;b'", " SELECT \"c;d\""}},
 		{"SELECT `x;y` FROM t; SELECT 2", []string{"SELECT `x;y` FROM t", " SELECT 2"}},
 		{"SELECT 'it\\'s;'; SELECT 2", []string{"SELECT 'it\\'s;'", " SELECT 2"}},

@@ -423,10 +423,6 @@ func TestTransactionStatements(t *testing.T) {
 		{"COMMIT NO RELEASE", Transaction{Op: TxCommit}},
 		{"ROLLBACK", Transaction{Op: TxRollback}},
 		{"ROLLBACK AND NO CHAIN NO RELEASE", Transaction{Op: TxRollback}},
-		// Q7: accepted, no lock is taken (docs/05-dialect.md section 6).
-		{"LOCK TABLES t READ", Transaction{Op: TxLockTables}},
-		{"LOCK TABLES t WRITE, u READ LOCAL", Transaction{Op: TxLockTables}},
-		{"lock table `t` write", Transaction{Op: TxLockTables}},
 		{"UNLOCK TABLES", Transaction{Op: TxUnlockTables}},
 		{"UNLOCK TABLE", Transaction{Op: TxUnlockTables}},
 	}
@@ -436,9 +432,33 @@ func TestTransactionStatements(t *testing.T) {
 			if e != nil {
 				t.Fatalf("%s: %v", tc.query, e)
 			}
-			if st.Kind != KindTransaction || st.Tx == nil || *st.Tx != tc.want {
+			if st.Kind != KindTransaction || st.Tx == nil || !reflect.DeepEqual(*st.Tx, tc.want) {
 				t.Fatalf("%s: want %+v, got kind %d tx %+v", tc.query, tc.want, st.Kind, st.Tx)
 			}
+		}
+	}
+
+	// Q7: accepted, no lock is taken (docs/05-dialect.md section 6). The tables are
+	// checked when the statement runs (1146).
+	locks := []struct {
+		query  string
+		tables [][2]string
+	}{
+		{"LOCK TABLES t READ", [][2]string{{"shop", "t"}}},
+		{"LOCK TABLES t WRITE, other.u READ LOCAL", [][2]string{{"shop", "t"}, {"other", "u"}}},
+		{"lock table `t` write", [][2]string{{"shop", "t"}}},
+	}
+	for _, tc := range locks {
+		st, e := tr.Translate(tc.query, "shop")
+		if e != nil {
+			t.Fatalf("%s: %v", tc.query, e)
+		}
+		want := Transaction{Op: TxLockTables, Tables: tc.tables}
+		if st.Kind != KindTransaction || st.Tx == nil || !reflect.DeepEqual(*st.Tx, want) {
+			t.Fatalf("%s: want %+v, got kind %d tx %+v", tc.query, want, st.Kind, st.Tx)
+		}
+		if _, e := tr.Translate(tc.query, ""); e == nil || e.Code != 1046 {
+			t.Errorf("%s without a database: %v, want 1046", tc.query, e)
 		}
 	}
 }
