@@ -85,6 +85,9 @@ const (
 	RetTimeOf
 	// RetStrToDate is STR_TO_DATE: DATETIME, DATE or TIME by its literal format.
 	RetStrToDate
+	// RetUnixTimestamp is UNIX_TIMESTAMP: BIGINT, or DECIMAL when its argument has
+	// fractional seconds.
+	RetUnixTimestamp
 )
 
 // Expr is the typed shape of an expression, built by the dialect next to the SQLite
@@ -250,6 +253,8 @@ func (s scope) infer(x *Expr, clause string) (ColumnDef, *errs.Error) {
 			return dateAddResult(x, args)
 		case RetTimeOf:
 			return timeOfResult(x, args)
+		case RetUnixTimestamp:
+			return unixTimestampResult(x, args)
 		case RetStrToDate:
 			return strToDateResult(x)
 		case RetFromUnixtime:

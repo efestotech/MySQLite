@@ -150,6 +150,31 @@ func timeOfResult(x *Expr, args []ColumnDef) (ColumnDef, *errs.Error) {
 	return temporalDef(RetTime, fsp)
 }
 
+// unixTimestampResult is UNIX_TIMESTAMP's type: the argument's fractional digits (a
+// literal's as written) make it DECIMAL(11 + fsp, fsp), else it is BIGINT.
+func unixTimestampResult(x *Expr, args []ColumnDef) (ColumnDef, *errs.Error) {
+	fsp := 0
+	if len(args) > 0 {
+		switch a := args[0]; {
+		case a.Type == TypeDatetime || a.Type == TypeTimestamp || a.Type == TypeTime:
+			fsp = int(a.Decimals)
+		case x.Args[0].Kind == ExprLiteral && x.Args[0].Literal != nil && IsString(a):
+			_, frac, _ := strings.Cut(x.Args[0].Literal.Text, ".")
+			fsp = min(len(frac), 6)
+		}
+	}
+	d, e := funcResult(RetInt, args)
+	if fsp > 0 {
+		d = numeric(TypeNewDecimal)
+		d.Decimals = uint8(fsp)
+		d.Length = uint32(decimalLength(11+fsp, fsp, false))
+	}
+	if x.NotNull {
+		d.Flags |= FlagNotNull
+	}
+	return d, e
+}
+
 // IsTimestamp reports whether column is a TIMESTAMP column of t (ADR 0007).
 func (t *Table) IsTimestamp(column string) bool {
 	c, ok := t.column(column)

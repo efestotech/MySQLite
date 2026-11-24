@@ -234,7 +234,7 @@ var table = map[string]Func{
 	"UTC_TIMESTAMP":     clock(SessionUTCNow, meta.RetDatetime, true),
 	"UTC_DATE":          clock(SessionUTCDate, meta.RetDate, false),
 	"UTC_TIME":          clock(SessionUTCTime, meta.RetTime, true),
-	"UNIX_TIMESTAMP":    {MaxArgs: 1, Emit: Session, Session: SessionUnixTimestamp, Ret: meta.RetInt, ArgUDF: UDFUnixTimestamp},
+	"UNIX_TIMESTAMP":    {MaxArgs: 1, Emit: Session, Session: SessionUnixTimestamp, Ret: meta.RetUnixTimestamp, ArgUDF: UDFUnixTimestamp},
 
 	// Dates. Invalid dates are NULL.
 	"YEAR":          part(UDFDatePart, "YEAR", meta.RetInt),

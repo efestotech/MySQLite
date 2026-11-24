@@ -85,3 +85,25 @@ func TestInfoSchemaColumnNames(t *testing.T) {
 		t.Errorf("names %s", got)
 	}
 }
+
+// UNIX_TIMESTAMP of a value with fractional seconds is a DECIMAL with that many digits;
+// without them it stays BIGINT (MySQL 8.0.46, oracle probes o.70.1 and o.70.2).
+func TestUnixTimestampFraction(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "SET time_zone = '+00:00'")
+	for _, c := range []struct {
+		sql, want string
+		typ       byte
+		decimals  byte
+	}{
+		{"SELECT UNIX_TIMESTAMP('2020-01-01 00:00:00.5')", "1577836800.5", mysql.MYSQL_TYPE_NEWDECIMAL, 1},
+		{"SELECT UNIX_TIMESTAMP('2020-01-01 00:00:00.250')", "1577836800.250", mysql.MYSQL_TYPE_NEWDECIMAL, 3},
+		{"SELECT UNIX_TIMESTAMP('2020-01-01 00:00:00')", "1577836800", mysql.MYSQL_TYPE_LONGLONG, 0},
+	} {
+		res := execOK(t, conn, c.sql)
+		f := res.Fields[0]
+		if got := rowsOf(t, res); got != c.want || f.Type != c.typ || f.Decimal != c.decimals {
+			t.Errorf("%s: %q type %d decimals %d, want %q type %d decimals %d", c.sql, got, f.Type, f.Decimal, c.want, c.typ, c.decimals)
+		}
+	}
+}

@@ -203,7 +203,7 @@ func dateDiff(args []any) (any, error) {
 }
 
 // unixTimestamp(v, zone) is UNIX_TIMESTAMP(v): v read in the session zone. A fraction
-// is dropped (MySQL returns a DECIMAL then; discrepancies).
+// gives fractional seconds, which the DECIMAL result metadata scales.
 func unixTimestamp(args []any) (any, error) {
 	t, ok := parseTemporal(args[0], false)
 	if !ok {
@@ -217,6 +217,9 @@ func unixTimestamp(args []any) (any, error) {
 	u := time.Date(t.year, time.Month(t.month), t.day, t.hour, t.minute, t.second, 0, loc).Unix()
 	if u < 0 {
 		return int64(0), nil
+	}
+	if t.micro != 0 {
+		return float64(u) + float64(t.micro)/1e6, nil
 	}
 	return u, nil
 }
