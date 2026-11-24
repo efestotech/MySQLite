@@ -18,10 +18,24 @@ func (t *Translator) Next(q string) (first, rest string, more bool) {
 			if !cut {
 				return piece, "", false
 			}
-			return piece, after, !blank(after)
+			return piece, after, !t.onlyEmpty(after)
 		}
 		if !blank(after) {
 			return q[len(piece):], "", false
+		}
+		q = after
+	}
+}
+
+// onlyEmpty reports text that holds only empty statements: whitespace, comments and ';'.
+func (t *Translator) onlyEmpty(q string) bool {
+	for {
+		piece, after, cut := t.cut(q)
+		if !blank(piece) {
+			return false
+		}
+		if !cut {
+			return true
 		}
 		q = after
 	}

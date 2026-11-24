@@ -64,3 +64,17 @@ func TestNext(t *testing.T) {
 		t.Fatalf("first %q rest %q more %v", first, rest, more)
 	}
 }
+
+// Empty statements at the end of the query are skipped: MySQL 8.0.46 runs "SELECT 6;;"
+// as one statement (oracle CLI run cli2), while ";; SELECT 5" is 1064.
+func TestNextTrailingEmpty(t *testing.T) {
+	tr := New(Config{ServerVersion: 80036})
+	for _, q := range []string{"SELECT 6;; ", "SELECT 6;;", "SELECT 6; ; /* c */ ;\n"} {
+		if first, _, more := tr.Next(q); first != "SELECT 6" || more {
+			t.Errorf("Next(%q): first %q more %v", q, first, more)
+		}
+	}
+	if _, _, more := tr.Next("SELECT 4;; SELECT 5"); !more {
+		t.Error("an empty statement before another must still run (1064)")
+	}
+}
