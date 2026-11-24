@@ -23,10 +23,17 @@ usage: scripts/dev.sh VERB
 EOF
 }
 
+# logdir creates the mysql-ref log directory writable for mysqld (uid 999). Once the
+# MySQL entrypoint has taken it over it is already writable, and not ours to chmod.
+logdir() {
+	mkdir -p "$1"
+	if [ -O "$1" ]; then chmod 0777 "$1"; fi
+}
+
 verb="${1:-}"
 case "$verb" in
 up)
-	mkdir -p "$root/logs/mysql-ref" && chmod 0777 "$root/logs/mysql-ref"
+	logdir "$root/logs/mysql-ref"
 	"${compose[@]}" up -d --build mysqlite mysql-ref
 	;;
 down) "${compose[@]}" --profile tools --profile clients down ;;
@@ -35,7 +42,7 @@ test) "${compose[@]}" run --rm dev sh -c 'go vet ./... && go test -race -count=1
 harness)
 	# mysqld runs as uid 999: a directory Docker creates for the bind mount is root's,
 	# and the general log (docs/07-testing.md section 7) would be turned off.
-	mkdir -p "$root/logs/mysql-ref" && chmod 0777 "$root/logs/mysql-ref"
+	logdir "$root/logs/mysql-ref"
 	"${compose[@]}" up -d --build mysqlite mysql-ref
 	"${compose[@]}" run --rm runner
 	;;
