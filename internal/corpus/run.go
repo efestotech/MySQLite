@@ -127,6 +127,8 @@ func runCase(ctx context.Context, t Target, c *Case) string {
 // execute prepares the case on t and runs its statement. problem is set when the case
 // could not run at all (setup, connection or session statement); otherwise res and err
 // are the statement's outcome.
+//
+//nolint:staticcheck // ST1008: err is the statement's outcome (data to compare), not a failure of execute; problem is.
 func execute(ctx context.Context, t Target, c *Case) (res *mysql.Result, err error, problem string) {
 	db, err := t.Prepare(ctx, c)
 	var my *mysql.MyError
@@ -188,7 +190,7 @@ func compare(e *Expect, res *mysql.Result, err error) string {
 		if res.Resultset == nil {
 			return "want a result set, got OK"
 		}
-		fields := res.Resultset.Fields
+		fields := res.Fields
 		if e.Columns != nil {
 			var names []string
 			for _, f := range fields {

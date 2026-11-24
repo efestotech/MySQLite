@@ -89,7 +89,12 @@ services:
   lint:
     <<: *dev
     profiles: [tools]
-    command: ["go", "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.1.6", "run", "./..."]
+    environment:
+      CGO_ENABLED: "1"
+      # git refuses VCS status for a checkout owned by another user (the container
+      # runs as root); the linter needs no VCS stamp.
+      GOFLAGS: -buildvcs=false
+    command: ["go", "run", "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0", "run", "./..."]
 
   # Client matrix (docs/00-brief.md section 5). Each runs its scenario once and exits.
   cli80:

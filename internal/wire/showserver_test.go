@@ -61,7 +61,7 @@ func TestShowStatusAndProcessList(t *testing.T) {
 	if res.RowNumber() != 2 {
 		t.Fatalf("SHOW PROCESSLIST: %d rows", res.RowNumber())
 	}
-	var self, other int = -1, -1
+	self, other := -1, -1
 	for i := range res.RowNumber() {
 		if column(t, res, i, "Command") == "Query" {
 			self = i

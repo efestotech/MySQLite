@@ -84,9 +84,6 @@ func (e *emitter) alterTable(n *ast.AlterTableStmt) *Statement {
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Alter: a}
 }
 
-// reasonRebuild explains the forms the table rebuild does not cover.
-const reasonRebuild = "the table rebuild does not support it"
-
 func (e *emitter) alterSpec(s *ast.AlterTableSpec, db, table, tableCollation string, a *Alter) {
 	switch s.Tp {
 	case ast.AlterTableAlgorithm, ast.AlterTableLock:

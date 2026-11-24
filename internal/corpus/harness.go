@@ -153,7 +153,7 @@ func outcome(c *Case, res *mysql.Result, err error, problem string) Outcome {
 	// (utils.ByteSliceToString): the next packet read overwrites it.
 	o := Outcome{AffectedRows: res.AffectedRows, InsertID: res.InsertId, Info: strings.Clone(res.StatusMessage)}
 	if res.Resultset != nil {
-		for _, f := range res.Resultset.Fields {
+		for _, f := range res.Fields {
 			o.Columns = append(o.Columns, string(f.Name))
 			o.Types = append(o.Types, typeName(f.Type))
 		}

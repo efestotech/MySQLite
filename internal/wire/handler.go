@@ -351,7 +351,7 @@ func (h *handler) record(query, current string, st *dialect.Statement, res *mysq
 	if res != nil {
 		e.Affected = res.AffectedRows
 		if res.Resultset != nil {
-			e.Rows = uint64(len(res.Resultset.RowDatas))
+			e.Rows = uint64(len(res.RowDatas))
 		}
 	}
 	if err != nil {

@@ -159,7 +159,7 @@ func TestSelectWithoutFrom(t *testing.T) {
 	if err != nil {
 		t.Fatalf("select: %v", err)
 	}
-	if got, want := string(doubles.RowDatas[0]), "1e200.5"; got != want {
+	if got, want := string(doubles.RowDatas[0]), "\x041e20\x030.5"; got != want {
 		t.Errorf("want row % x, got % x", want, got)
 	}
 	names := []string{"2", "a", "1.5", "NULL", "-3"}

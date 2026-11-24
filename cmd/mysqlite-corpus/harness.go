@@ -89,10 +89,10 @@ func runHarness(ref, sut dsn, dir, milestone, jsonOut, golden string, stdout, st
 	}
 
 	for _, r := range rep.Results {
-		switch {
-		case r.Status == corpus.Failed || r.Status == corpus.Unsupported:
+		switch r.Status {
+		case corpus.Failed, corpus.Unsupported:
 			fmt.Fprintf(stdout, "%s %s (%s): %s\n", strings.ToUpper(string(r.Status)), r.ID, r.File, r.Detail)
-		case r.Status == corpus.Deviated:
+		case corpus.Deviated:
 			fmt.Fprintf(stdout, "DEVIATED %s: %s\n", r.ID, r.Deviation)
 		}
 		if r.Oracle != "" {

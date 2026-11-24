@@ -82,5 +82,5 @@ func (g *packetGuard) reject(seq byte) {
 	payload = append(payload, myErr.Message...)
 	packet := append([]byte{byte(len(payload)), byte(len(payload) >> 8), byte(len(payload) >> 16), seq}, payload...)
 	// Best effort: the connection is closed right after, whether the client reads it or not.
-	_, _ = g.Conn.Write(packet)
+	_, _ = g.Write(packet)
 }

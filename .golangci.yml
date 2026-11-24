@@ -1,0 +1,27 @@
+# golangci-lint v2 configuration (docs/07-testing.md section 8).
+version: "2"
+
+linters:
+  # The default set: errcheck, govet, ineffassign, staticcheck, unused.
+  exclusions:
+    presets:
+      # Unchecked Close, Flush and fmt.Fprint* errors. Every file mysqlite writes is
+      # written with a checked call (os.WriteFile, the engine's SQL), so these are
+      # reads, buffers and best-effort cleanup.
+      - std-error-handling
+    rules:
+      # requireMyError fails the test itself; it returns the *mysql.MyError only for
+      # the callers that inspect the message.
+      - path: _test\.go
+        linters: [errcheck]
+        source: '^\s*requireMyError\('
+  settings:
+    staticcheck:
+      # golangci-lint's default checks, without QF1001 (De Morgan's law): the
+      # rewritten conditions read worse than the originals.
+      checks: ["all", "-ST1000", "-ST1003", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-QF1001"]
+
+issues:
+  # Report every finding: the defaults stop at 3 identical and 50 per linter.
+  max-issues-per-linter: 0
+  max-same-issues: 0
