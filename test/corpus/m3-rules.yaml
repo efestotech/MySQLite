@@ -3,7 +3,7 @@
 # A positive case shows the rule translating a construct; a negative case shows where
 # the rule stops: the construct it leaves alone or the MySQL error it keeps.
 # internal/corpus TestRuleCoverage checks that every rule ID has both.
-# Expectations come from the MySQL 8.0 documentation (oracle: pending, ADR 0002).
+# Expectations come from the MySQL 8.0 documentation (checked against MySQL 8.0.46 on 2026-11-24, ADR 0002).
 
 fixtures:
   shop: &shop
@@ -14,7 +14,6 @@ cases:
   - id: rule.r001.001
     tags: [rule, R001, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items /*!50000 WHERE id = 2 */
     expect:
@@ -23,7 +22,6 @@ cases:
   - id: rule.r001.002
     tags: [rule, R001, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     # Above the server version (8.0.36): the content is a comment.
     sql: SELECT count(*) FROM items /*!90000 WHERE id = 2 */
@@ -33,7 +31,6 @@ cases:
   - id: rule.r002.001
     tags: [rule, R002, positive]
     milestone: m3
-    oracle: pending
     sql: SELECT 'it''s', 'a\tb'
     expect:
       rows: [["it's", "a\tb"]]
@@ -41,7 +38,6 @@ cases:
   - id: rule.r002.002
     tags: [rule, R002, negative]
     milestone: m3
-    oracle: pending
     session: ["SET sql_mode = 'NO_BACKSLASH_ESCAPES'"]
     # No unescaping under NO_BACKSLASH_ESCAPES: four characters.
     sql: SELECT 'a\tb', CHAR_LENGTH('a\tb')
@@ -51,7 +47,6 @@ cases:
   - id: rule.r003.001
     tags: [rule, R003, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items WHERE note <=> NULL
     expect:
@@ -60,7 +55,6 @@ cases:
   - id: rule.r003.002
     tags: [rule, R003, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items WHERE note = NULL
     expect:
@@ -69,7 +63,6 @@ cases:
   - id: rule.r004.001
     tags: [rule, R004, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT {{db}}.items.name FROM {{db}}.items WHERE id = 3
     expect:
@@ -78,7 +71,6 @@ cases:
   - id: rule.r004.002
     tags: [rule, R004, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM no_such_db.items
     # MySQL 8.0.46 reports the missing database (harness run of 2026-11-24).
@@ -88,7 +80,6 @@ cases:
   - id: rule.r005.001
     tags: [rule, R005, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT id FROM items ORDER BY id LIMIT 1, 18446744073709551615
     expect:
@@ -98,7 +89,6 @@ cases:
   - id: rule.r005.002
     tags: [rule, R005, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT id FROM items LIMIT -1
     expect:
@@ -107,7 +97,6 @@ cases:
   - id: rule.r006.001
     tags: [rule, R006, positive]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE log (id INT NOT NULL AUTO_INCREMENT PRIMARY KEY, msg VARCHAR(10) DEFAULT 'hi')
     sql: INSERT INTO log VALUES ()
@@ -118,7 +107,6 @@ cases:
   - id: rule.r006.002
     tags: [rule, R006, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     # name is NOT NULL without a default: strict mode refuses the empty row.
     sql: INSERT INTO items VALUES ()
@@ -128,7 +116,6 @@ cases:
   - id: rule.r007.001
     tags: [rule, R007, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: UPDATE items SET note = 'z' ORDER BY id DESC LIMIT 1
     expect:
@@ -138,7 +125,6 @@ cases:
   - id: rule.r007.002
     tags: [rule, R007, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     # UPDATE and DELETE take a row count, not an offset.
     sql: DELETE FROM items ORDER BY id LIMIT 1, 1
@@ -148,7 +134,6 @@ cases:
   - id: rule.r008.001
     tags: [rule, R008, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT /*+ NO_INDEX_MERGE(items) */ SQL_NO_CACHE name FROM items FORCE INDEX (PRIMARY) WHERE id = 1
     expect:
@@ -157,7 +142,6 @@ cases:
   - id: rule.r008.002
     tags: [rule, R008, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     # An index hint naming a missing index is an error, not a dropped hint.
     sql: SELECT name FROM items USE INDEX (no_such_key) WHERE id = 1
@@ -167,7 +151,6 @@ cases:
   - id: rule.r009.001
     tags: [rule, R009, positive]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE t (a TINYINT UNSIGNED, b VARCHAR(3))
     sql: INSERT INTO t VALUES (255, 'abc')
@@ -177,7 +160,6 @@ cases:
   - id: rule.r009.002
     tags: [rule, R009, negative]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE t (a TINYINT UNSIGNED, b VARCHAR(3))
     sql: INSERT INTO t VALUES (256, 'abc')
@@ -187,7 +169,6 @@ cases:
   - id: rule.r010.001
     tags: [rule, R010, positive]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE u (id INT, code VARCHAR(5), UNIQUE KEY uc (code))
       - INSERT INTO u VALUES (1, 'a')
@@ -198,7 +179,6 @@ cases:
   - id: rule.r010.002
     tags: [rule, R010, negative]
     milestone: m3
-    oracle: pending
     sql: CREATE TABLE v (a INT, b INT, KEY k (a), KEY k (b))
     expect:
       error: {code: 1061, sqlstate: "42000"}
@@ -206,7 +186,6 @@ cases:
   - id: rule.r011.001
     tags: [rule, R011, positive]
     milestone: m3
-    oracle: pending
     sql: SELECT DATABASE() = '{{db}}', SCHEMA() = '{{db}}'
     expect:
       rows: [["1", "1"]]
@@ -214,7 +193,6 @@ cases:
   - id: rule.r011.002
     tags: [rule, R011, negative]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (`database` VARCHAR(5))
       - INSERT INTO d VALUES ('col')
@@ -226,7 +204,6 @@ cases:
   - id: rule.r012.001
     tags: [rule, R012, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT CONCAT(name, '-', price), IFNULL(note, 'none'), UPPER(name) FROM items WHERE id = 1
     expect:
@@ -235,7 +212,6 @@ cases:
   - id: rule.r012.002
     tags: [rule, R012, negative]
     milestone: m3
-    oracle: pending
     # The function table checks the argument count.
     sql: SELECT UPPER('a', 'b')
     expect:
@@ -244,7 +220,6 @@ cases:
   - id: rule.r012.003
     tags: [rule, R012, negative]
     milestone: m3
-    oracle: pending
     sql: SELECT no_such_function(1)
     expect:
       error: {code: 1305, sqlstate: "42000"}
@@ -255,7 +230,6 @@ cases:
   - id: rule.r013.001
     tags: [rule, R013, positive]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items WHERE id = ANY (SELECT id FROM items WHERE price > 5)
     expect:
@@ -264,7 +238,6 @@ cases:
   - id: rule.r013.002
     tags: [rule, R013, negative]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT (SELECT id FROM items)
     expect:

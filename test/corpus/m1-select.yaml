@@ -1,5 +1,5 @@
 # Corpus subset m1: single-table SELECT and the lexical rules of docs/05-dialect.md
-# section 3. Expectations come from the MySQL 8.0 documentation (oracle: pending,
+# section 3. Expectations come from the MySQL 8.0 documentation (checked against MySQL 8.0.46 on 2026-11-24,
 # ADR 0002 addendum) until mysql-ref runs them.
 #
 # Fixtures are written in the SQL both engines accept (internal/corpus.SQLiteFixture).
@@ -13,7 +13,6 @@ cases:
   - id: crud.select.001
     tags: [crud, select, types]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT id, name FROM items ORDER BY id
     expect:
@@ -25,7 +24,6 @@ cases:
   - id: crud.select.002
     tags: [crud, select, types, decimal, date]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT price, added, note FROM items WHERE id = 1
     expect:
@@ -36,7 +34,6 @@ cases:
   - id: crud.select.003
     tags: [crud, select, null]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT name, price, added FROM items WHERE price IS NULL
     expect:
@@ -45,7 +42,6 @@ cases:
   - id: crud.select.004
     tags: [crud, select, star]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT * FROM items WHERE id = 2
     expect:
@@ -56,7 +52,6 @@ cases:
   - id: crud.select.005
     tags: [crud, select, alias]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT name AS n FROM items ORDER BY n
     expect:
@@ -67,7 +62,6 @@ cases:
   - id: crud.select.006
     tags: [crud, select, alias, error]
     milestone: m1
-    oracle: pending
     setup: *shop
     # A select alias is not visible in WHERE; SQLite would resolve it.
     sql: SELECT name AS n FROM items WHERE n = 'pen'
@@ -77,7 +71,6 @@ cases:
   - id: crud.select.007
     tags: [crud, select, scalar, types]
     milestone: m1
-    oracle: pending
     sql: SELECT 1
     expect:
       columns: ["1"]
@@ -87,7 +80,6 @@ cases:
   - id: crud.select.008
     tags: [crud, select, empty]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT id FROM items WHERE id > 100
     expect:
@@ -97,7 +89,6 @@ cases:
   - id: dialect.version-comment.001
     tags: [dialect, R001]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items /*!50000 WHERE id = 2 */
     expect:
@@ -106,7 +97,6 @@ cases:
   - id: dialect.version-comment.002
     tags: [dialect, R001]
     milestone: m1
-    oracle: pending
     setup: *shop
     # Above the server version (8.0.36): skipped.
     sql: SELECT name FROM items /*!99999 WHERE id = 2 */
@@ -116,7 +106,6 @@ cases:
   - id: dialect.string-literal.001
     tags: [dialect, R002, lexical]
     milestone: m1
-    oracle: pending
     sql: SELECT 'it''s'
     expect:
       rows: [["it's"]]
@@ -124,7 +113,6 @@ cases:
   - id: dialect.string-literal.002
     tags: [dialect, R002, lexical]
     milestone: m1
-    oracle: pending
     # MySQL unescapes backslash sequences; SQLite would keep both characters.
     sql: 'SELECT ''a\\b'', ''tab\there'''
     expect:
@@ -133,7 +121,6 @@ cases:
   - id: dialect.string-literal.003
     tags: [dialect, R002, lexical]
     milestone: m1
-    oracle: pending
     setup: *shop
     # Adjacent literals are one string.
     sql: SELECT id FROM items WHERE name = 'p' 'en'
@@ -143,7 +130,6 @@ cases:
   - id: dialect.null-safe-equal.001
     tags: [dialect, R003, null]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items WHERE note <=> NULL
     expect:
@@ -152,7 +138,6 @@ cases:
   - id: dialect.null-safe-equal.002
     tags: [dialect, R003, null]
     milestone: m1
-    oracle: pending
     setup: *shop
     # Without <=>, a comparison with NULL matches nothing.
     sql: SELECT name FROM items WHERE note = NULL
@@ -162,7 +147,6 @@ cases:
   - id: dialect.database-qualifier.001
     tags: [dialect, R004]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT `items`.`name` FROM {{db}}.items WHERE {{db}}.items.id = 1
     expect:
@@ -172,7 +156,6 @@ cases:
   - id: dialect.database-qualifier.002
     tags: [dialect, R004, write]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE {{db}}.items SET name = 'nib' WHERE id = 1
     expect:
@@ -181,7 +164,6 @@ cases:
   - id: dialect.limit-offset.001
     tags: [dialect, R005, limit]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT id FROM items ORDER BY id LIMIT 1, 1
     expect:
@@ -190,7 +172,6 @@ cases:
   - id: dialect.limit-offset.002
     tags: [dialect, R005, limit]
     milestone: m1
-    oracle: pending
     setup: *shop
     # The documented idiom for "all rows from an offset".
     sql: SELECT id FROM items ORDER BY id LIMIT 1, 18446744073709551615
@@ -201,7 +182,6 @@ cases:
   - id: dialect.limit-offset.003
     tags: [dialect, R005, limit]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT id FROM items ORDER BY id DESC LIMIT 2 OFFSET 1
     expect:
@@ -211,7 +191,6 @@ cases:
   - id: dialect.hint-strip.001
     tags: [dialect, R008]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT /*+ MAX_EXECUTION_TIME(1000) */ HIGH_PRIORITY name FROM items USE INDEX (PRIMARY) WHERE id = 1
     expect:

@@ -1,7 +1,7 @@
 # Corpus subset m3, traps: one case per trap of docs/05-dialect.md sections 3, 8, 9
 # and 10 (docs/07-testing.md section 5 item 3, M3 criterion 2). A case either passes or
 # carries a known_deviation that docs/agent-notes/discrepancies.md approves.
-# Expectations come from the MySQL 8.0 documentation (oracle: pending, ADR 0002).
+# Expectations come from the MySQL 8.0 documentation (checked against MySQL 8.0.46 on 2026-11-24, ADR 0002).
 
 fixtures:
   shop: &shop
@@ -16,7 +16,6 @@ cases:
   - id: trap.lexical.001
     tags: [trap, lexical, backslash]
     milestone: m3
-    oracle: pending
     sql: SELECT 'a\nb', 'c\\d', 'e\'f', CHAR_LENGTH('a\nb')
     expect:
       rows: [["a\nb", 'c\d', "e'f", "3"]]
@@ -24,7 +23,6 @@ cases:
   - id: trap.lexical.002
     tags: [trap, lexical, backslash, sql_mode]
     milestone: m3
-    oracle: pending
     session: ["SET sql_mode = 'NO_BACKSLASH_ESCAPES'"]
     sql: SELECT 'c\\d', CHAR_LENGTH('c\\d')
     expect:
@@ -33,7 +31,6 @@ cases:
   - id: trap.lexical.003
     tags: [trap, lexical, quotes]
     milestone: m3
-    oracle: pending
     setup: *shop
     # A double-quoted word is a string, even when a column has that name.
     sql: SELECT "name" FROM items WHERE id = 1
@@ -43,7 +40,6 @@ cases:
   - id: trap.lexical.004
     tags: [trap, lexical, quotes, sql_mode]
     milestone: m3
-    oracle: pending
     setup: *shop
     session: ["SET sql_mode = 'ANSI_QUOTES'"]
     sql: SELECT "name" FROM items WHERE id = 1
@@ -53,7 +49,6 @@ cases:
   - id: trap.lexical.005
     tags: [trap, lexical, quotes]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT `name` AS `the name` FROM `items` WHERE `id` = 2
     expect:
@@ -63,7 +58,6 @@ cases:
   - id: trap.lexical.006
     tags: [trap, lexical, operators]
     milestone: m3
-    oracle: pending
     sql: SELECT 0 || 1, 0 || 0, 'a' || 'b'
     expect:
       rows: [["1", "0", "0"]]
@@ -71,7 +65,6 @@ cases:
   - id: trap.lexical.007
     tags: [trap, lexical, operators, sql_mode]
     milestone: m3
-    oracle: pending
     session: ["SET sql_mode = 'PIPES_AS_CONCAT'"]
     sql: SELECT 'a' || 'b' || 1
     expect:
@@ -80,7 +73,6 @@ cases:
   - id: trap.lexical.008
     tags: [trap, lexical, literals]
     milestone: m3
-    oracle: pending
     sql: SELECT 'a' 'b' "c"
     expect:
       rows: [[abc]]
@@ -88,7 +80,6 @@ cases:
   - id: trap.lexical.009
     tags: [trap, lexical, literals, hex]
     milestone: m3
-    oracle: pending
     sql: SELECT 0x41, X'42', b'1000011'
     expect:
       rows: [[A, B, C]]
@@ -99,7 +90,6 @@ cases:
   - id: trap.lexical.010
     tags: [trap, lexical, literals, hex]
     milestone: m3
-    oracle: pending
     # In a numeric context a hexadecimal literal is a number.
     sql: SELECT 0x41 + 0, b'11' + 0
     expect:
@@ -111,7 +101,6 @@ cases:
   - id: trap.lexical.011
     tags: [trap, lexical, literals]
     milestone: m3
-    oracle: pending
     sql: SELECT _utf8mb4'x', N'y'
     expect:
       rows: [[x, y]]
@@ -119,7 +108,6 @@ cases:
   - id: trap.lexical.015
     tags: [trap, lexical, literals]
     milestone: m3
-    oracle: pending
     sql: SELECT _binary'z'
     expect:
       rows: [[z]]
@@ -130,7 +118,6 @@ cases:
   - id: trap.lexical.012
     tags: [trap, lexical, comments]
     milestone: m3
-    oracle: pending
     sql: "SELECT 1 /* inline */ + 1 # to the end of the line"
     expect:
       rows: [["2"]]
@@ -138,7 +125,6 @@ cases:
   - id: trap.lexical.013
     tags: [trap, lexical, comments]
     milestone: m3
-    oracle: pending
     # -- starts a comment only when a space follows: 1--1 is 1 - (-1).
     sql: SELECT 1--1, 1 -- 1
     expect:
@@ -147,7 +133,6 @@ cases:
   - id: trap.lexical.014
     tags: [trap, lexical, comments]
     milestone: m3
-    oracle: pending
     sql: SELECT 1 /*!40000 + 1 */ /*!90000 + 100 */
     expect:
       rows: [["2"]]
@@ -156,7 +141,6 @@ cases:
   - id: trap.collation.001
     tags: [trap, collation, general_ci]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT id FROM words WHERE g = 'CITTA' OR g = 'PERCHE' ORDER BY id
     expect:
@@ -166,7 +150,6 @@ cases:
   - id: trap.collation.002
     tags: [trap, collation, "0900"]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT id FROM words WHERE w = 'CITTA' OR w = 'Perche' ORDER BY id
     expect:
@@ -176,7 +159,6 @@ cases:
   - id: trap.collation.003
     tags: [trap, collation, bin]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT count(*) FROM words WHERE b = 'CITTA' OR b = 'citta' OR b = 'bar'
     expect:
@@ -185,7 +167,6 @@ cases:
   - id: trap.collation.004
     tags: [trap, collation, like]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT id FROM words WHERE g LIKE 'CITT_' OR w LIKE 'PERCH%' OR b LIKE 'bar' ORDER BY id
     expect:
@@ -195,7 +176,6 @@ cases:
   - id: trap.collation.005
     tags: [trap, collation, pad]
     milestone: m3
-    oracle: pending
     setup: *words
     # general_ci and utf8mb4_bin are PAD SPACE, utf8mb4_0900_ai_ci is NO PAD.
     sql: SELECT (SELECT count(*) FROM words WHERE g = 'Bar  '), (SELECT count(*) FROM words WHERE b = 'Bar '), (SELECT count(*) FROM words WHERE w = 'Bar ')
@@ -205,7 +185,6 @@ cases:
   - id: trap.collation.006
     tags: [trap, collation, order]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT g FROM words ORDER BY g
     expect:
@@ -215,7 +194,6 @@ cases:
   - id: trap.collation.007
     tags: [trap, collation, order, bin]
     milestone: m3
-    oracle: pending
     setup: *words
     sql: SELECT b FROM words ORDER BY b
     expect:
@@ -225,7 +203,6 @@ cases:
   - id: trap.collation.008
     tags: [trap, collation, unique, "0900"]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE cities (name VARCHAR(20) COLLATE utf8mb4_0900_ai_ci, UNIQUE KEY un (name))
       - INSERT INTO cities VALUES ('città')
@@ -237,7 +214,6 @@ cases:
   - id: trap.decimal.002
     tags: [trap, decimal]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT price * qty, price + 0.005 FROM items WHERE id = 1
     expect:
@@ -246,7 +222,6 @@ cases:
   - id: trap.decimal.003
     tags: [trap, decimal]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT SUM(price), AVG(price) FROM items
     expect:
@@ -255,7 +230,6 @@ cases:
   - id: trap.decimal.004
     tags: [trap, decimal]
     milestone: m3
-    oracle: pending
     # Exact in MySQL; REAL arithmetic in mysqlite (ADR 0006).
     sql: SELECT 0.1 + 0.2 = 0.3
     expect:
@@ -268,7 +242,6 @@ cases:
   - id: trap.zerodate.001
     tags: [trap, date, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (x DATE)
     # Strict mode with NO_ZERO_DATE (the default sql_mode) refuses the zero date.
@@ -279,7 +252,6 @@ cases:
   - id: trap.zerodate.002
     tags: [trap, date, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (x DATE)
     session: ["SET sql_mode = ''", "INSERT INTO d VALUES ('0000-00-00')"]
@@ -290,7 +262,6 @@ cases:
   - id: trap.divzero.001
     tags: [trap, division]
     milestone: m3
-    oracle: pending
     sql: SELECT 1 / 0, 1 DIV 0, 1 % 0
     expect:
       rows: [[null, null, null]]
@@ -298,7 +269,6 @@ cases:
   - id: trap.divzero.002
     tags: [trap, division, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE n (x DECIMAL(10,4))
     sql: INSERT INTO n VALUES (1 / 0)
@@ -308,7 +278,6 @@ cases:
   - id: trap.divzero.003
     tags: [trap, division, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE n (x DECIMAL(10,4))
     session: ["SET sql_mode = 'STRICT_TRANS_TABLES'"]
@@ -320,7 +289,6 @@ cases:
   - id: trap.groupby.001
     tags: [trap, group]
     milestone: m3
-    oracle: pending
     setup: *shop
     # No ORDER BY: the group order is not part of the result.
     sql: SELECT note, COUNT(*) FROM items GROUP BY note
@@ -330,7 +298,6 @@ cases:
   - id: trap.coercion.001
     tags: [trap, coercion]
     milestone: m3
-    oracle: pending
     sql: SELECT '10' = 10, '10.0' = 10, 'abc' = 0, '1abc' = 1, '' = 0
     expect:
       rows: [["1", "1", "1", "1", "1"]]
@@ -338,7 +305,6 @@ cases:
   - id: trap.coercion.002
     tags: [trap, coercion]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items WHERE qty = '3'
     expect:
@@ -347,7 +313,6 @@ cases:
   - id: trap.nullorder.001
     tags: [trap, null, order]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items ORDER BY price
     expect:
@@ -357,7 +322,6 @@ cases:
   - id: trap.nullorder.002
     tags: [trap, null, order]
     milestone: m3
-    oracle: pending
     setup: *shop
     sql: SELECT name FROM items ORDER BY price DESC
     expect:
@@ -367,7 +331,6 @@ cases:
   - id: trap.boolean.001
     tags: [trap, boolean]
     milestone: m3
-    oracle: pending
     sql: SELECT TRUE, FALSE, 2 IS TRUE, 0 IS FALSE, NULL IS TRUE, NULL IS NOT FALSE, TRUE + TRUE
     expect:
       rows: [["1", "0", "1", "1", "0", "1", "2"]]
@@ -375,7 +338,6 @@ cases:
   - id: trap.overflow.001
     tags: [trap, overflow, sum]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE big (x BIGINT)
       - INSERT INTO big VALUES (9223372036854775807), (1)
@@ -390,7 +352,6 @@ cases:
   - id: trap.overflow.002
     tags: [trap, overflow, unsigned]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE ub (x BIGINT UNSIGNED)
       - INSERT INTO ub VALUES (18446744073709551615)
@@ -404,7 +365,6 @@ cases:
   - id: trap.overflow.003
     tags: [trap, overflow, unsigned]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE ub (x BIGINT UNSIGNED)
       - INSERT INTO ub VALUES (18446744073709551615)
@@ -418,7 +378,6 @@ cases:
   - id: trap.overflow.004
     tags: [trap, overflow]
     milestone: m3
-    oracle: pending
     sql: SELECT 9223372036854775807 + 1
     expect:
       error: {code: 1690, sqlstate: "22003"}
@@ -426,7 +385,6 @@ cases:
   - id: trap.coercion.003
     tags: [trap, coercion]
     milestone: m3
-    oracle: pending
     setup: *shop
     # A text column compared with a number compares as doubles: 'pen' is 0.
     sql: SELECT count(*) FROM items WHERE name = 0
@@ -436,7 +394,6 @@ cases:
   - id: trap.zerodate.003
     tags: [trap, date, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (x DATE, y DATETIME)
     sql: INSERT INTO d VALUES ('2024-02-30', NULL)
@@ -446,7 +403,6 @@ cases:
   - id: trap.zerodate.004
     tags: [trap, date, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (x DATE, y DATETIME)
     sql: INSERT INTO d VALUES ('2024-02-29', '2024-05-00 10:00:00')
@@ -456,7 +412,6 @@ cases:
   - id: trap.zerodate.005
     tags: [trap, date, sql_mode]
     milestone: m3
-    oracle: pending
     setup:
       - CREATE TABLE d (x DATE, y DATETIME)
     sql: INSERT INTO d VALUES ('2024-02-29', '2024-05-31 23:59:59.5')

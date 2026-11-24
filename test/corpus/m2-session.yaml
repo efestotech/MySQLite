@@ -1,7 +1,7 @@
 # Corpus subset m2: session variables, diagnostics, server SHOW and CREATE TABLE
 # (docs/08-milestones.md M2, docs/04-session-catalog.md sections 1 and 4,
 # docs/05-dialect.md section 7). Fixtures run through the MySQL protocol.
-# oracle: pending (ADR 0002 addendum).
+# checked against MySQL 8.0.46 on 2026-11-24 (ADR 0002 addendum).
 
 fixtures:
   shop: &shop
@@ -11,7 +11,6 @@ cases:
   - id: session.set.001
     tags: [set, variables]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SET autocommit = 0"]
     sql: SELECT @@autocommit, @@session.autocommit, @@global.autocommit
@@ -21,7 +20,6 @@ cases:
   - id: session.set.002
     tags: [set, errors, "1193"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SET no_such_variable = 1
     expect:
@@ -30,7 +28,6 @@ cases:
   - id: session.set.003
     tags: [set, errors, "1238"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SET version = 'x'
     expect:
@@ -39,7 +36,6 @@ cases:
   - id: session.set.004
     tags: [set, errors, "1231"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SET sql_mode = 'NO_SUCH_MODE'
     expect:
@@ -48,7 +44,6 @@ cases:
   - id: session.set.005
     tags: [set, sql_mode]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SET sql_mode = 'ansi_quotes,strict_trans_tables'"]
     sql: SELECT @@sql_mode
@@ -58,7 +53,6 @@ cases:
   - id: session.set.006
     tags: [set, names]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SET NAMES utf8mb4 COLLATE utf8mb4_bin"]
     sql: SELECT @@character_set_client, @@character_set_results, @@collation_connection
@@ -68,7 +62,6 @@ cases:
   - id: session.warnings.001
     tags: [warnings, "1292"]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SET wait_timeout = 0"]
     sql: SHOW WARNINGS
@@ -83,7 +76,6 @@ cases:
   - id: session.warnings.002
     tags: [warnings, errors]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SELECT 1"]
     sql: SHOW COUNT(*) WARNINGS
@@ -94,7 +86,6 @@ cases:
   - id: session.warnings.003
     tags: [warnings, errors]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW ERRORS
     expect:
@@ -103,7 +94,6 @@ cases:
   - id: session.show-variables.001
     tags: [show, variables]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW VARIABLES LIKE 'auto\_increment\_%'
     expect:
@@ -114,7 +104,6 @@ cases:
   - id: session.show-variables.002
     tags: [show, variables, where]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["SET autocommit = 0"]
     sql: SHOW SESSION VARIABLES WHERE Variable_name = 'autocommit'
@@ -124,7 +113,6 @@ cases:
   - id: session.show-collation.001
     tags: [show, collation]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW COLLATION WHERE Collation IN ('utf8mb4_bin', 'utf8mb4_general_ci')
     expect:
@@ -139,7 +127,6 @@ cases:
   - id: session.show-charset.001
     tags: [show, charset]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW CHARACTER SET WHERE Charset = 'utf8mb3'
     expect:
@@ -149,7 +136,6 @@ cases:
   - id: ddl.create-table.001
     tags: [ddl, defaults]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["INSERT INTO items (name) VALUES ('a')"]
     sql: SELECT id, name, qty FROM items
@@ -159,7 +145,6 @@ cases:
   - id: ddl.create-table.002
     tags: [ddl, errors, "1050"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: CREATE TABLE items (a INT)
     expect:
@@ -168,7 +153,6 @@ cases:
   - id: ddl.create-table.003
     tags: [ddl, errors, "1075"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: CREATE TABLE t (a INT AUTO_INCREMENT)
     expect:
@@ -177,7 +161,6 @@ cases:
   - id: ddl.create-table.004
     tags: [ddl, errors, "1067"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: CREATE TABLE t (a TINYINT DEFAULT 300)
     expect:
@@ -186,7 +169,6 @@ cases:
   - id: ddl.create-table.005
     tags: [ddl, errors, "1406"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name) VALUES ('toolong')
     expect:
@@ -195,7 +177,6 @@ cases:
   - id: ddl.create-table.006
     tags: [ddl, errors, "1264"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name, qty) VALUES ('a', 1), ('b', -129)
     expect:
@@ -204,7 +185,6 @@ cases:
   - id: ddl.create-table.007
     tags: [ddl, if-not-exists]
     milestone: m2
-    oracle: pending
     setup: *shop
     session: ["CREATE TABLE IF NOT EXISTS items (a INT)"]
     sql: SHOW WARNINGS

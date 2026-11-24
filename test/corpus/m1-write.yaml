@@ -1,5 +1,5 @@
 # Corpus subset m1: INSERT, UPDATE and DELETE with MySQL's affected rows, insert id and
-# info string (docs/05-dialect.md section 6). oracle: pending (ADR 0002 addendum).
+# info string (docs/05-dialect.md section 6). checked against MySQL 8.0.46 on 2026-11-24 (ADR 0002 addendum).
 
 fixtures:
   shop: &shop
@@ -10,7 +10,6 @@ cases:
   - id: crud.insert.001
     tags: [crud, insert, insert-id]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name) VALUES ('nib')
     expect:
@@ -21,7 +20,6 @@ cases:
   - id: crud.insert.002
     tags: [crud, insert, insert-id, multi-row]
     milestone: m1
-    oracle: pending
     setup: *shop
     # The insert id of a multi-row INSERT is the first generated value.
     sql: INSERT INTO items (name) VALUES ('a'), ('b'), ('c')
@@ -33,7 +31,6 @@ cases:
   - id: crud.insert.003
     tags: [crud, insert, insert-id]
     milestone: m1
-    oracle: pending
     setup: *shop
     # Nothing generated: the explicit value is reported.
     sql: INSERT INTO items (id, name) VALUES (10, 'z')
@@ -44,7 +41,6 @@ cases:
   - id: crud.insert.004
     tags: [crud, insert, insert-id]
     milestone: m1
-    oracle: pending
     setup: *shop
     # Generated values continue after the highest id.
     session: ["INSERT INTO items (id, name) VALUES (10, 'z')"]
@@ -56,7 +52,6 @@ cases:
   - id: crud.insert.005
     tags: [crud, insert]
     milestone: m1
-    oracle: pending
     setup: *shop
     session: ["INSERT INTO items (name, price, added) VALUES ('nib', 2.25, '2024-03-04')"]
     sql: SELECT id, name, price, added, note FROM items WHERE name = 'nib'
@@ -66,7 +61,6 @@ cases:
   - id: dialect.insert-default-values.001
     tags: [dialect, R006, insert]
     milestone: m1
-    oracle: pending
     setup:
       - CREATE TABLE d (id INTEGER PRIMARY KEY AUTO_INCREMENT, note TEXT)
     sql: INSERT INTO d VALUES ()
@@ -77,7 +71,6 @@ cases:
   - id: crud.update.001
     tags: [crud, update, affected-rows]
     milestone: m1
-    oracle: pending
     setup: *shop
     # ink already has 'x': three rows match, two change.
     sql: UPDATE items SET note = 'x'
@@ -88,7 +81,6 @@ cases:
   - id: crud.update.002
     tags: [crud, update, affected-rows, found-rows]
     milestone: m1
-    oracle: pending
     setup: *shop
     found_rows: true
     sql: UPDATE items SET note = 'x'
@@ -99,7 +91,6 @@ cases:
   - id: crud.update.003
     tags: [crud, update, affected-rows]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE items SET name = 'none' WHERE id = 42
     expect:
@@ -109,7 +100,6 @@ cases:
   - id: crud.update.004
     tags: [crud, update, affected-rows, collation]
     milestone: m1
-    oracle: pending
     setup: *shop
     # A case-only change is a change: MySQL compares the stored bytes.
     sql: UPDATE items SET name = 'PEN' WHERE id = 1
@@ -120,7 +110,6 @@ cases:
   - id: dialect.update-delete-limit.001
     tags: [dialect, R007, update]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE items SET note = 'z' ORDER BY id DESC LIMIT 1
     expect:
@@ -130,7 +119,6 @@ cases:
   - id: dialect.update-delete-limit.002
     tags: [dialect, R007, update]
     milestone: m1
-    oracle: pending
     setup: *shop
     session: ["UPDATE items SET note = 'z' ORDER BY id DESC LIMIT 1"]
     sql: SELECT id, note FROM items ORDER BY id
@@ -141,7 +129,6 @@ cases:
   - id: dialect.update-delete-limit.003
     tags: [dialect, R007, delete]
     milestone: m1
-    oracle: pending
     setup: *shop
     session: ["DELETE FROM items ORDER BY id LIMIT 2"]
     sql: SELECT id FROM items
@@ -151,7 +138,6 @@ cases:
   - id: crud.delete.001
     tags: [crud, delete, affected-rows]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: DELETE FROM items WHERE price > 5
     expect:
@@ -160,7 +146,6 @@ cases:
   - id: crud.delete.002
     tags: [crud, delete, affected-rows]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: DELETE FROM items
     expect:

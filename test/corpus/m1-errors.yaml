@@ -1,5 +1,5 @@
 # Corpus subset m1: MySQL errors (docs/08-milestones.md M1 criterion 2,
-# docs/09-conventions.md section 4). oracle: pending (ADR 0002 addendum).
+# docs/09-conventions.md section 4). checked against MySQL 8.0.46 on 2026-11-24 (ADR 0002 addendum).
 
 fixtures:
   shop: &shop
@@ -12,7 +12,6 @@ cases:
   - id: errors.duplicate-key.001
     tags: [errors, "1062"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (id, name) VALUES (1, 'dup')
     expect:
@@ -21,7 +20,6 @@ cases:
   - id: errors.duplicate-key.002
     tags: [errors, "1062", unique]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO tags (code) VALUES ('c'), ('a')
     expect:
@@ -30,7 +28,6 @@ cases:
   - id: errors.duplicate-key.003
     tags: [errors, "1062", unique, update]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE tags SET code = 'a' WHERE code = 'b'
     expect:
@@ -39,7 +36,6 @@ cases:
   - id: errors.no-such-table.001
     tags: [errors, "1146"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT * FROM missing
     expect:
@@ -48,7 +44,6 @@ cases:
   - id: errors.no-such-table.002
     tags: [errors, "1146", write]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: DELETE FROM missing
     expect:
@@ -57,7 +52,6 @@ cases:
   - id: errors.unknown-column.001
     tags: [errors, "1054"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: SELECT nope FROM items
     expect:
@@ -66,7 +60,6 @@ cases:
   - id: errors.unknown-column.002
     tags: [errors, "1054", insert]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (nope) VALUES (1)
     expect:
@@ -75,7 +68,6 @@ cases:
   - id: errors.unknown-column.003
     tags: [errors, "1054", update]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE items SET name = 'x' WHERE nope = 1
     expect:
@@ -84,7 +76,6 @@ cases:
   - id: errors.unknown-database.001
     tags: [errors, "1049"]
     milestone: m1
-    oracle: pending
     sql: USE nodb
     expect:
       error: {code: 1049, sqlstate: "42000"}
@@ -92,7 +83,6 @@ cases:
   - id: errors.bad-null.001
     tags: [errors, "1048"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name) VALUES (NULL)
     expect:
@@ -101,7 +91,6 @@ cases:
   - id: errors.bad-null.002
     tags: [errors, "1048", update]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: UPDATE items SET name = NULL WHERE id = 1
     expect:
@@ -110,7 +99,6 @@ cases:
   - id: errors.no-default.001
     tags: [errors, "1364", strict]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (note) VALUES ('x')
     expect:
@@ -119,7 +107,6 @@ cases:
   - id: errors.column-count.001
     tags: [errors, "1136"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name, note) VALUES ('a')
     expect:
@@ -128,7 +115,6 @@ cases:
   - id: errors.field-twice.001
     tags: [errors, "1110"]
     milestone: m1
-    oracle: pending
     setup: *shop
     sql: INSERT INTO items (name, name) VALUES ('a', 'b')
     expect:
@@ -137,7 +123,6 @@ cases:
   - id: errors.parse.001
     tags: [errors, "1064"]
     milestone: m1
-    oracle: pending
     sql: SELEC 1
     expect:
       error: {code: 1064, sqlstate: "42000"}

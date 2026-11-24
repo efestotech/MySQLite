@@ -1,6 +1,6 @@
 # Corpus subset m2: catalog SHOW, DESCRIBE and information_schema
 # (docs/08-milestones.md M2, docs/04-session-catalog.md sections 4 and 5).
-# Fixtures run through the MySQL protocol. oracle: pending (ADR 0002 addendum).
+# Fixtures run through the MySQL protocol. checked against MySQL 8.0.46 on 2026-11-24 (ADR 0002 addendum).
 #
 # The fixture names its collation, so a stock MySQL 8.0 (default utf8mb4_0900_ai_ci)
 # prints the same DDL as mysqlite (default utf8mb4_general_ci).
@@ -19,7 +19,6 @@ cases:
   - id: catalog.show-tables.001
     tags: [show]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW TABLES
     expect:
@@ -29,7 +28,6 @@ cases:
   - id: catalog.show-tables.002
     tags: [show, full, like]
     milestone: m2
-    oracle: pending
     setup: *shop
     # Table names are case sensitive (MySQL on Linux): no match.
     sql: SHOW FULL TABLES LIKE 'IT%'
@@ -39,7 +37,6 @@ cases:
   - id: catalog.show-tables.003
     tags: [show, where]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW FULL TABLES FROM {{db}} WHERE Table_type = 'BASE TABLE' AND `Tables_in_{{db}}` <> 'items'
     expect:
@@ -48,7 +45,6 @@ cases:
   - id: catalog.show-tables.004
     tags: [show, errors, "1049"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW TABLES FROM missing_db
     expect:
@@ -57,7 +53,6 @@ cases:
   - id: catalog.show-columns.001
     tags: [show, columns]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW COLUMNS FROM items
     expect:
@@ -74,7 +69,6 @@ cases:
   - id: catalog.show-columns.002
     tags: [show, columns, full]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW FULL COLUMNS FROM tags
     expect:
@@ -87,7 +81,6 @@ cases:
   - id: catalog.describe.001
     tags: [describe]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: DESCRIBE items qty
     expect:
@@ -96,7 +89,6 @@ cases:
   - id: catalog.describe.002
     tags: [describe, where]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW COLUMNS FROM items WHERE `Key` IN ('PRI', 'UNI')
     expect:
@@ -105,7 +97,6 @@ cases:
   - id: catalog.describe.003
     tags: [describe, errors, "1146"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: DESCRIBE missing
     expect:
@@ -114,7 +105,6 @@ cases:
   - id: catalog.show-create-table.001
     tags: [show, ddl, round-trip]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW CREATE TABLE items
     expect:
@@ -136,7 +126,6 @@ cases:
   - id: catalog.show-create-table.002
     tags: [show, ddl, collation]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW CREATE TABLE tags
     expect:
@@ -152,7 +141,6 @@ cases:
   - id: catalog.show-index.001
     tags: [show, index]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW INDEX FROM items
     expect:
@@ -168,7 +156,6 @@ cases:
   - id: catalog.show-table-status.001
     tags: [show, status]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW TABLE STATUS WHERE Name = 'items'
     expect:
@@ -183,7 +170,6 @@ cases:
   - id: catalog.show-databases.001
     tags: [show]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SHOW DATABASES LIKE 'information\_schema'
     expect:
@@ -193,7 +179,6 @@ cases:
   - id: infoschema.tables.001
     tags: [information_schema]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_COLLATION, TABLE_COMMENT FROM information_schema.TABLES WHERE TABLE_SCHEMA = '{{db}}' ORDER BY TABLE_NAME
     expect:
@@ -205,7 +190,6 @@ cases:
   - id: infoschema.columns.001
     tags: [information_schema]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: >-
       SELECT COLUMN_NAME, ORDINAL_POSITION, COLUMN_DEFAULT, IS_NULLABLE, DATA_TYPE,
@@ -224,7 +208,6 @@ cases:
   - id: infoschema.statistics.001
     tags: [information_schema]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SELECT INDEX_NAME, NON_UNIQUE, SEQ_IN_INDEX, COLUMN_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = '{{db}}' AND TABLE_NAME = 'items' ORDER BY INDEX_NAME
     expect:
@@ -234,7 +217,6 @@ cases:
   - id: infoschema.key-column-usage.001
     tags: [information_schema]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SELECT CONSTRAINT_NAME, COLUMN_NAME, ORDINAL_POSITION FROM information_schema.KEY_COLUMN_USAGE WHERE TABLE_SCHEMA = '{{db}}' AND TABLE_NAME = 'items' ORDER BY CONSTRAINT_NAME
     expect:
@@ -244,7 +226,6 @@ cases:
   - id: infoschema.empty.001
     tags: [information_schema]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SELECT TRIGGER_NAME FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA = '{{db}}'
     expect:
@@ -253,7 +234,6 @@ cases:
   - id: infoschema.errors.001
     tags: [information_schema, errors, "1109"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: SELECT * FROM information_schema.NO_SUCH_TABLE
     expect:
@@ -262,7 +242,6 @@ cases:
   - id: infoschema.errors.002
     tags: [information_schema, errors, "1044"]
     milestone: m2
-    oracle: pending
     setup: *shop
     sql: DELETE FROM information_schema.TABLES
     expect:
