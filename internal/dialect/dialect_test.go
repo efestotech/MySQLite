@@ -356,7 +356,7 @@ func TestSelectShape(t *testing.T) {
 		{Star: true},
 		{Star: true, Qualifier: "x"},
 		{Column: "A", Name: "A"},
-		{Qualifier: "x", Column: "b", Name: "bee"},
+		{Qualifier: "x", Column: "b", Name: "bee", Aliased: true},
 		{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "1"}, Name: "1"},
 		{Literal: &meta.Literal{Kind: meta.LiteralInt, Text: "-12"}, Name: "-12"},
 		{Literal: &meta.Literal{Kind: meta.LiteralDecimal, Text: "2.50"}, Name: "2.50"},
@@ -546,7 +546,7 @@ func TestSystemVariables(t *testing.T) {
 	wantItems := []meta.Item{
 		{Var: &meta.Variable{Name: "version", Scope: vars.ReadDefault}, Name: "@@version"},
 		{Var: &meta.Variable{Name: "max_allowed_packet", Scope: vars.ReadGlobal}, Name: "@@GLOBAL.max_allowed_packet"},
-		{Var: &meta.Variable{Name: "sql_mode", Scope: vars.ReadSession}, Name: "m"},
+		{Var: &meta.Variable{Name: "sql_mode", Scope: vars.ReadSession}, Name: "m", Aliased: true},
 	}
 	if !reflect.DeepEqual(st.Shape.Items, wantItems) {
 		t.Fatalf("items: got %+v", st.Shape.Items)

@@ -139,6 +139,8 @@ type Item struct {
 	Expr *Expr
 	// Name is the result column name: the alias, else the item as MySQL names it.
 	Name string
+	// Aliased is set when Name is an alias (AS name).
+	Aliased bool
 }
 
 // Variable is a system variable in the select list.
@@ -234,7 +236,12 @@ func (s scope) columns(items []Item) ([]ColumnDef, *errs.Error) {
 			if e != nil {
 				return nil, e
 			}
-			defs = append(defs, src.column(c, it.Name))
+			name := it.Name
+			if !it.Aliased && src.Table != nil && strings.EqualFold(src.Table.Database, "information_schema") {
+				// A view column keeps its defined name (MySQL 8.0.46: TABLE_NAME).
+				name = c.Name
+			}
+			defs = append(defs, src.column(c, name))
 		}
 	}
 	return defs, nil

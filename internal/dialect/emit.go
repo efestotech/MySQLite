@@ -416,7 +416,7 @@ func (e *emitter) field(f *ast.SelectField) {
 	}
 	if f.AsName.O != "" {
 		e.write(" AS ", quoteIdent(f.AsName.O))
-		item.Name = f.AsName.O
+		item.Name, item.Aliased = f.AsName.O, true
 	}
 	e.shape.Items = append(e.shape.Items, item)
 }

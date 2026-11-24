@@ -71,3 +71,17 @@ func TestHaveQueryCache(t *testing.T) {
 		t.Errorf("got %q", got)
 	}
 }
+
+// An information_schema column is named as the view defines it, whatever case the
+// query wrote; an alias still wins (MySQL 8.0.46, oracle probe o.42.1).
+func TestInfoSchemaColumnNames(t *testing.T) {
+	conn := shopServer(t)
+	res := execOK(t, conn, "SELECT table_name, t.Table_Schema, table_rows AS n, 1 + 1 FROM information_schema.tables t WHERE table_schema = DATABASE() AND table_name = 'items'")
+	var names []string
+	for _, f := range res.Fields {
+		names = append(names, string(f.Name))
+	}
+	if got := strings.Join(names, ","); got != "TABLE_NAME,TABLE_SCHEMA,n,1 + 1" {
+		t.Errorf("names %s", got)
+	}
+}
