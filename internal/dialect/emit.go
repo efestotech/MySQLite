@@ -349,7 +349,7 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	if n.Where != nil {
 		e.write(" WHERE ")
 		e.clause = meta.ClauseWhere
-		e.expr(n.Where)
+		e.shape.Group.Conds = append(e.shape.Group.Conds, e.expr(n.Where))
 	}
 	e.clause = ""
 	if n.GroupBy != nil {

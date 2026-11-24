@@ -73,7 +73,11 @@ func (e *emitter) joinNode(n ast.ResultSetNode) {
 		case n.On != nil:
 			e.write(" ON ")
 			e.clause = meta.ClauseOn
-			e.expr(n.On.Expr)
+			on := e.expr(n.On.Expr)
+			if n.Tp != ast.LeftJoin && n.Tp != ast.RightJoin && !nullable(from.Sources[leftStart:]) {
+				// An outer join's ON does not make its columns dependent.
+				e.shape.Group.Conds = append(e.shape.Group.Conds, on)
+			}
 			e.clause = ""
 		case len(n.Using) > 0:
 			if n.Tp == ast.RightJoin {
@@ -168,4 +172,14 @@ func (e *emitter) derivedTable(ts *ast.TableSource) {
 	e.shape.From.Sources = append(e.shape.From.Sources, src)
 	e.write("(", text, ") AS ", quoteIdent(alias))
 	e.args = append(e.args, args...)
+}
+
+// nullable reports a source on the inner side of an outer join.
+func nullable(sources []meta.Source) bool {
+	for _, s := range sources {
+		if s.Nullable {
+			return true
+		}
+	}
+	return false
 }
