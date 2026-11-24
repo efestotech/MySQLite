@@ -1528,6 +1528,7 @@ func (e *emitter) onDuplicate(n *ast.InsertStmt) {
 	e.write(suffix)
 	e.args = append(e.args, suffixArgs...)
 	for i := range e.wr.RowSQL {
+		e.wr.UpsertBase = append(e.wr.UpsertBase, e.wr.RowSQL[i])
 		e.wr.UpdateSQL = append(e.wr.UpdateSQL, e.wr.RowSQL[i]+suffix)
 		e.wr.UpdateArgs = append(e.wr.UpdateArgs, append(append([]any(nil), e.wr.RowArgs[i]...), suffixArgs...))
 		e.wr.RowSQL[i] += " ON CONFLICT DO NOTHING"

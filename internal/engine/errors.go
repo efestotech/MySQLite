@@ -16,3 +16,10 @@ func ErrorCode(err error) (code int, message string, ok bool) {
 	}
 	return se.Code(), se.Error(), true
 }
+
+// IsUniqueConflict reports whether err is SQLite's PRIMARY KEY or UNIQUE constraint
+// failure (extended codes 1555 and 2067).
+func IsUniqueConflict(err error) bool {
+	code, _, ok := ErrorCode(err)
+	return ok && (code == 1555 || code == 2067)
+}

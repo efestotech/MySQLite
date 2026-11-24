@@ -167,6 +167,10 @@ type Write struct {
 	Upsert     bool
 	UpdateSQL  []string
 	UpdateArgs [][]any
+	// UpsertBase is each row's INSERT without its ON CONFLICT clause: UpdateSQL is
+	// UpsertBase + " ON CONFLICT DO UPDATE ...", so the executor can name the key whose
+	// conflicting row MySQL updates (PRIMARY, then unique keys in creation order).
+	UpsertBase []string
 	// UPDATE: the literal assigned to each column, by lower-case name (nil for an
 	// expression).
 	Set map[string]*meta.Literal

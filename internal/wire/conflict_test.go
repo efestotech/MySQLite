@@ -82,19 +82,20 @@ func TestOnDuplicateKeyUpdate(t *testing.T) {
 	conn := gadgetServer(t)
 	execOK(t, conn, "CREATE UNIQUE INDEX uq ON gadgets (name)")
 
-	// Each row that generates an id uses one, also when it updates instead (InnoDB).
+	// A row that generates an id and updates instead loses it (InnoDB), unless a later
+	// row of the same statement inserts: that row gets it (MySQL 8.0.46, probe o.80.2).
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'a') ON DUPLICATE KEY UPDATE note = 'b'", 2, 1, "")
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'a') ON DUPLICATE KEY UPDATE note = 'b'", 0, 0, "")
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('cup', 'c') ON DUPLICATE KEY UPDATE note = VALUES(note)", 1, 5, "")
-	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'x'), ('new', 'y') ON DUPLICATE KEY UPDATE note = VALUES(note)", 3, 7, "Records: 2  Duplicates: 1  Warnings: 0")
+	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'x'), ('new', 'y') ON DUPLICATE KEY UPDATE note = VALUES(note)", 3, 6, "Records: 2  Duplicates: 1  Warnings: 0")
 	requireOK(t, conn, "INSERT INTO gadgets (name) VALUES ('pen') ON DUPLICATE KEY UPDATE note = CONCAT(note, '+')", 2, 1, "")
-	if got := rowsOf(t, execOK(t, conn, "SELECT id, name, note FROM gadgets ORDER BY id")); got != "1,pen,x+;2,ink,NULL;5,cup,c;7,new,y" {
+	if got := rowsOf(t, execOK(t, conn, "SELECT id, name, note FROM gadgets ORDER BY id")); got != "1,pen,x+;2,ink,NULL;5,cup,c;6,new,y" {
 		t.Errorf("rows %q", got)
 	}
-	if res := execOK(t, conn, "INSERT INTO gadgets (name) VALUES ('next')"); res.InsertId != 9 {
-		t.Errorf("next id %d, want 9", res.InsertId)
+	if res := execOK(t, conn, "INSERT INTO gadgets (name) VALUES ('next')"); res.InsertId != 8 {
+		t.Errorf("next id %d, want 8", res.InsertId)
 	}
-	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "9" {
+	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "8" {
 		t.Errorf("LAST_INSERT_ID %s", got)
 	}
 

@@ -542,8 +542,9 @@ func (h *handler) replace(ctx context.Context, conn *sql.Conn, st *dialect.State
 // insertUpsert runs INSERT ... ON DUPLICATE KEY UPDATE one row at a time: the row is
 // inserted (1 affected row) or, when it conflicts, the existing row is updated (2) or
 // left as it is because the values do not change (0, or 1 with CLIENT_FOUND_ROWS). The
-// insert id is the first generated id; without one, the id of the last updated row
-// (`oracle: pending`). Any failure undoes the whole statement.
+// insert id is the first generated id; without one, the id of the last updated row.
+// A row conflicting with several rows updates the one MySQL finds first (uniqueKeys).
+// Checked against MySQL 8.0.46. Any failure undoes the whole statement.
 func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint, info meta.InsertInfo) (res *mysql.Result, err error) {
 	w := st.Write
 	from := meta.Single(table, "")
@@ -587,6 +588,7 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 	var updatedID int64
 	var affected uint64
 	duplicates := 0
+	lost := int64(-1) // the AUTO_INCREMENT counter before an id given to an updating row
 	for i := range w.RowSQL {
 		row := meta.InsertInfo{Auto: info.Auto, Values: info.Values[i : i+1]}
 		rowHint := hint
@@ -605,17 +607,36 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 			if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && v != nil && v.Kind != meta.LiteralNull && len(rowIDs) == 1 {
 				explicit = append(explicit, rowIDs[0])
 			}
+			if seq >= 0 {
+				lost = -1
+			}
 			continue
 		}
 		// The update's own conflicts name the key it hits with the assigned values.
 		updateHint := hint
 		updateHint.Entry = func(_ string, cols []string) string { return updateEntry(w.Set, cols) }
-		updated, rowIDs, err := run(w.UpdateSQL[i], w.UpdateArgs[i], updateHint)
+		updateSQL := w.UpdateSQL[i]
+		if keys := uniqueKeys(table); len(keys) > 1 {
+			key, err := conflictKey(ctx, conn, w.UpsertBase[i], w.RowArgs[i], keys)
+			if err != nil {
+				return nil, h.fail(err, rowHint)
+			}
+			updateSQL = w.UpsertBase[i] + " ON CONFLICT (" + identList(key) + ")" +
+				strings.TrimPrefix(updateSQL, w.UpsertBase[i]+" ON CONFLICT")
+		}
+		updated, rowIDs, err := run(updateSQL, w.UpdateArgs[i], updateHint)
 		if err != nil {
 			return nil, err
 		}
-		if err := loseID(ctx, conn, table, seq); err != nil {
-			return nil, h.fail(err, hint)
+		// The id this row was given goes to the next row of the statement that
+		// generates one; it is lost only when no such row follows (MySQL 8.0.46,
+		// oracle probe o.80.2).
+		if seq >= 0 {
+			// SQLite used up a value on each attempt: give them back.
+			if err := setSequence(ctx, conn, table, seq); err != nil {
+				return nil, h.fail(err, hint)
+			}
+			lost = seq
 		}
 		switch {
 		case updated:
@@ -630,6 +651,9 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 		}
 	}
 
+	if err := loseID(ctx, conn, table, lost); err != nil {
+		return nil, h.fail(err, hint)
+	}
 	res = &mysql.Result{AffectedRows: affected}
 	if id, generated := insertID(ids, explicit); generated {
 		res.InsertId = uint64(id)
@@ -670,22 +694,82 @@ func rowSequence(ctx context.Context, conn *sql.Conn, table *meta.Table, info me
 // id but was not inserted (INSERT IGNORE skipped it, ON DUPLICATE KEY UPDATE updated
 // another row). InnoDB allocates one id per such row of a simple INSERT and loses it
 // (innodb_autoinc_lock_mode 2, MySQL 8.0's default); SQLite either gives it back on
-// rollback or uses one per upsert attempt. `oracle: pending`.
+// rollback or uses one per upsert attempt. Checked for ON DUPLICATE KEY UPDATE against
+// MySQL 8.0.46; INSERT IGNORE with several rows is not checked yet.
 func loseID(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) error {
 	if seq < 0 {
 		return nil
 	}
-	r, err := conn.ExecContext(ctx, "UPDATE sqlite_sequence SET seq = ? WHERE name = ?", seq+1, table.Name)
+	return writeSequence(ctx, conn, table, "max(seq, ?)", seq+1)
+}
+
+// setSequence sets the AUTO_INCREMENT counter of table to seq.
+func setSequence(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) error {
+	return writeSequence(ctx, conn, table, "?", seq)
+}
+
+// writeSequence sets sqlite_sequence.seq of table to expr, where ? is v, creating the
+// row with v when the table has none.
+func writeSequence(ctx context.Context, conn *sql.Conn, table *meta.Table, expr string, v int64) error {
+	r, err := conn.ExecContext(ctx, "UPDATE sqlite_sequence SET seq = "+expr+" WHERE name = ?", v, table.Name)
 	if err == nil {
 		var n int64
 		if n, err = r.RowsAffected(); err == nil && n == 0 {
-			_, err = conn.ExecContext(ctx, "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", table.Name, seq+1)
+			_, err = conn.ExecContext(ctx, "INSERT INTO sqlite_sequence (name, seq) VALUES (?, ?)", table.Name, v)
 		}
 	}
 	if err != nil {
 		return fmt.Errorf("wire: AUTO_INCREMENT of %s: %w", table.Name, err)
 	}
 	return nil
+}
+
+// uniqueKeys lists the table's unique keys in the order MySQL looks for the row an ON
+// DUPLICATE KEY UPDATE row conflicts with: PRIMARY, then unique indexes in creation order.
+func uniqueKeys(table *meta.Table) [][]string {
+	var keys [][]string
+	if len(table.PrimaryKey) > 0 {
+		keys = append(keys, table.PrimaryKey)
+	}
+	for _, ix := range table.Indexes {
+		if ix.Unique {
+			keys = append(keys, ix.Columns)
+		}
+	}
+	return keys
+}
+
+// conflictKey returns the first of keys the row of insert conflicts with. The row is
+// known to conflict with some key; inserting it with ON CONFLICT (key) DO NOTHING
+// inserts nothing when that key conflicts and fails on another key's conflict.
+func conflictKey(ctx context.Context, conn *sql.Conn, insert string, args []any, keys [][]string) ([]string, error) {
+	for _, key := range keys {
+		r, err := conn.ExecContext(ctx, insert+" ON CONFLICT ("+identList(key)+") DO NOTHING", args...)
+		if err != nil {
+			if engine.IsUniqueConflict(err) {
+				continue
+			}
+			return nil, err
+		}
+		n, err := r.RowsAffected()
+		if err != nil {
+			return nil, err
+		}
+		if n != 0 {
+			return nil, fmt.Errorf("wire: ON DUPLICATE KEY UPDATE row inserted while looking for its conflict")
+		}
+		return key, nil
+	}
+	return nil, fmt.Errorf("wire: ON DUPLICATE KEY UPDATE row conflicts with no unique key")
+}
+
+// identList quotes and joins column names.
+func identList(cols []string) string {
+	q := make([]string, len(cols))
+	for i, c := range cols {
+		q[i] = ident(c)
+	}
+	return strings.Join(q, ", ")
 }
 
 // insertMode reads the sql_mode flags meta.CheckInsertMode needs.
