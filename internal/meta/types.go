@@ -4,6 +4,7 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // TypeInfo is the part of a column definition that follows from the declared type.
@@ -13,6 +14,24 @@ type TypeInfo struct {
 	Decimals uint8
 	Charset  uint16
 	Flags    uint16
+}
+
+// enumType describes an ENUM column as MySQL sends it: STRING with the ENUM flag, as
+// long as its longest member (in utf8mb4 bytes, scaled like VARCHAR). Only the
+// information_schema tables declare one: user tables refuse ENUM.
+func enumType(decl string) (TypeInfo, bool) {
+	d := strings.TrimSpace(decl)
+	if len(d) < 6 || !strings.EqualFold(d[:5], "enum(") || !strings.HasSuffix(d, ")") {
+		return TypeInfo{}, false
+	}
+	longest := 0
+	for _, m := range strings.Split(d[5:len(d)-1], ",") {
+		m = strings.Trim(strings.TrimSpace(m), "'")
+		if n := utf8.RuneCountInString(m); n > longest {
+			longest = n
+		}
+	}
+	return TypeInfo{Type: TypeString, Length: uint32(longest * 4), Charset: CollationDefault, Flags: FlagEnum}, true
 }
 
 // ParseType reads a MySQL column type such as "DECIMAL(10,2) UNSIGNED" or

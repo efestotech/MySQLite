@@ -55,6 +55,31 @@ func textCol(name string, chars int) meta.ColumnDef {
 	return meta.ColumnDef{Name: name, Charset: meta.CollationUTF8MB3, Type: meta.TypeVarString, Length: uint32(chars * 3)}
 }
 
+// enumCol is an ENUM column of the data dictionary: MySQL sends it as STRING with the
+// ENUM flag (Key, Table_type, Row_format).
+func enumCol(name string, chars int) meta.ColumnDef {
+	return meta.ColumnDef{Name: name, Charset: meta.CollationUTF8MB3, Type: meta.TypeString, Flags: meta.FlagEnum, Length: uint32(chars * 3)}
+}
+
+// blobCol is a TEXT column of the data dictionary (Type, Default, Comment): MySQL sends
+// it as BLOB in a text character set.
+func blobCol(name string) meta.ColumnDef {
+	return meta.ColumnDef{Name: name, Charset: meta.CollationUTF8MB3, Type: meta.TypeBlob, Flags: meta.FlagBlob, Length: 196605}
+}
+
+// timeCol is a TIMESTAMP or DATETIME column (the table status times).
+func timeCol(name string, typ uint8) meta.ColumnDef {
+	return meta.ColumnDef{Name: name, Charset: meta.CharsetBinary, Type: typ, Flags: meta.FlagBinary, Length: 19}
+}
+
+// longCol is an unsigned INT column (SHOW CHARACTER SET Maxlen).
+func longCol(name string) meta.ColumnDef {
+	return meta.ColumnDef{
+		Name: name, Charset: meta.CharsetBinary, Type: meta.TypeLong,
+		Flags: meta.FlagBinary | meta.FlagNum | meta.FlagUnsigned, Length: 10,
+	}
+}
+
 func numCol(name string) meta.ColumnDef {
 	return meta.ColumnDef{
 		Name: name, Charset: meta.CharsetBinary, Type: meta.TypeLongLong,
@@ -202,7 +227,7 @@ func showInfoSchema(s *dialect.Show) ([]meta.ColumnDef, [][]any, error) {
 func showTables(s *dialect.Show, tables []catalog.TableEntry) ([]meta.ColumnDef, [][]any, error) {
 	defs := []meta.ColumnDef{textCol(dialect.LikeColumn("Tables_in_"+s.Database, s.Like), 64)}
 	if s.Full {
-		defs = append(defs, textCol("Table_type", 64))
+		defs = append(defs, enumCol("Table_type", 11))
 	}
 	rows := make([][]any, len(tables))
 	for i, t := range tables {
@@ -219,13 +244,13 @@ func showTables(s *dialect.Show, tables []catalog.TableEntry) ([]meta.ColumnDef,
 }
 
 func showColumns(s *dialect.Show, t *meta.Table) ([]meta.ColumnDef, [][]any) {
-	defs := []meta.ColumnDef{textCol("Field", 64), textCol("Type", 64)}
+	defs := []meta.ColumnDef{textCol("Field", 64), blobCol("Type")}
 	if s.Full {
 		defs = append(defs, textCol("Collation", 64))
 	}
-	defs = append(defs, textCol("Null", 3), textCol("Key", 3), textCol("Default", 64), textCol("Extra", 256))
+	defs = append(defs, textCol("Null", 3), enumCol("Key", 3), blobCol("Default"), textCol("Extra", 256))
 	if s.Full {
-		defs = append(defs, textCol("Privileges", 80), textCol("Comment", 1024))
+		defs = append(defs, textCol("Privileges", 80), blobCol("Comment"))
 	}
 	var rows [][]any
 	for _, c := range t.Columns {
@@ -293,10 +318,10 @@ func showIndex(t *meta.Table) ([]meta.ColumnDef, [][]any) {
 
 func (h *handler) showTableStatus(ctx context.Context, conn *sql.Conn, s *dialect.Show, tables []catalog.TableEntry) ([]meta.ColumnDef, [][]any, error) {
 	defs := []meta.ColumnDef{
-		textCol("Name", 64), textCol("Engine", 64), numCol("Version"), textCol("Row_format", 10),
+		textCol("Name", 64), textCol("Engine", 64), numCol("Version"), enumCol("Row_format", 10),
 		numCol("Rows"), numCol("Avg_row_length"), numCol("Data_length"), numCol("Max_data_length"),
 		numCol("Index_length"), numCol("Data_free"), numCol("Auto_increment"),
-		textCol("Create_time", 19), textCol("Update_time", 19), textCol("Check_time", 19),
+		timeCol("Create_time", meta.TypeTimestamp), timeCol("Update_time", meta.TypeDatetime), timeCol("Check_time", meta.TypeDatetime),
 		textCol("Collation", 64), numCol("Checksum"), textCol("Create_options", 256), textCol("Comment", 2048),
 	}
 	var rows [][]any

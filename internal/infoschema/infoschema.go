@@ -77,7 +77,7 @@ func (t *table) meta() *meta.Table {
 
 func isText(typ string) bool {
 	t := strings.ToLower(typ)
-	return strings.HasPrefix(t, "varchar") || strings.HasPrefix(t, "char") || strings.HasSuffix(t, "text")
+	return strings.HasPrefix(t, "varchar") || strings.HasPrefix(t, "char") || strings.HasPrefix(t, "enum") || strings.HasSuffix(t, "text")
 }
 
 // sqliteType is the declared type of a column in the materialized table: text columns

@@ -12,7 +12,7 @@ import (
 	"mysqlite/internal/meta"
 )
 
-// Column types, as MySQL 8.0 declares them; enums are described as VARCHAR.
+// Column types, as MySQL 8.0 declares them (ENUM columns are sent as STRING).
 const (
 	name64  = "varchar(64)"
 	uint64T = "bigint unsigned"
@@ -34,7 +34,7 @@ func init() {
 		"DEFAULT_COLLATION_NAME", name64, "SQL_PATH", "varchar(512)", "DEFAULT_ENCRYPTION", "varchar(3)",
 	), rows: schemata})
 	define(&table{name: "TABLES", cols: cols(
-		"TABLE_CATALOG", name64, "TABLE_SCHEMA", name64, "TABLE_NAME", name64, "TABLE_TYPE", name64,
+		"TABLE_CATALOG", name64, "TABLE_SCHEMA", name64, "TABLE_NAME", name64, "TABLE_TYPE", "enum('BASE TABLE','VIEW','SYSTEM VIEW')",
 		"ENGINE", name64, "VERSION", "int", "ROW_FORMAT", "varchar(10)", "TABLE_ROWS", uint64T,
 		"AVG_ROW_LENGTH", uint64T, "DATA_LENGTH", uint64T, "MAX_DATA_LENGTH", uint64T,
 		"INDEX_LENGTH", uint64T, "DATA_FREE", uint64T, "AUTO_INCREMENT", uint64T,
@@ -48,7 +48,7 @@ func init() {
 		"DATA_TYPE", longtxt, "CHARACTER_MAXIMUM_LENGTH", "bigint", "CHARACTER_OCTET_LENGTH", "bigint",
 		"NUMERIC_PRECISION", uint64T, "NUMERIC_SCALE", uint64T, "DATETIME_PRECISION", uint32T,
 		"CHARACTER_SET_NAME", name64, "COLLATION_NAME", name64, "COLUMN_TYPE", "mediumtext",
-		"COLUMN_KEY", "varchar(3)", "EXTRA", "varchar(256)", "PRIVILEGES", "varchar(154)",
+		"COLUMN_KEY", "enum('','PRI','UNI','MUL')", "EXTRA", "varchar(256)", "PRIVILEGES", "varchar(154)",
 		"COLUMN_COMMENT", "text", "GENERATION_EXPRESSION", longtxt, "SRS_ID", uint32T,
 	), rows: columnsRows})
 	define(&table{name: "STATISTICS", cols: cols(

@@ -616,8 +616,15 @@ func merge(args []ColumnDef) ColumnDef {
 		return d
 	}
 	n := 0
+	blob := false
 	for _, a := range defs {
 		n = max(n, charLength(a))
+		blob = blob || a.Type == TypeBlob
+	}
+	if blob {
+		// A TEXT or BLOB argument makes the result BLOB, as MySQL 8.0.46 sends
+		// IFNULL(text_column, 'none') (harness run of 2026-11-24, corpus rule.r012.001).
+		return ColumnDef{Type: TypeBlob, Charset: CollationDefault, Flags: FlagBlob, Length: uint32(min(int64(n)*4, 1<<32-1))}
 	}
 	return ColumnDef{Type: TypeVarString, Charset: CollationDefault, Length: uint32(n * 4)}
 }

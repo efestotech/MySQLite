@@ -33,7 +33,7 @@ func (h *handler) showServer(s *dialect.Show) ([]meta.ColumnDef, [][]any, error)
 		}
 		return defs, [][]any{{"SQLite", "DEFAULT", "SQLite storage through mysqlite", "YES", "NO", "NO"}}, nil
 	case dialect.ShowCharset:
-		defs := []meta.ColumnDef{textCol("Charset", 64), textCol("Description", 2048), textCol("Default collation", 64), numCol("Maxlen")}
+		defs := []meta.ColumnDef{textCol("Charset", 64), textCol("Description", 2048), textCol("Default collation", 64), longCol("Maxlen")}
 		var rows [][]any
 		for _, c := range charset.Charsets {
 			rows = append(rows, []any{c.Name, c.Description, c.DefaultCollation, int64(c.MaxLen)})

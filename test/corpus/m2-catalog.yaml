@@ -61,7 +61,7 @@ cases:
     sql: SHOW COLUMNS FROM items
     expect:
       columns: [Field, Type, "Null", Key, Default, Extra]
-      types: [VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING, VAR_STRING]
+      types: [VAR_STRING, BLOB, VAR_STRING, STRING, BLOB, VAR_STRING]
       rows:
         - [id, int unsigned, "NO", PRI, null, auto_increment]
         - [name, varchar(20), "NO", UNI, null, ""]

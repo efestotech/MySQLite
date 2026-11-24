@@ -325,6 +325,9 @@ func tableColumn(t *Table, c Column, visible, name string) ColumnDef {
 	}
 	ti, ok := ParseType(c.MySQLType())
 	if !ok {
+		ti, ok = enumType(c.MySQLType())
+	}
+	if !ok {
 		ti = TypeInfo{Type: TypeVarString, Length: degradedLength, Charset: CollationDefault}
 	}
 	if co, found := charset.LookupCollation(c.Options[OptionCollation]); found && ti.Charset != CharsetBinary {
