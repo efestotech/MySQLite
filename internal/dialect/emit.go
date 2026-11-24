@@ -476,6 +476,9 @@ func literalItem(v *test_driver.ValueExpr, negative bool, f *ast.SelectField) (m
 		return meta.Item{}, false
 	}
 	name := lit.Text
+	if first, ok := firstStringPart(f.Text()); ok && lit.Kind == meta.LiteralString && f.AsName.O == "" {
+		name = first
+	}
 	if lit.Kind != meta.LiteralString && lit.Kind != meta.LiteralNull && f.AsName.O == "" {
 		name = itemText(f.Text())
 	}
@@ -494,15 +497,144 @@ func variableScope(n *ast.VariableExpr) vars.ReadScope {
 	return vars.ReadSession
 }
 
-// itemText removes a trailing comment from the text the parser keeps for a select
-// item ("2.50 /* c */" -> "2.50"). Only used for numbers, which contain no quotes.
+// commentVersion is the version an executable comment (/*!NNNNN ... */) is compared
+// with: the announced server version, 8.0.36.
+const commentVersion = 80036
+
+// itemText is the name MySQL gives an unaliased select item: its text as written from
+// the first token to the end of the last one. Comments inside are kept, a trailing
+// comment is not; an executable comment loses its markers and keeps its content when
+// its version is not newer than the server's, otherwise it is an ordinary comment
+// ("1 /*!40000 + 1 */" -> "1  + 1"). "--" starts a comment only before a space or a
+// control character, as in MySQL ("1--1" is 1 - -1). Quoted text is never scanned.
 func itemText(s string) string {
-	for _, marker := range []string{"/*", "#", "--"} {
-		if i := strings.Index(s, marker); i >= 0 {
-			s = s[:i]
+	var out strings.Builder
+	end := 0 // length of out up to the end of the last token
+	token := func(t string) {
+		out.WriteString(t)
+		end = out.Len()
+	}
+	inExec := false
+	for i := 0; i < len(s); {
+		c := s[i]
+		switch {
+		case c == '\'' || c == '"' || c == '`':
+			j := quotedEnd(s, i)
+			token(s[i:j])
+			i = j
+		case c == '#' || (c == '-' && strings.HasPrefix(s[i:], "--") && (i+2 == len(s) || s[i+2] <= ' ')):
+			j := strings.IndexByte(s[i:], '\n')
+			if j < 0 {
+				j = len(s) - i
+			}
+			out.WriteString(s[i : i+j])
+			i += j
+		case strings.HasPrefix(s[i:], "/*!"):
+			j := i + 3
+			for j < len(s) && s[j] >= '0' && s[j] <= '9' {
+				j++
+			}
+			version, _ := strconv.Atoi(s[i+3 : j])
+			if j-(i+3) == 0 || version <= commentVersion {
+				inExec = true
+				i = j
+				continue
+			}
+			k := strings.Index(s[i:], "*/")
+			if k < 0 {
+				k = len(s) - i - 2
+			}
+			out.WriteString(s[i : i+k+2])
+			i += k + 2
+		case inExec && strings.HasPrefix(s[i:], "*/"):
+			inExec = false
+			i += 2
+		case strings.HasPrefix(s[i:], "/*"):
+			k := strings.Index(s[i+2:], "*/")
+			if k < 0 {
+				k = len(s) - i - 4
+			}
+			out.WriteString(s[i : i+k+4])
+			i += k + 4
+		case c <= ' ':
+			out.WriteByte(c)
+			i++
+		default:
+			token(s[i : i+1])
+			i++
 		}
 	}
-	return strings.TrimSpace(s)
+	return strings.TrimLeft(out.String()[:end], " \t\r\n")
+}
+
+// quotedEnd returns the index just past the quoted text starting at s[i]: a doubled
+// quote or a backslash escape does not end it.
+func quotedEnd(s string, i int) int {
+	q := s[i]
+	for j := i + 1; j < len(s); j++ {
+		switch {
+		case s[j] == '\\' && q != '`':
+			j++
+		case s[j] == q && j+1 < len(s) && s[j+1] == q:
+			j++
+		case s[j] == q:
+			return j + 1
+		}
+	}
+	return len(s)
+}
+
+// firstStringPart returns the value of the first of several adjacent string literals
+// ('a' 'b' "c" -> a), which is the name MySQL gives such an item. ok is false when the
+// text is not two or more adjacent literals.
+func firstStringPart(s string) (string, bool) {
+	if s == "" || (s[0] != '\'' && s[0] != '"') {
+		return "", false
+	}
+	j := quotedEnd(s, 0)
+	rest := strings.TrimLeft(s[j:], " \t\r\n")
+	if rest == "" || (rest[0] != '\'' && rest[0] != '"') {
+		return "", false
+	}
+	return unquote(s[:j]), true
+}
+
+// unquote decodes one quoted MySQL string literal with the default escapes.
+func unquote(lit string) string {
+	q, body := lit[0], lit[1:len(lit)-1]
+	var b strings.Builder
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		switch {
+		case c == q && i+1 < len(body) && body[i+1] == q:
+			b.WriteByte(q)
+			i++
+		case c == '\\' && i+1 < len(body):
+			i++
+			switch e := body[i]; e {
+			case '0':
+				b.WriteByte(0)
+			case 'b':
+				b.WriteByte('\b')
+			case 'n':
+				b.WriteByte('\n')
+			case 'r':
+				b.WriteByte('\r')
+			case 't':
+				b.WriteByte('\t')
+			case 'Z':
+				b.WriteByte(26)
+			case '%', '_':
+				b.WriteByte('\\')
+				b.WriteByte(e)
+			default:
+				b.WriteByte(e)
+			}
+		default:
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 func (e *emitter) orderBy(o *ast.OrderByClause) {

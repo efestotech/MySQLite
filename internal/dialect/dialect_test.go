@@ -362,7 +362,7 @@ func TestSelectShape(t *testing.T) {
 		{Literal: &meta.Literal{Kind: meta.LiteralDecimal, Text: "2.50"}, Name: "2.50"},
 		{Literal: &meta.Literal{Kind: meta.LiteralFloat, Text: "1e3"}, Name: "1e3"},
 		{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "città"}, Name: "città"},
-		{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ab"}, Name: "ab"},
+		{Literal: &meta.Literal{Kind: meta.LiteralString, Text: "ab"}, Name: "a"}, // adjacent literals: named by the first (MySQL 8.0.46)
 		{Literal: &meta.Literal{Kind: meta.LiteralNull, Text: "NULL"}, Name: "NULL"},
 	}
 	st.Shape.Exprs = nil          // arithmetic checks are covered by the wire tests
