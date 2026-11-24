@@ -186,7 +186,9 @@ func audit(target string) ([]component, error) {
 
 // linked returns the non-standard packages target links on linux.
 func linked(target string) ([]pkg, error) {
-	cmd := exec.Command("go", "list", "-deps", "-f",
+	// -buildvcs=false: the audit needs no VCS stamp, and git refuses to report status
+	// for a checkout owned by another user (the toolchain container runs as root).
+	cmd := exec.Command("go", "list", "-buildvcs=false", "-deps", "-f",
 		"{{if .Module}}{{if not .Module.Main}}{{.Module.Path}}|{{.Module.Version}}|{{.Dir}}|{{.Module.Dir}}{{end}}{{end}}", target)
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=amd64", "CGO_ENABLED=0")
 	var stderr bytes.Buffer
