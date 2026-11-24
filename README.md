@@ -112,6 +112,12 @@ il diario attivo le istruzioni con aritmetica su DECIMAL sono marcate
 
 ### Collation approssimate
 
+La collation predefinita di mysqlite è `utf8mb4_general_ci`, non `utf8mb4_0900_ai_ci`
+come in MySQL 8: una tabella creata senza `COLLATE` confronta senza distinguere
+maiuscole e accenti e ignora gli spazi finali (`'Bar' = 'Bar  '` è vero; in MySQL 8 con
+la collation predefinita è falso). Per avere il comportamento di MySQL 8 dichiarare
+`COLLATE utf8mb4_0900_ai_ci` sulla tabella o sulla colonna.
+
 Le collation sono un'approssimazione di quelle di MySQL (ADR 0004), calcolate dai dati
 Unicode e non dalle tabelle di MySQL:
 

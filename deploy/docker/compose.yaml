@@ -37,7 +37,11 @@ services:
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: test
       MYSQL_PASSWORD: test
+    # The reference runs with mysqlite's server defaults (ADR 0004: utf8mb4 with
+    # utf8mb4_general_ci), so the harness compares translations, not configurations.
     command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
       - --general-log=1
       - --general-log-file=/var/log/mysql/general.log
       - --log-output=FILE
