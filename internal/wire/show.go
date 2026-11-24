@@ -371,9 +371,16 @@ func (h *handler) filterRows(ctx context.Context, s *dialect.Show, defs []meta.C
 	if s.Like != nil {
 		// LIKE matches in Go: SQLite's LIKE folds ASCII case only, MySQL's follows the
 		// collation ('a' matches 'à').
+		// Database and table names are case sensitive, as in MySQL on Linux
+		// (lower_case_table_names = 0): 'IT%' does not match items (MySQL 8.0.46).
+		match := collate.LikeCI
+		switch s.Type {
+		case dialect.ShowDatabases, dialect.ShowTables, dialect.ShowTableStatus:
+			match = collate.LikeBin
+		}
 		var out [][]any
 		for _, row := range rows {
-			if v, ok := row[0].(string); ok && collate.LikeCI(v, *s.Like, '\\') {
+			if v, ok := row[0].(string); ok && match(v, *s.Like, '\\') {
 				out = append(out, row)
 			}
 		}

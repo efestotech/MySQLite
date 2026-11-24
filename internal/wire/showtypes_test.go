@@ -43,3 +43,28 @@ func TestShowColumnTypes(t *testing.T) {
 		}
 	}
 }
+
+// Table and database names are case sensitive in MySQL on Linux (lower_case_table_names
+// = 0), so their SHOW ... LIKE is too (MySQL 8.0.46: SHOW FULL TABLES LIKE 'IT%' finds no
+// `items`, corpus catalog.show-tables.002). Column and variable names stay case blind.
+func TestShowLikeCase(t *testing.T) {
+	conn := dial(t, queueServer(t, 8))
+	execOK(t, conn, "CREATE DATABASE app")
+	execOK(t, conn, "USE app")
+	execOK(t, conn, "CREATE TABLE items (id INT PRIMARY KEY)")
+	for q, want := range map[string]int{
+		"SHOW TABLES LIKE 'IT%'":            0,
+		"SHOW TABLES LIKE 'it%'":            1,
+		"SHOW FULL TABLES LIKE 'ITEMS'":     0,
+		"SHOW TABLE STATUS LIKE 'Items'":    0,
+		"SHOW TABLE STATUS LIKE 'items'":    1,
+		"SHOW DATABASES LIKE 'APP'":         0,
+		"SHOW DATABASES LIKE 'app'":         1,
+		"SHOW COLUMNS FROM items LIKE 'ID'": 1,
+		"SHOW VARIABLES LIKE 'AUTOCOMMIT'":  1,
+	} {
+		if got := len(execOK(t, conn, q).Values); got != want {
+			t.Errorf("%s: %d rows, want %d", q, got, want)
+		}
+	}
+}

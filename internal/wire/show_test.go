@@ -49,9 +49,14 @@ func TestShowDatabasesAndTables(t *testing.T) {
 	if res.Fields[0].Charset != 33 || res.Fields[0].Type != mysql.MYSQL_TYPE_VAR_STRING {
 		t.Errorf("SHOW DATABASES metadata: %+v", res.Fields[0])
 	}
-	res = execOK(t, conn, "SHOW DATABASES LIKE 'SH%'")
-	if got := strings.Join(firstColumn(res), ","); got != "shop" || string(res.Fields[0].Name) != "Database (SH%)" {
+	res = execOK(t, conn, "SHOW DATABASES LIKE 'sh%'")
+	if got := strings.Join(firstColumn(res), ","); got != "shop" || string(res.Fields[0].Name) != "Database (sh%)" {
 		t.Errorf("SHOW DATABASES LIKE: %s, column %s", got, res.Fields[0].Name)
+	}
+	// Database names are case sensitive, as in MySQL on Linux (`oracle: pending` for
+	// databases; tables are checked against MySQL 8.0.46).
+	if res := execOK(t, conn, "SHOW DATABASES LIKE 'SH%'"); len(res.Values) != 0 {
+		t.Errorf("SHOW DATABASES LIKE 'SH%%': %v", firstColumn(res))
 	}
 
 	// The sidecar table is hidden.

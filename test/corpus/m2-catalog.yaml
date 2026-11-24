@@ -31,9 +31,10 @@ cases:
     milestone: m2
     oracle: pending
     setup: *shop
+    # Table names are case sensitive (MySQL on Linux): no match.
     sql: SHOW FULL TABLES LIKE 'IT%'
     expect:
-      rows: [[items, BASE TABLE]]
+      rows: []
 
   - id: catalog.show-tables.003
     tags: [show, where]
