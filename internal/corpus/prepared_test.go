@@ -114,7 +114,7 @@ func compareProtocols(text *mysql.Result, textErr error, bin *mysql.Result, binE
 			return fmt.Sprintf("column %d: text %s, prepared %s", i, fieldString(f), fieldString(g))
 		}
 	}
-	rows, err := textRows(text.Resultset)
+	rows, err := textRows(text.Resultset, nil)
 	if err != nil {
 		return err.Error()
 	}

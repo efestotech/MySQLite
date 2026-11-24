@@ -157,7 +157,7 @@ func outcome(c *Case, res *mysql.Result, err error, problem string) Outcome {
 			o.Columns = append(o.Columns, string(f.Name))
 			o.Types = append(o.Types, typeName(f.Type))
 		}
-		rows, rerr := textRows(res.Resultset)
+		rows, rerr := textRows(res.Resultset, c.Expect.Volatile)
 		if rerr != nil {
 			return Outcome{Problem: rerr.Error()}
 		}

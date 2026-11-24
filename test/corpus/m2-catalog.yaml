@@ -173,6 +173,12 @@ cases:
     sql: SHOW TABLE STATUS WHERE Name = 'items'
     expect:
       columns: [Name, Engine, Version, Row_format, Rows, Avg_row_length, Data_length, Max_data_length, Index_length, Data_free, Auto_increment, Create_time, Update_time, Check_time, Collation, Checksum, Create_options, Comment]
+      types: [VAR_STRING, VAR_STRING, LONGLONG, STRING, LONGLONG, LONGLONG, LONGLONG, LONGLONG, LONGLONG, LONGLONG, LONGLONG, TIMESTAMP, DATETIME, DATETIME, VAR_STRING, LONGLONG, VAR_STRING, VAR_STRING]
+      # Storage statistics and times belong to the engine and the moment of the run
+      # (InnoDB pages and estimates against SQLite pages; mysqlite keeps no creation
+      # or update time).
+      volatile: [Rows, Avg_row_length, Data_length, Max_data_length, Index_length, Data_free, Create_time, Update_time]
+      rows: [[items, InnoDB, "10", Dynamic, "*", "*", "*", "*", "*", "*", "3", "*", "*", null, utf8mb4_general_ci, null, "", stock]]
 
   - id: catalog.show-databases.001
     tags: [show]

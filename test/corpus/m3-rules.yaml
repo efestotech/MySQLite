@@ -81,11 +81,9 @@ cases:
     oracle: pending
     setup: *shop
     sql: SELECT name FROM no_such_db.items
+    # MySQL 8.0.46 reports the missing database (harness run of 2026-11-24).
     expect:
-      error: {code: 1146, sqlstate: 42S02}
-    known_deviation:
-      reason: mysqlite reports 1049 Unknown database; MySQL 8.0 is expected to report 1146 for a table in a missing database (oracle pending)
-      ref: docs/agent-notes/discrepancies.md
+      error: {code: 1049, sqlstate: "42000"}
 
   - id: rule.r005.001
     tags: [rule, R005, positive]

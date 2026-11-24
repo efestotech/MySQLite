@@ -208,7 +208,7 @@ func compare(e *Expect, res *mysql.Result, err error) string {
 			}
 		}
 		if e.Rows != nil {
-			got, err := textRows(res.Resultset)
+			got, err := textRows(res.Resultset, e.Volatile)
 			if err != nil {
 				return err.Error()
 			}
@@ -227,7 +227,18 @@ func compare(e *Expect, res *mysql.Result, err error) string {
 
 // textRows decodes the raw text-protocol rows, so values are compared exactly as sent
 // (the client library reformats some types when it parses them).
-func textRows(rs *mysql.Resultset) ([]string, error) {
+// textRows renders each row; the value of a volatile column (named in any case) is
+// rendered as "*".
+func textRows(rs *mysql.Resultset, volatile []string) ([]string, error) {
+	skip := map[int]bool{}
+	for i, f := range rs.Fields {
+		for _, v := range volatile {
+			if strings.EqualFold(string(f.Name), v) {
+				skip[i] = true
+			}
+		}
+	}
+	star := "*"
 	var rows []string
 	for i, raw := range rs.RowDatas {
 		var vals []*string
@@ -237,6 +248,10 @@ func textRows(rs *mysql.Resultset) ([]string, error) {
 				return nil, fmt.Errorf("row %d: %w", i, err)
 			}
 			pos += n
+			if skip[len(vals)] {
+				vals = append(vals, &star)
+				continue
+			}
 			if isNull {
 				vals = append(vals, nil)
 				continue

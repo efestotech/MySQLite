@@ -54,6 +54,10 @@ type Expect struct {
 	Types []string `yaml:"types"`
 	// Rows are the values as the text protocol sends them; null is SQL NULL.
 	Rows *[][]*string `yaml:"rows"`
+	// Volatile names columns whose values depend on the engine's storage or the moment
+	// of the run (sizes, creation times): their values are not compared, their names
+	// and types are. In rows, such a value is written "*".
+	Volatile []string `yaml:"volatile"`
 	// Ordered compares rows in order; otherwise both sides are sorted.
 	Ordered      bool    `yaml:"ordered"`
 	Error        *Error  `yaml:"error"`
