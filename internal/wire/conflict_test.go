@@ -28,14 +28,14 @@ func TestReplace(t *testing.T) {
 	}
 }
 
-// INSERT IGNORE skips the rows that hit a unique key, with warning 1062 each.
-// `oracle: pending`.
+// INSERT IGNORE skips the rows that hit a unique key, with warning 1062 each. Ids as
+// MySQL 8.0.46 gives them (oracle CLI run cli3): the inserted rows take the statement's
+// values in order, the skipped rows' values are lost at its end.
 func TestInsertIgnore(t *testing.T) {
 	conn := gadgetServer(t)
 	execOK(t, conn, "CREATE UNIQUE INDEX uq ON gadgets (name)")
 
-	// The skipped row's id (3) is lost, as InnoDB loses it.
-	requireOK(t, conn, "INSERT IGNORE INTO gadgets (name) VALUES ('ink'), ('cup')", 1, 4, "Records: 2  Duplicates: 1  Warnings: 1")
+	requireOK(t, conn, "INSERT IGNORE INTO gadgets (name) VALUES ('ink'), ('cup')", 1, 3, "Records: 2  Duplicates: 1  Warnings: 1")
 	if got := rowsOf(t, execOK(t, conn, "SHOW WARNINGS")); got != "Warning,1062,Duplicate entry 'ink' for key 'gadgets.uq'" {
 		t.Errorf("warnings %q", got)
 	}
@@ -45,7 +45,7 @@ func TestInsertIgnore(t *testing.T) {
 	}
 	requireOK(t, conn, "INSERT IGNORE INTO gadgets (name) VALUES ('d'), ('d')", 1, 5, "Records: 2  Duplicates: 1  Warnings: 1")
 	requireOK(t, conn, "INSERT IGNORE gadgets SET name = 'e'", 1, 7, "")
-	if got := rowsOf(t, execOK(t, conn, "SELECT id, name FROM gadgets ORDER BY id")); got != "1,pen;2,ink;4,cup;5,d;7,e" {
+	if got := rowsOf(t, execOK(t, conn, "SELECT id, name FROM gadgets ORDER BY id")); got != "1,pen;2,ink;3,cup;5,d;7,e" {
 		t.Errorf("rows %q", got)
 	}
 	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "7" {
@@ -82,8 +82,9 @@ func TestOnDuplicateKeyUpdate(t *testing.T) {
 	conn := gadgetServer(t)
 	execOK(t, conn, "CREATE UNIQUE INDEX uq ON gadgets (name)")
 
-	// A row that generates an id and updates instead loses it (InnoDB), unless a later
-	// row of the same statement inserts: that row gets it (MySQL 8.0.46, probe o.80.2).
+	// A row that generates an id and updates instead leaves it to a later row of the
+	// statement; the statement's unused values are lost at its end (MySQL 8.0.46, probe
+	// o.80.2 and oracle CLI run cli3: the next id is 9).
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'a') ON DUPLICATE KEY UPDATE note = 'b'", 2, 1, "")
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('pen', 'a') ON DUPLICATE KEY UPDATE note = 'b'", 0, 0, "")
 	requireOK(t, conn, "INSERT INTO gadgets (name, note) VALUES ('cup', 'c') ON DUPLICATE KEY UPDATE note = VALUES(note)", 1, 5, "")
@@ -92,10 +93,10 @@ func TestOnDuplicateKeyUpdate(t *testing.T) {
 	if got := rowsOf(t, execOK(t, conn, "SELECT id, name, note FROM gadgets ORDER BY id")); got != "1,pen,x+;2,ink,NULL;5,cup,c;6,new,y" {
 		t.Errorf("rows %q", got)
 	}
-	if res := execOK(t, conn, "INSERT INTO gadgets (name) VALUES ('next')"); res.InsertId != 8 {
-		t.Errorf("next id %d, want 8", res.InsertId)
+	if res := execOK(t, conn, "INSERT INTO gadgets (name) VALUES ('next')"); res.InsertId != 9 {
+		t.Errorf("next id %d, want 9", res.InsertId)
 	}
-	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "8" {
+	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "9" {
 		t.Errorf("LAST_INSERT_ID %s", got)
 	}
 

@@ -454,8 +454,12 @@ func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.
 
 	var ids, explicit []int64
 	duplicates := 0
+	auto := newAutoIDs()
 	for i, q := range w.RowSQL {
 		seq, err := rowSequence(ctx, conn, table, info, i)
+		if err == nil {
+			seq, err = auto.before(ctx, conn, table, seq)
+		}
 		if err != nil {
 			return nil, h.fail(err, hint)
 		}
@@ -484,7 +488,7 @@ func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.
 			}
 			h.warn(m)
 			duplicates++
-			if err := loseID(ctx, conn, table, seq); err != nil {
+			if err := auto.after(ctx, conn, table, seq, false); err != nil {
 				return nil, h.fail(err, hint)
 			}
 			continue
@@ -492,10 +496,16 @@ func (h *handler) insertIgnore(ctx context.Context, conn *sql.Conn, st *dialect.
 		if _, err := conn.ExecContext(ctx, "RELEASE mysqlite_row"); err != nil {
 			return nil, h.fail(err, hint)
 		}
+		if err := auto.after(ctx, conn, table, seq, true); err != nil {
+			return nil, h.fail(err, hint)
+		}
 		ids = append(ids, rowIDs...)
 		if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && v != nil && v.Kind != meta.LiteralNull && len(rowIDs) == 1 {
 			explicit = append(explicit, rowIDs[0])
 		}
+	}
+	if err := auto.finish(ctx, conn, table); err != nil {
+		return nil, h.fail(err, hint)
 	}
 
 	res = &mysql.Result{AffectedRows: uint64(len(w.RowSQL) - duplicates)}
@@ -601,12 +611,15 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 	var updatedID int64
 	var affected uint64
 	duplicates := 0
-	lost := int64(-1) // the AUTO_INCREMENT counter before an id given to an updating row
+	auto := newAutoIDs()
 	for i := range w.RowSQL {
 		row := meta.InsertInfo{Auto: info.Auto, Values: info.Values[i : i+1]}
 		rowHint := hint
 		rowHint.Entry = func(_ string, cols []string) string { return insertEntry(ctx, conn, table, row, cols) }
 		seq, err := rowSequence(ctx, conn, table, info, i)
+		if err == nil {
+			seq, err = auto.before(ctx, conn, table, seq)
+		}
 		if err != nil {
 			return nil, h.fail(err, hint)
 		}
@@ -620,8 +633,8 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 			if v, ok := info.Values[i][strings.ToLower(info.Auto)]; ok && v != nil && v.Kind != meta.LiteralNull && len(rowIDs) == 1 {
 				explicit = append(explicit, rowIDs[0])
 			}
-			if seq >= 0 {
-				lost = -1
+			if err := auto.after(ctx, conn, table, seq, true); err != nil {
+				return nil, h.fail(err, hint)
 			}
 			continue
 		}
@@ -641,15 +654,9 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 		if err != nil {
 			return nil, err
 		}
-		// The id this row was given goes to the next row of the statement that
-		// generates one; it is lost only when no such row follows (MySQL 8.0.46,
-		// oracle probe o.80.2).
-		if seq >= 0 {
-			// SQLite used up a value on each attempt: give them back.
-			if err := setSequence(ctx, conn, table, seq); err != nil {
-				return nil, h.fail(err, hint)
-			}
-			lost = seq
+		// SQLite used up a value on each attempt; the row's value goes to the next row.
+		if err := auto.after(ctx, conn, table, seq, false); err != nil {
+			return nil, h.fail(err, hint)
 		}
 		switch {
 		case updated:
@@ -664,7 +671,7 @@ func (h *handler) insertUpsert(ctx context.Context, conn *sql.Conn, st *dialect.
 		}
 	}
 
-	if err := loseID(ctx, conn, table, lost); err != nil {
+	if err := auto.finish(ctx, conn, table); err != nil {
 		return nil, h.fail(err, hint)
 	}
 	res = &mysql.Result{AffectedRows: affected}
@@ -703,17 +710,61 @@ func rowSequence(ctx context.Context, conn *sql.Conn, table *meta.Table, info me
 	return seq, nil
 }
 
-// loseID leaves the AUTO_INCREMENT counter one past seq after a row that generated an
-// id but was not inserted (INSERT IGNORE skipped it, ON DUPLICATE KEY UPDATE updated
-// another row). InnoDB allocates one id per such row of a simple INSERT and loses it
-// (innodb_autoinc_lock_mode 2, MySQL 8.0's default); SQLite either gives it back on
-// rollback or uses one per upsert attempt. Checked for ON DUPLICATE KEY UPDATE against
-// MySQL 8.0.46; INSERT IGNORE with several rows is not checked yet.
-func loseID(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) error {
+// autoIDs gives AUTO_INCREMENT values to the rows of an INSERT IGNORE or ON DUPLICATE
+// KEY UPDATE run one row at a time, as InnoDB does for a simple INSERT
+// (innodb_autoinc_lock_mode 2, MySQL 8.0's default): the statement reserves one value
+// per row that generates an id, the rows that insert take them in order, and the
+// values left over are lost at the end, so the counter ends at its start plus that
+// number of rows. A skipped or updating row's value goes to the next row. SQLite
+// instead gives a value back on rollback, or uses one per upsert attempt. Checked
+// against MySQL 8.0.46 (oracle probes o.79, o.80.2 and the cli2 INSERT IGNORE run).
+type autoIDs struct {
+	// start is the counter before the statement (-1 until a row generates an id),
+	// last the counter the next generating row's id follows, rows those rows' count.
+	start, last, rows int64
+}
+
+func newAutoIDs() autoIDs { return autoIDs{start: -1} }
+
+// before sets the counter for a row whose counter is seq (-1: the row gives its id)
+// and returns the counter its id follows, or -1.
+func (a *autoIDs) before(ctx context.Context, conn *sql.Conn, table *meta.Table, seq int64) (int64, error) {
 	if seq < 0 {
+		return -1, nil
+	}
+	if a.start < 0 {
+		a.start, a.last = seq, seq
+	}
+	a.rows++
+	base := max(seq, a.last)
+	if base != seq {
+		if err := setSequence(ctx, conn, table, base); err != nil {
+			return 0, err
+		}
+	}
+	return base, nil
+}
+
+// after records the row of before's base: one that inserted used base+1, one that did
+// not leaves its value to the next row.
+func (a *autoIDs) after(ctx context.Context, conn *sql.Conn, table *meta.Table, base int64, inserted bool) error {
+	if base < 0 {
 		return nil
 	}
-	return writeSequence(ctx, conn, table, "max(seq, ?)", seq+1)
+	if inserted {
+		a.last = base + 1
+		return nil
+	}
+	a.last = base
+	return setSequence(ctx, conn, table, base)
+}
+
+// finish loses the reserved values no row used.
+func (a *autoIDs) finish(ctx context.Context, conn *sql.Conn, table *meta.Table) error {
+	if a.start < 0 {
+		return nil
+	}
+	return writeSequence(ctx, conn, table, "max(seq, ?)", a.start+a.rows)
 }
 
 // setSequence sets the AUTO_INCREMENT counter of table to seq.

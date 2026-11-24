@@ -61,3 +61,21 @@ func TestOnDuplicateKeyUpdateIDInStatement(t *testing.T) {
 		t.Errorf("rows %q", got)
 	}
 }
+
+// A multi-row INSERT IGNORE gives the rows it inserts consecutive ids; the values of
+// the skipped rows are lost at the end of the statement, so the counter ends at the
+// first id plus the number of rows (MySQL 8.0.46, oracle CLI probe cli2: ids 2 and 3,
+// LAST_INSERT_ID() 2, next id 6).
+func TestInsertIgnoreIDs(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE ti (id INT AUTO_INCREMENT PRIMARY KEY, u INT UNIQUE)")
+	execOK(t, conn, "INSERT INTO ti (u) VALUES (1)")
+	requireOK(t, conn, "INSERT IGNORE INTO ti (u) VALUES (1), (2), (1), (3)", 2, 2, "Records: 4  Duplicates: 2  Warnings: 2")
+	if got := rowsOf(t, execOK(t, conn, "SELECT LAST_INSERT_ID()")); got != "2" {
+		t.Errorf("LAST_INSERT_ID %s", got)
+	}
+	execOK(t, conn, "INSERT INTO ti (u) VALUES (4)")
+	if got := rowsOf(t, execOK(t, conn, "SELECT id, u FROM ti ORDER BY id")); got != "1,1;2,2;3,3;6,4" {
+		t.Errorf("rows %q", got)
+	}
+}
