@@ -127,7 +127,9 @@ Unicode e non dalle tabelle di MySQL:
 - `utf8mb4_bin`, `utf8mb4_0900_bin`: ordine dei code point.
 
 Ordinamenti e confronti con caratteri rari, contrazioni o regole specifiche di una lingua
-possono differire da MySQL. Altre collation e altri charset rispondono 1235.
+possono differire da MySQL. Con `utf8mb4_0900_ai_ci`, per esempio, MySQL mette
+punteggiatura e simboli prima delle cifre e `Æ`, `Œ` subito dopo `a` e `o`; mysqlite li
+ordina per code point. Altre collation e altri charset rispondono 1235.
 
 ### Un solo scrittore per database
 
@@ -152,7 +154,7 @@ scrivono sullo stesso database: una transazione che scrive tiene lo scrittore fi
   eliminare un database si cancella il file `<nome>.db` a server fermo.
 - **Interi**: `BIGINT UNSIGNED` oltre 9223372036854775807 risponde 1235. `SUM` di interi
   oltre 2^63 risponde 1235 (MySQL restituisce un DECIMAL). Un overflow dentro una `WHERE`
-  non è rilevato.
+  non è rilevato (MySQL risponde 1690).
 - **Letterali binari**: `X'..'`, `0x..`, `_binary'..'` sono accettati solo come valori
   scritti in colonne BINARY, VARBINARY o BLOB; altrove 1235.
 - **Fuso orario**: `time_zone` accetta `SYSTEM`, `UTC` e scostamenti (`+02:00`); i fusi

@@ -183,7 +183,7 @@ func columnDDL(t *meta.Table, c meta.Column, tableCS, tableCo string) string {
 		// is not MySQL's primary collation of its character set. So a general_ci column
 		// of a general_ci table still says COLLATE utf8mb4_general_ci, because MySQL's
 		// utf8mb4 primary is utf8mb4_0900_ai_ci. A primary collation that differs from
-		// the table's prints CHARACTER SET alone (`oracle: pending`).
+		// the table's prints both (oracle probe o.110.1).
 		cs := charsetOf(co)
 		if co != tableCo {
 			parts = append(parts, "CHARACTER SET "+cs)
