@@ -29,7 +29,7 @@ func TestDecimalStartupWarning(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "DECIMAL") || !strings.Contains(out, "0006-decimal") {
+	if !strings.Contains(out, "level=WARN") || !strings.Contains(out, "DECIMAL") || !strings.Contains(out, "README.md") {
 		t.Errorf("no DECIMAL warning at startup: %q", out)
 	}
 }

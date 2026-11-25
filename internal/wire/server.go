@@ -106,9 +106,9 @@ func NewServer(cfg Config, log *slog.Logger) (*Server, error) {
 		dataDir = abs
 	}
 
-	// ADR 0006: say it loudly, every start.
+	// Say it loudly, every start; the README explains the limit.
 	log.Warn("DECIMAL values are stored and computed as REAL (binary floating point): DECIMAL arithmetic, SUM and AVG are not exact; the journal flags such statements with decimal_as_real",
-		"adr", "docs/adr/0006-decimal.md")
+		"see", "README.md, DECIMAL non è esatto")
 
 	return &Server{
 		catalog: catalog.NewCache(),
