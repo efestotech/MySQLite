@@ -6,3 +6,9 @@ logs/
 *.exe
 .atl/
 /mysqlite.yaml
+
+# Development notes for AI coding agents: kept locally, never published.
+/AGENTS.md
+/CLAUDE.md
+/docs/
+/odd/

@@ -232,3 +232,14 @@ func TestConcurrencyKeys(t *testing.T) {
 		t.Fatalf("flags: readonly %v, depth %d, idle %d", cfg.ReadOnly, cfg.WriteQueueDepth, cfg.IdleTxTimeoutS)
 	}
 }
+
+// The example shipped in the release packages loads and starts a loopback server.
+func TestReleaseExampleConfig(t *testing.T) {
+	cfg, err := Load([]string{"-config", "../../deploy/mysqlite.example.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Listen != "127.0.0.1" || cfg.Port != 3307 || cfg.DataDir != "data" || len(cfg.Users) != 1 {
+		t.Errorf("example config %+v", cfg)
+	}
+}

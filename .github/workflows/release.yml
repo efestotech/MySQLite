@@ -1,0 +1,107 @@
+# Release: on every version tag (v1.2.3, v1.2.3-rc.1) test, build a static package per OS
+# and architecture, and publish them as a GitHub release with SHA256SUMS.
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test -count=1 ./...
+      - name: licenses
+        run: go run ./scripts/notice -check
+
+  package:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+          - { goos: windows, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+    env:
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: |
+          name="mysqlite-${GITHUB_REF_NAME}-${GOOS}-${GOARCH}"
+          exe=mysqlite
+          if [ "$GOOS" = windows ]; then exe=mysqlite.exe; fi
+          mkdir -p "dist/$name"
+          CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "dist/$name/$exe" ./cmd/mysqlite
+          echo "NAME=$name" >> "$GITHUB_ENV"
+          echo "EXE=$exe" >> "$GITHUB_ENV"
+      # No CGO dependency: no dynamic section, no interpreter.
+      - name: verify static (linux)
+        if: matrix.goos == 'linux'
+        run: |
+          file "dist/$NAME/$EXE" | grep -q 'statically linked'
+          ! readelf -l "dist/$NAME/$EXE" | grep -q INTERP
+      - name: package
+        run: |
+          cp README.md LICENSE NOTICE "dist/$NAME/"
+          cp deploy/mysqlite.example.yaml "dist/$NAME/mysqlite.example.yaml"
+          cd dist
+          if [ "$GOOS" = windows ]; then
+            zip -r "$NAME.zip" "$NAME"
+          else
+            tar -czf "$NAME.tar.gz" "$NAME"
+          fi
+          ls -l
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+          if-no-files-found: error
+
+  release:
+    needs: package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: mysqlite-*
+          path: dist
+          merge-multiple: true
+      - name: checksums
+        run: |
+          cd dist
+          sha256sum *.tar.gz *.zip > SHA256SUMS
+          cat SHA256SUMS
+      # A tag with a suffix (v1.0.0-rc.1) is published as a pre-release.
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes \
+            --title "mysqlite $GITHUB_REF_NAME" $pre

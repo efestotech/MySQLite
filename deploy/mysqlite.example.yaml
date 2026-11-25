@@ -1,0 +1,13 @@
+# mysqlite example configuration. Copy it to mysqlite.yaml and start the server with
+#   mysqlite -config mysqlite.yaml
+# It listens on 127.0.0.1 only. Change the password before setting listen to another
+# address (that also needs allow_remote: true).
+listen: 127.0.0.1
+port: 3307
+data_dir: data
+users:
+  - name: test
+    password: test
+log:
+  level: info
+  dir: logs

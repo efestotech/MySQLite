@@ -9,6 +9,23 @@ sostituto di MySQL in produzione: leggi le [limitazioni](#limitazioni) prima di 
 
 Licenza: Apache-2.0 (`LICENSE`); le licenze delle dipendenze sono in `NOTICE`.
 
+## Pacchetti pronti
+
+Per ogni versione (tag `vX.Y.Z`) la pagina *Releases* del repository GitHub ha un
+pacchetto per sistema: `mysqlite-<versione>-<os>-<arch>.tar.gz` per Linux e macOS,
+`.zip` per Windows, ciascuno per `amd64` e `arm64`. Dentro ci sono il binario, questo
+README, `LICENSE`, `NOTICE` e `mysqlite.example.yaml`; `SHA256SUMS` ha i checksum.
+
+```sh
+tar xzf mysqlite-<versione>-linux-amd64.tar.gz
+cd mysqlite-<versione>-linux-amd64
+cp mysqlite.example.yaml mysqlite.yaml
+./mysqlite -config mysqlite.yaml
+```
+
+Poi si prosegue dal punto 4 dell'avvio rapido. Su macOS il binario non è firmato: al primo
+avvio va autorizzato (`xattr -d com.apple.quarantine mysqlite`).
+
 ## Avvio rapido (meno di 5 minuti)
 
 Serve Go 1.27.4 o successivo (`go version`). Nessun compilatore C: il binario è statico.
@@ -102,8 +119,7 @@ Le differenze note sono queste.
 
 ### DECIMAL non è esatto
 
-Una colonna `DECIMAL(p,s)` è salvata come `REAL` di SQLite (virgola mobile a 64 bit, ADR
-0006). I client vedono il tipo DECIMAL e la scala dichiarata (`1.50`), ma i calcoli non
+Una colonna `DECIMAL(p,s)` è salvata come `REAL` di SQLite (virgola mobile a 64 bit). I client vedono il tipo DECIMAL e la scala dichiarata (`1.50`), ma i calcoli non
 sono esatti: `0.1 + 0.2` può differire nell'ultima cifra e somme lunghe accumulano
 errori. Le cifre significative oltre circa 15 si perdono. **Non usare mysqlite per
 importi monetari che richiedono precisione esatta.** A ogni avvio il log lo ricorda; con
@@ -118,7 +134,7 @@ maiuscole e accenti e ignora gli spazi finali (`'Bar' = 'Bar  '` è vero; in MyS
 la collation predefinita è falso). Per avere il comportamento di MySQL 8 dichiarare
 `COLLATE utf8mb4_0900_ai_ci` sulla tabella o sulla colonna.
 
-Le collation sono un'approssimazione di quelle di MySQL (ADR 0004), calcolate dai dati
+Le collation sono un'approssimazione di quelle di MySQL, calcolate dai dati
 Unicode e non dalle tabelle di MySQL:
 
 - `utf8mb4_general_ci`: confronto senza maiuscole e accenti per singolo carattere; gli
@@ -158,16 +174,14 @@ scrivono sullo stesso database: una transazione che scrive tiene lo scrittore fi
 - **Letterali binari**: `X'..'`, `0x..`, `_binary'..'` sono accettati solo come valori
   scritti in colonne BINARY, VARBINARY o BLOB; altrove 1235.
 - **Fuso orario**: `time_zone` accetta `SYSTEM`, `UTC` e scostamenti (`+02:00`); i fusi
-  con nome (`Europe/Rome`) rispondono 1298 (ADR 0007). `TIMESTAMP` è salvato in UTC;
+  con nome (`Europe/Rome`) rispondono 1298. `TIMESTAMP` è salvato in UTC;
   `SYSDATE()` vale l'ora di inizio dell'istruzione.
 - **ALTER TABLE** che ricostruisce una tabella copia prima l'intero database in
   `<nome>.pre-alter-<data>.sqlite` (ne tiene 3; `alter_backup: false` lo disattiva).
 - **Messaggio info** (`Records: 3  Duplicates: 0  Warnings: 0` dopo un INSERT multiplo):
-  arriva solo ai client che dichiarano `CLIENT_SESSION_TRACK` (ADR 0003).
-- **information_schema** e `SHOW` coprono ciò che i client della matrice usano (ADR
-  0005); alcune tabelle sono vuote (per esempio `TRIGGERS`, dato che i trigger non
+  arriva solo ai client che dichiarano `CLIENT_SESSION_TRACK`.
+- **information_schema** e `SHOW` coprono ciò che i client della matrice usano; alcune tabelle sono vuote (per esempio `TRIGGERS`, dato che i trigger non
   esistono) e le costruzioni non tradotte rispondono 1235.
-- Le differenze puntuali sono elencate in `docs/agent-notes/discrepancies.md`.
 
 ## Cosa mysqlite NON fa
 
@@ -188,16 +202,18 @@ Per scelta, nella versione 0.1. Il client riceve un errore MySQL chiaro.
 
 ## Client provati
 
-Stato in `docs/agent-notes/client-matrix.md`. In sintesi:
+Lo scenario di ogni client: connessione, elenco dei database e delle tabelle, descrizione
+di una tabella, SELECT con WHERE su una stringa, INSERT, UPDATE, DELETE, disconnessione.
 
 | Priorità | Client | Stato |
 |---|---|---|
-| P0 | CLI `mysql` 8.0, 8.4 | Scenario scritto (`test/clients/mysql-cli`), da eseguire in Docker |
-| P1 | CLI MariaDB 11 | Scenario scritto, da eseguire in Docker |
-| P1 | PHP PDO (prepare native ed emulate) | Supera lo scenario (PHP 8.4) |
+| P0 | CLI `mysql` 8.0.46 | Supera lo scenario (Docker) |
+| P0 | CLI `mysql` 8.4 | Non ancora provato (l'immagine richiede una CPU x86-64-v2) |
+| P1 | CLI MariaDB 11.8.9 | Supera lo scenario (Docker) |
+| P1 | PHP PDO (prepare native ed emulate) | Supera lo scenario (PHP 8.3 in Docker, 8.4 sull'host) |
 | P1 | Adminer 5.4.1 | Supera lo scenario HTTP (`test/clients/adminer`) |
-| P2 | HeidiSQL | Checklist manuale (`docs/agent-notes/heidisql-checklist.md`) |
-| P2 | Connector/J 9.1.0 | Scenario scritto, da eseguire in Docker |
+| P2 | Connector/J 9.1.0 | Supera lo scenario (OpenJDK 21, Docker) |
+| P2 | HeidiSQL | Da provare a mano |
 
 `scripts/dev.sh clients` esegue tutta la matrice in Docker.
 
@@ -210,4 +226,3 @@ Stato in `docs/agent-notes/client-matrix.md`. In sintesi:
 - Lint: `scripts/dev.sh lint`. Licenze: `go run ./scripts/notice -check`.
 - Binari statici per Linux: `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath
   -ldflags="-s -w" ./cmd/mysqlite` (anche `GOARCH=arm64`).
-- Documentazione di progetto: `AGENTS.md` e `docs/`.

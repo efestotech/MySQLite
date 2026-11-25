@@ -1,7 +1,6 @@
 package dialect
 
 import (
-	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -322,23 +321,6 @@ func TestRuleOrder(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("rule registry changed:\nwant %v\ngot  %v", want, got)
-	}
-
-	doc, err := os.ReadFile("../../docs/agent-notes/rule-order.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	last := -1
-	for _, r := range Rules() {
-		row := "| " + r.ID + " | `" + r.Name + "` |"
-		i := strings.Index(string(doc), row)
-		if i < 0 {
-			t.Fatalf("rule-order.md has no row starting %q", row)
-		}
-		if i < last {
-			t.Fatalf("rule-order.md lists %s out of order", r.ID)
-		}
-		last = i
 	}
 }
 
