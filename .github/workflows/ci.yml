@@ -45,11 +45,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      # Forbidden or unknown licenses fail the build (docs/02-research.md section 6).
+      # Forbidden or unknown licenses fail the build. modernc.org/mathutil is BSD-3-Clause
+      # ("the names of the authors" wording) that go-licenses v1.6.0's classifier does not
+      # recognize; the notice step below still audits it.
       - name: go-licenses check
         run: |
           go install github.com/google/go-licenses@v1.6.0
-          "$(go env GOPATH)/bin/go-licenses" check ./cmd/mysqlite --disallowed_types=forbidden,restricted,unknown
+          "$(go env GOPATH)/bin/go-licenses" check ./cmd/mysqlite --disallowed_types=forbidden,restricted,unknown --ignore modernc.org/mathutil
       # The repository's own audit, and NOTICE must be what it generates.
       - name: notice
         run: |
