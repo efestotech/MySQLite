@@ -206,7 +206,7 @@ func (c Config) Validate() error {
 		return errors.New("config: data_dir must not be empty")
 	}
 	if !strings.HasSuffix(c.ServerVersion, versionSuffix) || len(c.ServerVersion) == len(versionSuffix) {
-		return fmt.Errorf("config: server_version %q must end with %q (docs/03-protocol.md section 1)", c.ServerVersion, versionSuffix)
+		return fmt.Errorf("config: server_version %q must end with %q", c.ServerVersion, versionSuffix)
 	}
 	if c.MaxAllowedPacket < minAllowedPacket || c.MaxAllowedPacket > maxAllowedPacketCap {
 		return fmt.Errorf("config: max_allowed_packet %d is out of range %d-%d", c.MaxAllowedPacket, minAllowedPacket, maxAllowedPacketCap)
