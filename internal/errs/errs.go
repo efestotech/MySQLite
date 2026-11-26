@@ -429,8 +429,15 @@ func fromFunction(msg string) *Error {
 		return DivisionByZero()
 	case "1242":
 		return SubqueryRows()
+	case "3685":
+		return RegexpIllegal()
 	}
 	return Internal()
+}
+
+// RegexpIllegal is 3685: a REGEXP pattern that does not compile.
+func RegexpIllegal() *Error {
+	return newError(3685, "HY000", "Illegal argument to a regular expression.")
 }
 
 // OutOfRange is 1264 in strict mode.

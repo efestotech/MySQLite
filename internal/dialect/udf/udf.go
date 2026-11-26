@@ -6,8 +6,10 @@ package udf
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"mysqlite/internal/collate"
@@ -55,6 +57,7 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFIntDiv, NumArgs: 3, Deterministic: true, Fn: intDiv},
 		{Name: functions.UDFXor, NumArgs: 2, Deterministic: true, Fn: xor},
 		{Name: functions.UDFLike, NumArgs: 4, Deterministic: true, Fn: like},
+		{Name: functions.UDFRegexp, NumArgs: 3, Deterministic: true, Fn: regexpMatch},
 		{Name: functions.UDFCut, NumArgs: 2, Deterministic: true, Fn: cut},
 		{Name: functions.UDFRaise, NumArgs: 1, Fn: raise},
 		// Not deterministic: it writes to the sink on every call.
@@ -217,6 +220,62 @@ func like(args []any) (any, error) {
 		return int64(1), nil
 	}
 	return int64(0), nil
+}
+
+// regexpMatch is mysqlite_regexp(value, pattern, binary): 1 when pattern matches
+// anywhere in value, NULL when either is NULL. Compiled patterns are cached.
+func regexpMatch(args []any) (any, error) {
+	value, ok1 := text(args[0])
+	pattern, ok2 := text(args[1])
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	binary, _ := args[2].(int64)
+	re, err := compileRegexp(pattern, binary == 1)
+	if err != nil {
+		return nil, err
+	}
+	if re.MatchString(value) {
+		return int64(1), nil
+	}
+	return int64(0), nil
+}
+
+var regexps struct {
+	sync.Mutex
+	m map[regexpKey]*regexp.Regexp
+}
+
+type regexpKey struct {
+	pattern string
+	binary  bool
+}
+
+// compileRegexp compiles a REGEXP pattern, case-insensitive unless binary. The cache is
+// emptied when it holds 256 patterns: queries use few distinct patterns.
+func compileRegexp(pattern string, binary bool) (*regexp.Regexp, error) {
+	k := regexpKey{pattern, binary}
+	regexps.Lock()
+	re, ok := regexps.m[k]
+	regexps.Unlock()
+	if ok {
+		return re, nil
+	}
+	src := pattern
+	if !binary {
+		src = "(?i)" + pattern
+	}
+	re, err := regexp.Compile(src)
+	if err != nil {
+		return nil, errs.FunctionError(errs.RegexpIllegal())
+	}
+	regexps.Lock()
+	if regexps.m == nil || len(regexps.m) >= 256 {
+		regexps.m = map[regexpKey]*regexp.Regexp{}
+	}
+	regexps.m[k] = re
+	regexps.Unlock()
+	return re, nil
 }
 
 // text is an argument's string form; false for NULL.

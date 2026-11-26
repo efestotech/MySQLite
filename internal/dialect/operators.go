@@ -72,6 +72,31 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 	return x
 }
 
+// regexp emits [NOT] mysqlite_regexp(value, pattern, binary). As in MySQL the pattern
+// matches anywhere in the value, case-insensitively unless an operand is a binary
+// string. Numbers match as their MySQL string form.
+func (e *emitter) regexp(n *ast.PatternRegexpExpr) *meta.Expr {
+	e.apply(ruleFunction)
+	value, vx := e.subExpr(n.Expr)
+	pattern, px := e.subExpr(n.Pattern)
+	x := node(meta.ExprBool, "REGEXP", vx, px)
+	if x == nil {
+		return nil
+	}
+	binary := "0"
+	if e.binaryString(vx) || e.binaryString(px) {
+		binary = "1"
+	}
+	if n.Not {
+		e.write("(NOT ")
+	}
+	e.write(functions.UDFRegexp, "(", e.textForm(value, vx), ", ", e.textForm(pattern, px), ", ", binary, ")")
+	if n.Not {
+		e.write(")")
+	}
+	return x
+}
+
 // binaryString reports a string operand with a binary collation. An operand whose type
 // is unknown (no catalog) is not binary.
 func (e *emitter) binaryString(x *meta.Expr) bool {

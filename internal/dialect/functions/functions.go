@@ -95,6 +95,9 @@ const (
 	UDFXor = "mysqlite_xor"
 	// UDFLike is LIKE under MySQL's collations; SQLite's LIKE folds ASCII only.
 	UDFLike = "mysqlite_like"
+	// UDFRegexp(value, pattern, binary) is REGEXP and RLIKE: Go's RE2 syntax, which
+	// covers the ICU patterns applications write (no backreferences, no lookaround).
+	UDFRegexp = "mysqlite_regexp"
 	// UDFLastInsertID(sink, x) is LAST_INSERT_ID(x): x as an integer, also written to
 	// the sink.
 	UDFLastInsertID = "mysqlite_last_insert_id"

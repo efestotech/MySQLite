@@ -1254,6 +1254,8 @@ func (e *emitter) expr(x ast.ExprNode) *meta.Expr {
 		return x
 	case *ast.PatternLikeOrIlikeExpr:
 		return e.like(n)
+	case *ast.PatternRegexpExpr:
+		return e.regexp(n)
 	case *ast.FuncCallExpr:
 		if isCurrentDatabase(n) {
 			e.apply(ruleCurrentDB)

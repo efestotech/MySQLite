@@ -197,6 +197,9 @@ scrivono sullo stesso database: una transazione che scrive tiene lo scrittore fi
 - **Database**: `CREATE DATABASE` accetta solo `utf8mb4` / `utf8mb4_general_ci` e
   `ENCRYPTION 'N'`; altre opzioni rispondono 1235. `DROP DATABASE` risponde 1235: per
   eliminare un database si cancella il file `<nome>.db` a server fermo.
+- **`REGEXP` / `RLIKE`**: usano le espressioni regolari di Go (RE2) invece di ICU: niente
+  backreference né lookaround (``, `(?=...)`), che rispondono 3685. Il confronto ignora
+  le maiuscole, salvo con una collation `_bin` o una stringa binaria.
 - **Interi**: `BIGINT UNSIGNED` oltre 9223372036854775807 risponde 1235. `SUM` di interi
   oltre 2^63 risponde 1235 (MySQL restituisce un DECIMAL). Un overflow dentro una `WHERE`
   non è rilevato (MySQL risponde 1690).

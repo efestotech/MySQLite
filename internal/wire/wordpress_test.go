@@ -103,3 +103,45 @@ func TestKeyPrefixLength(t *testing.T) {
 	_, err := conn.Execute("CREATE TABLE t1 (s text, KEY s (s))")
 	requireMyError(t, err, 1170, "42000")
 }
+
+// REGEXP and RLIKE match anywhere in the string, case-insensitively unless an operand is
+// a binary string, as MySQL's ICU regular expressions do. WordPress deletes old feed
+// caches with DELETE ... WHERE option_name REGEXP.
+func TestRegexp(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE wp_options (option_id bigint unsigned NOT NULL auto_increment, option_name varchar(191) NOT NULL, option_value longtext NOT NULL, PRIMARY KEY (option_id), UNIQUE KEY option_name (option_name))")
+	execOK(t, conn, "INSERT INTO wp_options (option_name, option_value) VALUES ('rss_0123456789abcdef0123456789abcdef', 'a'), ('rss_0123456789abcdef0123456789abcdef_ts', 'b'), ('rss_short', 'c'), ('siteurl', 'd')")
+	res := execOK(t, conn, "DELETE FROM wp_options WHERE option_name REGEXP '^rss_[0-9a-f]{32}(_ts)?$'")
+	if res.AffectedRows != 2 {
+		t.Errorf("DELETE ... REGEXP affected %d rows, want 2", res.AffectedRows)
+	}
+	if got := firstColumn(execOK(t, conn, "SELECT option_name FROM wp_options ORDER BY option_name")); strings.Join(got, ",") != "rss_short,siteurl" {
+		t.Errorf("rows left: %v", got)
+	}
+	for q, want := range map[string]string{
+		"SELECT 'Hello' REGEXP 'ell'":                                "1",
+		"SELECT 'Hello' REGEXP '^HEL'":                               "1",
+		"SELECT 'Hello' RLIKE 'x'":                                   "0",
+		"SELECT 'Hello' NOT REGEXP 'x'":                              "1",
+		"SELECT 'Città' REGEXP 'CITTÀ'":                              "1",
+		"SELECT NULL REGEXP 'a'":                                     "NULL",
+		"SELECT 'a' REGEXP NULL":                                     "NULL",
+		"SELECT 123 REGEXP '^1[0-9]+$'":                              "1",
+		"SELECT (SELECT COUNT(*) FROM items WHERE name REGEXP '^p')": "1",
+	} {
+		if got := column(t, execOK(t, conn, q+" AS r"), 0, "r"); got != want {
+			t.Errorf("%s = %s, want %s", q, got, want)
+		}
+	}
+	// A case-sensitive collation matches case-sensitively.
+	execOK(t, conn, "CREATE TABLE cs (v varchar(10) COLLATE utf8mb4_bin)")
+	execOK(t, conn, "INSERT INTO cs VALUES ('Hello')")
+	if n := execOK(t, conn, "SELECT v FROM cs WHERE v REGEXP '^hel'").RowNumber(); n != 0 {
+		t.Errorf("utf8mb4_bin REGEXP '^hel': %d rows, want 0", n)
+	}
+	if n := execOK(t, conn, "SELECT v FROM cs WHERE v REGEXP '^Hel'").RowNumber(); n != 1 {
+		t.Errorf("utf8mb4_bin REGEXP '^Hel': %d rows, want 1", n)
+	}
+	_, err := conn.Execute("SELECT 'a' REGEXP '('")
+	requireMyError(t, err, 3685, "HY000")
+}
