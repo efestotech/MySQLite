@@ -89,8 +89,10 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 
 // deleteMulti runs a multi-table DELETE: it selects the rowids of every target over the
 // join first, then deletes them, so a target's rows cannot change what another target
-// matches. A row named by several targets is deleted and counted once.
-func (h *handler) deleteMulti(ctx context.Context, conn *sql.Conn, st *dialect.Statement, hint errs.Hint) (*mysql.Result, error) {
+// matches. A row named by several targets is deleted and counted once, and a target on
+// the nullable side of an outer join skips the rows it did not match. A savepoint makes
+// the statement atomic inside a transaction, as MySQL's is.
+func (h *handler) deleteMulti(ctx context.Context, conn *sql.Conn, st *dialect.Statement, hint errs.Hint) (_ *mysql.Result, err error) {
 	w := st.Write
 	from := meta.From{Using: w.From.Using, Sources: make([]meta.Source, len(w.From.Sources))}
 	for i, s := range w.From.Sources {
@@ -133,12 +135,15 @@ func (h *handler) deleteMulti(ctx context.Context, conn *sql.Conn, st *dialect.S
 			return nil, h.fail(err, hint)
 		}
 		for rows.Next() {
-			var id int64
-			if err := rows.Scan(&id); err != nil {
+			var rowid sql.NullInt64
+			if err := rows.Scan(&rowid); err != nil {
 				rows.Close()
 				return nil, h.fail(err, hint)
 			}
-			if !tg.seen[id] {
+			if !rowid.Valid {
+				continue
+			}
+			if id := rowid.Int64; !tg.seen[id] {
 				tg.seen[id] = true
 				tg.ids = append(tg.ids, id)
 			}
@@ -148,6 +153,16 @@ func (h *handler) deleteMulti(ctx context.Context, conn *sql.Conn, st *dialect.S
 			return nil, h.fail(err, hint)
 		}
 	}
+
+	if _, err := conn.ExecContext(ctx, "SAVEPOINT mysqlite_stmt"); err != nil {
+		return nil, h.fail(err, hint)
+	}
+	defer func() {
+		if err != nil {
+			_, _ = conn.ExecContext(ctx, "ROLLBACK TO mysqlite_stmt")
+		}
+		_, _ = conn.ExecContext(ctx, "RELEASE mysqlite_stmt")
+	}()
 
 	const batch = 500
 	var affected int64

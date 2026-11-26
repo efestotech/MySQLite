@@ -370,3 +370,58 @@ func TestMultiTableDeleteDuplicateTarget(t *testing.T) {
 		t.Errorf("message %q", e.Message)
 	}
 }
+
+// A target on the nullable side of an outer join skips the rows it did not match, as in
+// MySQL, instead of failing on a NULL rowid.
+func TestMultiTableDeleteOuterJoin(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE posts (id int PRIMARY KEY, title varchar(20))")
+	execOK(t, conn, "CREATE TABLE meta (id int PRIMARY KEY, post_id int)")
+	execOK(t, conn, "INSERT INTO posts VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+	execOK(t, conn, "INSERT INTO meta VALUES (10, 1), (11, 9)")
+	res := execOK(t, conn, "DELETE p, m FROM posts p LEFT JOIN meta m ON m.post_id = p.id WHERE p.id < 3")
+	if res.AffectedRows != 3 {
+		t.Errorf("DELETE p, m affected %d rows, want 3", res.AffectedRows)
+	}
+	if got := firstColumn(execOK(t, conn, "SELECT id FROM posts")); strings.Join(got, ",") != "3" {
+		t.Errorf("posts left: %v", got)
+	}
+	if got := firstColumn(execOK(t, conn, "SELECT id FROM meta")); strings.Join(got, ",") != "11" {
+		t.Errorf("meta left: %v", got)
+	}
+}
+
+// A multi-table DELETE that fails after deleting some targets' rows leaves no row
+// deleted, in autocommit and inside a transaction, where the transaction stays open.
+func TestMultiTableDeleteAtomic(t *testing.T) {
+	conn := shopServer(t,
+		"CREATE TABLE parent (id INTEGER PRIMARY KEY)",
+		"CREATE TABLE child (id INTEGER PRIMARY KEY, pid INTEGER REFERENCES parent(id))",
+		"CREATE TABLE other (id INTEGER PRIMARY KEY)",
+		"INSERT INTO parent VALUES (1), (2)",
+		"INSERT INTO child VALUES (1, 1)",
+		"INSERT INTO other VALUES (1), (2)",
+	)
+	// "other" is deleted first; deleting parent 1 then fails on child's foreign key.
+	const q = "DELETE o, p FROM other o JOIN parent p ON p.id = o.id"
+	_, err := conn.Execute(q)
+	requireMyError(t, err, 1451, "23000")
+	if n := execOK(t, conn, "SELECT id FROM other").RowNumber(); n != 2 {
+		t.Errorf("autocommit: other has %d rows, want 2", n)
+	}
+
+	execOK(t, conn, "BEGIN")
+	execOK(t, conn, "INSERT INTO other VALUES (3)")
+	_, err = conn.Execute(q)
+	requireMyError(t, err, 1451, "23000")
+	if !conn.IsInTransaction() {
+		t.Fatal("the failed statement ended the transaction")
+	}
+	if got := firstColumn(execOK(t, conn, "SELECT id FROM other ORDER BY id")); strings.Join(got, ",") != "1,2,3" {
+		t.Errorf("transaction: other has %v, want 1,2,3", got)
+	}
+	execOK(t, conn, "COMMIT")
+	if n := execOK(t, conn, "SELECT id FROM parent").RowNumber(); n != 2 {
+		t.Errorf("parent has %d rows, want 2", n)
+	}
+}
