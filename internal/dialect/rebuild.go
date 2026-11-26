@@ -65,7 +65,7 @@ func (t *Translator) Rebuild(createSQL string, old *meta.Table, spec *ast.AlterT
 	if !ok {
 		return nil, errs.Unsupported("ALTER TABLE rebuild of this table", "mysqlite cannot re-read its definition")
 	}
-	e := &emitter{query: createSQL, current: old.Database, rules: map[string]bool{}, mode: t.mode}
+	e := &emitter{query: createSQL, current: old.Database, rules: map[string]bool{}, mode: t.mode, rebuilding: true}
 	p := &rebuildPlan{e: e, n: n, table: old.Name, origin: map[*ast.ColumnDef]string{}}
 	for _, c := range n.Cols {
 		p.origin[c] = c.Name.Name.O

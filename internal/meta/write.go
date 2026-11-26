@@ -202,19 +202,30 @@ func sameColumns(a, b []string) bool {
 	return true
 }
 
-// KeyColumn resolves a CREATE INDEX key column: its stored name, or the error MySQL
-// reports for a missing column (1072) or a TEXT/BLOB column without a prefix (1170).
-func (t *Table) KeyColumn(name string, prefixed bool) (string, *errs.Error) {
+// KeyColumn resolves a CREATE INDEX key column: its stored name and the prefix length
+// to keep (0 for the whole column), or the error MySQL reports for a missing column
+// (1072), a TEXT/BLOB column without a prefix (1170) or a prefix that does not fit the
+// column (1089).
+func (t *Table) KeyColumn(name string, prefix int) (string, int, *errs.Error) {
 	c, ok := t.column(name)
 	if !ok {
-		return "", errs.KeyColumnMissing(name)
+		return "", 0, errs.KeyColumnMissing(name)
 	}
+	keep := 0
+	if prefix > 0 {
+		k, ok := KeyPrefix(c.MySQLType(), prefix, false)
+		if !ok {
+			return "", 0, errs.WrongSubKey()
+		}
+		keep = k
+	}
+	prefixed := prefix > 0
 	ti, ok := ParseType(c.MySQLType())
 	switch {
 	case ok && ti.Type == TypeBlob && !prefixed:
-		return "", errs.BlobKeyWithoutLength(c.Name)
+		return "", 0, errs.BlobKeyWithoutLength(c.Name)
 	case ok && ti.Type == TypeJSON:
-		return "", errs.Unsupported("JSON key column", "MySQL indexes JSON only through generated columns")
+		return "", 0, errs.Unsupported("JSON key column", "MySQL indexes JSON only through generated columns")
 	}
-	return c.Name, nil
+	return c.Name, keep, nil
 }

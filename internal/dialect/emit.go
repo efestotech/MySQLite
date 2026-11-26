@@ -37,6 +37,10 @@ type emitter struct {
 	rules   map[string]bool
 	err     *errs.Error
 
+	// rebuilding is set while an ALTER TABLE rebuild re-translates the table: a key
+	// prefix longer than its shortened column becomes the whole column.
+	rebuilding bool
+
 	// calcFoundRows is the outermost SELECT, the one SQL_CALC_FOUND_ROWS may count;
 	// foundSQL and foundArgs are its count query and the number of arguments it takes.
 	calcFoundRows *ast.SelectStmt
@@ -1020,7 +1024,13 @@ func (e *emitter) deleteMulti(n *ast.DeleteStmt) {
 		}
 	}
 	e.wr.From = e.shape.From
+	named := map[string]bool{}
 	for _, tn := range n.Tables.Tables {
+		if named[strings.ToLower(tn.Name.O)] {
+			e.fail(errs.NonUniqueTable(tn.Name.O))
+			return
+		}
+		named[strings.ToLower(tn.Name.O)] = true
 		if tn.Schema.O != "" && tn.Schema.O != e.target {
 			e.unsupported("cross-database reference", reasonM1Scope)
 			return

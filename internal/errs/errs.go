@@ -435,6 +435,12 @@ func fromFunction(msg string) *Error {
 	return Internal()
 }
 
+// WrongSubKey is 1089: a key prefix on a column that is not a string, or longer than
+// the column.
+func WrongSubKey() *Error {
+	return newError(1089, "HY000", "Incorrect prefix key; the used key part isn't a string, the used length is longer than the key part, or the storage engine doesn't support unique prefix keys")
+}
+
 // WrongPlacement is 1234: an option used where MySQL does not allow it.
 func WrongPlacement(option string) *Error {
 	return newError(1234, "42000", "Incorrect usage/placement of '%s'", option)

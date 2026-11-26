@@ -322,3 +322,51 @@ func TestLikeBinary(t *testing.T) {
 	_, err := conn.Execute("SELECT BINARY 'a' = 'A'")
 	requireMyError(t, err, 1235, "42000")
 }
+
+// A key prefix must fit a string column (1089); a prefix as long as the column is the
+// whole column; an ALTER that shortens the column below its prefix drops the prefix,
+// as MySQL does, so SHOW CREATE TABLE stays valid for MySQL.
+func TestKeyPrefixChecks(t *testing.T) {
+	conn := shopServer(t)
+	for _, q := range []string{
+		"CREATE TABLE bad1 (a int, KEY (a(10)))",
+		"CREATE TABLE bad2 (a varchar(10), KEY (a(20)))",
+		"CREATE TABLE bad3 (a char(4), KEY (a(5)))",
+	} {
+		_, err := conn.Execute(q)
+		requireMyError(t, err, 1089, "HY000")
+	}
+	execOK(t, conn, "CREATE TABLE s (a varchar(50), n int, b text, c varbinary(20), KEY ka (a(7)), KEY kb (b(100)), KEY kc (c(4)))")
+	for _, q := range []string{
+		"CREATE INDEX kn ON s (n(2))",
+		"ALTER TABLE s ADD KEY ka2 (a(51))",
+	} {
+		_, err := conn.Execute(q)
+		requireMyError(t, err, 1089, "HY000")
+	}
+	execOK(t, conn, "CREATE TABLE eq (a varchar(10), KEY ka (a(10)))")
+	if got := column(t, execOK(t, conn, "SHOW INDEX FROM eq"), 0, "Sub_part"); got != "NULL" {
+		t.Errorf("a prefix as long as the column: Sub_part %s, want NULL", got)
+	}
+	execOK(t, conn, "ALTER TABLE s MODIFY a varchar(3)")
+	res := execOK(t, conn, "SHOW INDEX FROM s")
+	for i := 0; i < res.RowNumber(); i++ {
+		want := map[string]string{"ka": "NULL", "kb": "100", "kc": "4"}[column(t, res, i, "Key_name")]
+		if got := column(t, res, i, "Sub_part"); got != want {
+			t.Errorf("after shrinking a: %s Sub_part %s, want %s", column(t, res, i, "Key_name"), got, want)
+		}
+	}
+	if create := column(t, execOK(t, conn, "SHOW CREATE TABLE s"), 0, "Create Table"); !strings.Contains(create, "KEY `ka` (`a`)") {
+		t.Errorf("SHOW CREATE TABLE after shrinking a:\n%s", create)
+	}
+}
+
+// The tables of a multi-table DELETE are named once (1066).
+func TestMultiTableDeleteDuplicateTarget(t *testing.T) {
+	conn := shopServer(t)
+	_, err := conn.Execute("DELETE a, a FROM items a WHERE a.id = 1")
+	e := requireMyError(t, err, 1066, "42000")
+	if e.Message != "Not unique table/alias: 'a'" {
+		t.Errorf("message %q", e.Message)
+	}
+}

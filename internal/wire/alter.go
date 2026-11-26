@@ -234,12 +234,17 @@ func addIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ic *dialect.In
 		return errs.DuplicateKeyName(ic.Name)
 	}
 	cols := make([]string, len(ic.Columns))
+	sub := make([]int, len(ic.Columns))
 	for i, c := range ic.Columns {
-		name, e := t.KeyColumn(c, i < len(ic.SubPart) && ic.SubPart[i] > 0)
+		prefix := 0
+		if i < len(ic.SubPart) {
+			prefix = ic.SubPart[i]
+		}
+		name, keep, e := t.KeyColumn(c, prefix)
 		if e != nil {
 			return e
 		}
-		cols[i] = name
+		cols[i], sub[i] = name, keep
 	}
 	name := ic.Name
 	if name == "" {
@@ -252,7 +257,7 @@ func addIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ic *dialect.In
 			name = fmt.Sprintf("%s_%d", cols[0], n)
 		}
 	}
-	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, name), name, ic.Unique, cols, ic.SubPart)
+	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, name), name, ic.Unique, cols, sub)
 }
 
 // buildIndex creates an index and its sidecar name and key prefix lengths. A UNIQUE

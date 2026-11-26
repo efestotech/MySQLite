@@ -162,6 +162,36 @@ func ParseSubPart(s string, n int) []int {
 	return sub
 }
 
+// KeyPrefix checks a key prefix length against the column's MySQL type and returns the
+// length to keep: 0 when the prefix covers the whole column. ok is false (1089) for a
+// column that is not a string, or a prefix longer than a CHAR/VARCHAR/BINARY/VARBINARY
+// column; with shrink, as an ALTER that shortens the column does in MySQL, such a
+// prefix becomes the whole column instead.
+func KeyPrefix(mysqlType string, prefix int, shrink bool) (keep int, ok bool) {
+	t := strings.ToLower(strings.TrimSpace(mysqlType))
+	base, args, _ := strings.Cut(t, "(")
+	switch strings.TrimSpace(base) {
+	case "tinytext", "text", "mediumtext", "longtext", "tinyblob", "blob", "mediumblob", "longblob":
+		return prefix, true
+	case "char", "varchar", "binary", "varbinary":
+		n := 1 // CHAR and BINARY without a length are 1 long
+		if args != "" {
+			v, err := strconv.Atoi(strings.TrimSpace(strings.TrimSuffix(strings.Fields(args)[0], ")")))
+			if err != nil {
+				return prefix, true
+			}
+			n = v
+		}
+		switch {
+		case prefix < n:
+			return prefix, true
+		case prefix == n || shrink:
+			return 0, true
+		}
+	}
+	return 0, false
+}
+
 // Prefix is the prefix length of the key's i-th column, 0 for a whole column.
 func (ix Index) Prefix(i int) int {
 	if i < len(ix.SubPart) {

@@ -352,7 +352,14 @@ func (e *emitter) keyColumns(parts []*ast.IndexPartSpecification, byName map[str
 			return nil, nil
 		}
 		names = append(names, col.name)
-		sub[i] = max(p.Length, 0)
+		if p.Length > 0 {
+			keep, ok := meta.KeyPrefix(col.mysqlType, p.Length, e.rebuilding)
+			if !ok {
+				e.fail(errs.WrongSubKey())
+				return nil, nil
+			}
+			sub[i] = keep
+		}
 	}
 	if meta.FormatSubPart(sub) == "" {
 		sub = nil
