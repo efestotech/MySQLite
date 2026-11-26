@@ -248,8 +248,13 @@ di una tabella, SELECT con WHERE su una stringa, INSERT, UPDATE, DELETE, disconn
 | P1 | Adminer 5.4.1 | Supera lo scenario HTTP (`test/clients/adminer`) |
 | P2 | Connector/J 9.1.0 | Supera lo scenario (OpenJDK 21, Docker) |
 | P2 | HeidiSQL | Da provare a mano |
+| — | WordPress 7.1.5 (PHP 8.3, WP-CLI 2.12.0) | Si installa e funziona: articoli, pagine, commenti, utenti, menu, ricerca, archivi, feed, REST API, sitemap (prova manuale in Docker, non ancora automatizzata) |
 
 `scripts/dev.sh clients` esegue tutta la matrice in Docker.
+
+Con WordPress installato da WP-CLI (`wp core install`) le regole di rewrite delle
+categorie mancano finché non si esegue `wp rewrite flush` o si salvano i permalink dal
+pannello: succede allo stesso modo con MySQL 8.0.
 
 ## Sviluppo
 
