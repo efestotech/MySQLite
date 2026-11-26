@@ -220,10 +220,11 @@ var privileges = []string{
 	"CREATE ROLE", "DROP ROLE",
 }
 
-// SortLen is MySQL's Sortlen: 1 for the simple collations, 8 for unicode_ci, 0 for 0900.
+// SortLen is MySQL's Sortlen: 1 for the simple collations, 8 for unicode_ci and
+// unicode_520_ci, 0 for 0900.
 func SortLen(collation string) int64 {
 	switch {
-	case strings.HasSuffix(collation, "_unicode_ci"):
+	case strings.Contains(collation, "_unicode_"):
 		return 8
 	case strings.Contains(collation, "_0900_"):
 		return 0

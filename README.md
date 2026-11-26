@@ -166,7 +166,8 @@ Le collation sono un'approssimazione di quelle di MySQL, calcolate dai dati
 Unicode e non dalle tabelle di MySQL:
 
 - `utf8mb4_general_ci`: confronto senza maiuscole e accenti per singolo carattere; gli
-  spazi finali sono ignorati (PAD SPACE).
+  spazi finali sono ignorati (PAD SPACE). `utf8mb4_unicode_ci` e
+  `utf8mb4_unicode_520_ci` (quella che sceglie WordPress) confrontano allo stesso modo.
 - `utf8mb4_0900_ai_ci` (predefinita di MySQL 8): stessa idea con `ß` = `ss`, NO PAD.
 - `utf8mb4_bin`, `utf8mb4_0900_bin`: ordine dei code point.
 

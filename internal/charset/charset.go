@@ -42,11 +42,13 @@ var Collations = []Collation{
 	{Name: "utf8mb3_bin", Charset: "utf8mb3", ID: 83, PadAttribute: "PAD SPACE"},
 	{Name: "utf8mb3_general_ci", Charset: "utf8mb3", ID: 33, Default: true, PadAttribute: "PAD SPACE"},
 	{Name: "utf8mb3_unicode_ci", Charset: "utf8mb3", ID: 192, PadAttribute: "PAD SPACE"},
+	{Name: "utf8mb3_unicode_520_ci", Charset: "utf8mb3", ID: 214, PadAttribute: "PAD SPACE"},
 	{Name: "utf8mb4_0900_ai_ci", Charset: "utf8mb4", ID: 255, PadAttribute: "NO PAD"},
 	{Name: "utf8mb4_0900_bin", Charset: "utf8mb4", ID: 309, PadAttribute: "NO PAD"},
 	{Name: "utf8mb4_bin", Charset: "utf8mb4", ID: 46, PadAttribute: "PAD SPACE"},
 	{Name: "utf8mb4_general_ci", Charset: "utf8mb4", ID: 45, Default: true, PadAttribute: "PAD SPACE"},
 	{Name: "utf8mb4_unicode_ci", Charset: "utf8mb4", ID: 224, PadAttribute: "PAD SPACE"},
+	{Name: "utf8mb4_unicode_520_ci", Charset: "utf8mb4", ID: 246, PadAttribute: "PAD SPACE"},
 }
 
 // known lists names MySQL knows but mysqlite cannot serve: they need transcoding.
