@@ -230,7 +230,6 @@ Per scelta, nella versione 0.1. Il client riceve un errore MySQL chiaro.
   `SHOW INDEX` riporta il prefisso.
 - Query su più database (join tra database).
 - `HANDLER`, `GET_LOCK`, transazioni XA, lock reali di tabella.
-- `SQL_CALC_FOUND_ROWS` / `FOUND_ROWS()`.
 - Piani `EXPLAIN` fedeli.
 - Prestazioni pari a MySQL: la correttezza viene prima.
 - Lock per riga.

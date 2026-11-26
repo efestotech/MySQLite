@@ -36,6 +36,8 @@ func (h *handler) sessionValue(sv *dialect.SessionValue) any {
 		return h.lastInsertID
 	case functions.SessionRowCount:
 		return h.rowCount
+	case functions.SessionFoundRows:
+		return h.foundRowsCount
 	case functions.SessionConnectionID:
 		if h.conn == nil {
 			return int64(0)

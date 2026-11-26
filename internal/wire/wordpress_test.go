@@ -246,3 +246,53 @@ func TestSubstringFunctions(t *testing.T) {
 		t.Errorf("SUBSTRING in WHERE: %s", got)
 	}
 }
+
+// SELECT SQL_CALC_FOUND_ROWS ... LIMIT counts the rows the statement would return
+// without its LIMIT; FOUND_ROWS() returns that count. After a SELECT without it,
+// FOUND_ROWS() is the number of rows that SELECT returned. WordPress paginates posts and
+// comments this way.
+func TestFoundRows(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE posts (id int PRIMARY KEY, status varchar(10))")
+	execOK(t, conn, "INSERT INTO posts VALUES (1, 'publish'), (2, 'publish'), (3, 'draft'), (4, 'publish'), (5, 'publish')")
+	found := func() string {
+		t.Helper()
+		return column(t, execOK(t, conn, "SELECT FOUND_ROWS() AS n"), 0, "n")
+	}
+	res := execOK(t, conn, "SELECT SQL_CALC_FOUND_ROWS posts.id FROM posts WHERE status = 'publish' ORDER BY id DESC LIMIT 0, 2")
+	if got := strings.Join(firstColumn(res), ","); got != "5,4" {
+		t.Errorf("page 1: %s", got)
+	}
+	if got := found(); got != "4" {
+		t.Errorf("FOUND_ROWS() after SQL_CALC_FOUND_ROWS = %s, want 4", got)
+	}
+	// FOUND_ROWS() itself returned one row.
+	if got := found(); got != "1" {
+		t.Errorf("FOUND_ROWS() after SELECT FOUND_ROWS() = %s, want 1", got)
+	}
+	execOK(t, conn, "SELECT id FROM posts WHERE id > 2 LIMIT 2")
+	if got := found(); got != "2" {
+		t.Errorf("FOUND_ROWS() after a plain SELECT = %s, want 2", got)
+	}
+	execOK(t, conn, "SELECT SQL_CALC_FOUND_ROWS status, COUNT(*) FROM posts GROUP BY status LIMIT 1")
+	if got := found(); got != "2" {
+		t.Errorf("FOUND_ROWS() after a grouped SELECT = %s, want 2", got)
+	}
+	// Parameters bound in the statement are bound in the count too.
+	stmt, err := conn.Prepare("SELECT SQL_CALC_FOUND_ROWS id FROM posts WHERE id > ? LIMIT 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stmt.Close()
+	if _, err := stmt.Execute(1); err != nil {
+		t.Fatal(err)
+	}
+	if got := found(); got != "4" {
+		t.Errorf("FOUND_ROWS() after a prepared SQL_CALC_FOUND_ROWS = %s, want 4", got)
+	}
+	// SQL_CALC_FOUND_ROWS is only for the outermost SELECT.
+	_, err = conn.Execute("SELECT id FROM posts WHERE id IN (SELECT SQL_CALC_FOUND_ROWS id FROM posts)")
+	if err == nil {
+		t.Error("SQL_CALC_FOUND_ROWS in a subquery must be an error")
+	}
+}

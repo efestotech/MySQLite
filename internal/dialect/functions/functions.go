@@ -30,6 +30,7 @@ const (
 const (
 	SessionLastInsertID = "LAST_INSERT_ID"
 	SessionRowCount     = "ROW_COUNT"
+	SessionFoundRows    = "FOUND_ROWS"
 	SessionConnectionID = "CONNECTION_ID"
 	SessionUser         = "USER"
 	SessionCurrentUser  = "CURRENT_USER"
@@ -233,6 +234,7 @@ var table = map[string]Func{
 	// Session.
 	"LAST_INSERT_ID": {MinArgs: 0, MaxArgs: 1, Emit: LastInsertID, Session: SessionLastInsertID, Ret: meta.RetUint},
 	"ROW_COUNT":      session(SessionRowCount, meta.RetInt),
+	"FOUND_ROWS":     session(SessionFoundRows, meta.RetInt),
 	"CONNECTION_ID":  session(SessionConnectionID, meta.RetUint),
 	"USER":           session(SessionUser, meta.RetAccount),
 	"SESSION_USER":   session(SessionUser, meta.RetAccount),

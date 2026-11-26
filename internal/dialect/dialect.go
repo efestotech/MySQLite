@@ -110,7 +110,11 @@ type Statement struct {
 	Database string
 	SQL      string
 	Args     []any
-	Op       errs.Op
+	// FoundRowsSQL is SELECT SQL_CALC_FOUND_ROWS's count of the rows without LIMIT,
+	// for FOUND_ROWS(); it takes the first FoundRowsArgs of Args.
+	FoundRowsSQL  string
+	FoundRowsArgs int
+	Op            errs.Op
 	// Rules lists the IDs of the rules applied, in registry order (journal tags).
 	Rules []string
 	// UseDB is the target of KindUse.

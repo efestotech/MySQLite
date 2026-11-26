@@ -435,6 +435,11 @@ func fromFunction(msg string) *Error {
 	return Internal()
 }
 
+// WrongPlacement is 1234: an option used where MySQL does not allow it.
+func WrongPlacement(option string) *Error {
+	return newError(1234, "42000", "Incorrect usage/placement of '%s'", option)
+}
+
 // RegexpIllegal is 3685: a REGEXP pattern that does not compile.
 func RegexpIllegal() *Error {
 	return newError(3685, "HY000", "Illegal argument to a regular expression.")

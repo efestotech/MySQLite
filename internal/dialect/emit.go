@@ -37,6 +37,12 @@ type emitter struct {
 	rules   map[string]bool
 	err     *errs.Error
 
+	// calcFoundRows is the outermost SELECT, the one SQL_CALC_FOUND_ROWS may count;
+	// foundSQL and foundArgs are its count query and the number of arguments it takes.
+	calcFoundRows *ast.SelectStmt
+	foundSQL      string
+	foundArgs     int
+
 	// inValues forbids column references, which SQLite does not allow in VALUES.
 	inValues bool
 	// upsert is set in ON DUPLICATE KEY UPDATE, where VALUES(col) is the inserted value.
@@ -103,8 +109,11 @@ func quoteIdent(name string) string {
 func (e *emitter) statement(n ast.StmtNode) *Statement {
 	switch n := n.(type) {
 	case *ast.SelectStmt:
+		e.calcFoundRows = n
 		e.selectStmt(n)
-		return e.result(KindRead, errs.OpOther)
+		st := e.result(KindRead, errs.OpOther)
+		st.FoundRowsSQL, st.FoundRowsArgs = e.foundSQL, e.foundArgs
+		return st
 	case *ast.InsertStmt:
 		e.insertStmt(n)
 		return e.result(KindWrite, errs.OpInsert)
@@ -312,8 +321,8 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 		}
 	}
 	if o := n.SelectStmtOpts; o != nil {
-		if o.CalcFoundRows {
-			e.unsupported("SQL_CALC_FOUND_ROWS", reasonLater)
+		if o.CalcFoundRows && n != e.calcFoundRows {
+			e.fail(errs.WrongPlacement("SQL_CALC_FOUND_ROWS"))
 		}
 		if len(o.TableHints) > 0 || o.StraightJoin || o.Priority != mysql.NoPriority {
 			e.apply(ruleHintStrip)
@@ -361,6 +370,11 @@ func (e *emitter) selectStmt(n *ast.SelectStmt) {
 	e.clause = meta.ClauseOrder
 	e.orderBy(n.OrderBy)
 	e.clause = ""
+	if o := n.SelectStmtOpts; o != nil && o.CalcFoundRows && n == e.calcFoundRows {
+		// The same query without its LIMIT; ORDER BY does not change the count.
+		e.foundSQL = "SELECT count(*) FROM (" + e.b.String() + ")"
+		e.foundArgs = len(e.args)
+	}
 	e.limit(n.Limit)
 }
 

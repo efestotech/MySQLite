@@ -86,7 +86,10 @@ type handler struct {
 	version      string
 	lastInsertID int64
 	rowCount     int64
-	sink         *statementSink
+	// foundRowsCount is what FOUND_ROWS() returns: the rows of the last SELECT, or
+	// without its LIMIT for SELECT SQL_CALC_FOUND_ROWS.
+	foundRowsCount int64
+	sink           *statementSink
 	// clock is the running statement's time (ADR 0007).
 	clock statementClock
 
@@ -523,6 +526,13 @@ func (h *handler) read(st *dialect.Statement) (res *mysql.Result, err error) {
 	if err := rows.Err(); err != nil {
 		return nil, h.fail(err, st.Hint())
 	}
+	found := int64(len(rs.RowDatas))
+	if st.FoundRowsSQL != "" {
+		if err := conn.QueryRowContext(ctx, st.FoundRowsSQL, st.Args[:st.FoundRowsArgs]...).Scan(&found); err != nil {
+			return nil, h.fail(err, st.Hint())
+		}
+	}
+	h.foundRowsCount = found
 	return mysql.NewResult(rs), nil
 }
 
