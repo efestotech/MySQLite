@@ -16,9 +16,13 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 # RPM versions cannot hold "-"; "~" sorts a pre-release before the release.
 version=$(printf '%s' "${tag#v}" | tr '-' '~')
+# Only digits, letters and . ~ + : the version reaches the package tool's macros.
 case "$version" in
 [0-9]*) ;;
 *) echo "rpm.sh: version $tag does not start with a digit" >&2; exit 2 ;;
+esac
+case "$version" in
+*[!0-9A-Za-z.~+]*) echo "rpm.sh: version $tag has characters other than [0-9A-Za-z.~+-]" >&2; exit 2 ;;
 esac
 case "$arch" in
 amd64) rpmarch=x86_64 ;;

@@ -6,7 +6,8 @@
 # mysqlite user, the way the unit runs it. Removal keeps the databases.
 set -eu
 
-pkg=$1
+# apt and dnf read a local package only from a path, not a bare relative name.
+pkg=$(cd "$(dirname "$1")" && pwd)/$(basename "$1")
 fail() { echo "pkgtest: $*" >&2; exit 1; }
 
 case "$pkg" in

@@ -16,9 +16,13 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 
 # Debian versions start with a digit and sort a pre-release before the release with "~".
 version=$(printf '%s' "${tag#v}" | tr '-' '~')
+# Only digits, letters and . ~ + : the version reaches the package tool's macros.
 case "$version" in
 [0-9]*) ;;
 *) echo "deb.sh: version $tag does not start with a digit" >&2; exit 2 ;;
+esac
+case "$version" in
+*[!0-9A-Za-z.~+]*) echo "deb.sh: version $tag has characters other than [0-9A-Za-z.~+-]" >&2; exit 2 ;;
 esac
 
 pkg=$(mktemp -d)
