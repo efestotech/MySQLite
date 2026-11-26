@@ -53,6 +53,7 @@ const (
 	factRowFormat = "row_format"
 	factType      = "type"
 	factName      = "name"
+	factSubPart   = "sub_part"
 )
 
 // binaryCharset is the parser's character set of BINARY, VARBINARY and BLOB types.
@@ -83,6 +84,7 @@ type ddlKey struct {
 	name    string
 	unique  bool
 	columns []string
+	subPart []int // key prefix lengths, nil when no column has one
 }
 
 func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
@@ -180,7 +182,7 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 		if e.err != nil {
 			return nil
 		}
-		names := e.keyColumns(k.Keys, byName)
+		names, sub := e.keyColumns(k.Keys, byName, unique || k.Tp == ast.ConstraintPrimaryKey)
 		if e.err != nil {
 			return nil
 		}
@@ -192,7 +194,7 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 			e.fail(errs.WrongIndexName(k.Name))
 			return nil
 		}
-		keys = append(keys, ddlKey{name: k.Name, unique: unique, columns: names})
+		keys = append(keys, ddlKey{name: k.Name, unique: unique, columns: names, subPart: sub})
 	}
 	for _, name := range pk {
 		col := byName[strings.ToLower(name)]
@@ -290,7 +292,10 @@ func (e *emitter) createTable(n *ast.CreateTableStmt) *Statement {
 		stmt += "INDEX " + quoteIdent(sqliteName) + " ON " + quoteIdent(table) + " (" + identList(k.columns) + ")"
 		ct.SQL = append(ct.SQL, stmt)
 		ct.Facts = append(ct.Facts, Fact{Column: "index:" + sqliteName, Key: factName, Value: k.name})
-		ct.keys = append(ct.keys, IndexChange{Table: table, Name: k.name, Unique: k.unique, Columns: k.columns})
+		if s := meta.FormatSubPart(k.subPart); s != "" {
+			ct.Facts = append(ct.Facts, Fact{Column: "index:" + sqliteName, Key: factSubPart, Value: s})
+		}
+		ct.keys = append(ct.keys, IndexChange{Table: table, Name: k.name, Unique: k.unique, Columns: k.columns, SubPart: k.subPart})
 	}
 	ct.cols, ct.pk = cols, pk
 	return &Statement{Kind: KindDDL, Database: db, Op: errs.OpOther, Create: ct}
@@ -325,32 +330,46 @@ func onlyIndexType(o *ast.IndexOption) bool {
 	return c.IsEmpty()
 }
 
-func (e *emitter) keyColumns(parts []*ast.IndexPartSpecification, byName map[string]*ddlColumn) []string {
+// keyColumns resolves the columns of a key and their prefix lengths (nil when no
+// column has one). SQLite indexes whole values: for a non-unique key that finds the
+// same rows as a prefix, for a unique key it changes which values collide, so a prefix
+// there is 1235.
+func (e *emitter) keyColumns(parts []*ast.IndexPartSpecification, byName map[string]*ddlColumn, unique bool) ([]string, []int) {
 	var names []string
-	for _, p := range parts {
-		switch {
-		case p.Expr != nil:
-			e.unsupported("functional key part", reasonLater)
-		case p.Length > 0:
-			e.unsupported("key prefix length", "SQLite indexes whole values")
-		case p.Desc:
-			e.unsupported("descending key part", reasonLater)
-		}
+	sub := make([]int, len(parts))
+	for i, p := range parts {
+		e.keyPart(p, unique)
 		if e.err != nil {
-			return nil
+			return nil, nil
 		}
 		col := byName[strings.ToLower(p.Column.Name.O)]
 		if col == nil {
 			e.fail(errs.KeyColumnMissing(p.Column.Name.O))
-			return nil
+			return nil, nil
 		}
-		if col.lob {
+		if col.lob && p.Length <= 0 {
 			e.fail(errs.BlobKeyWithoutLength(col.name))
-			return nil
+			return nil, nil
 		}
 		names = append(names, col.name)
+		sub[i] = max(p.Length, 0)
 	}
-	return names
+	if meta.FormatSubPart(sub) == "" {
+		sub = nil
+	}
+	return names, sub
+}
+
+// keyPart refuses the key parts SQLite cannot index as MySQL does.
+func (e *emitter) keyPart(p *ast.IndexPartSpecification, unique bool) {
+	switch {
+	case p.Expr != nil:
+		e.unsupported("functional key part", reasonLater)
+	case p.Length > 0 && unique:
+		e.unsupported("key prefix length on a unique key", "SQLite indexes whole values, so the prefix would not decide uniqueness")
+	case p.Desc:
+		e.unsupported("descending key part", reasonLater)
+	}
 }
 
 // tableOptions reads the table options into sidecar facts and returns the default

@@ -23,6 +23,7 @@ type IndexChange struct {
 	Drop    bool
 	Unique  bool
 	Columns []string // as written
+	SubPart []int    // key prefix lengths, nil when no column has one
 }
 
 // IndexSQLiteName is the SQLite name of the index a table's MySQL key is stored as
@@ -116,7 +117,7 @@ func (e *emitter) createIndex(n *ast.CreateIndexStmt) *Statement {
 		return nil
 	}
 	ic := &IndexChange{Table: table, Name: n.IndexName, Unique: n.KeyType == ast.IndexKeyTypeUnique}
-	ic.Columns = e.indexParts(n.IndexPartSpecifications)
+	ic.Columns, ic.SubPart = e.indexParts(n.IndexPartSpecifications, ic.Unique)
 	if e.err != nil {
 		return nil
 	}

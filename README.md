@@ -222,6 +222,9 @@ Per scelta, nella versione 0.1. Il client riceve un errore MySQL chiaro.
 - Compressione del protocollo, TLS, `caching_sha2_password`.
 - `LOAD DATA INFILE`, `LOAD LOCAL INFILE`, `SELECT ... INTO OUTFILE`.
 - Indici FULLTEXT e SPATIAL, `MATCH ... AGAINST`.
+- Chiavi `UNIQUE` o `PRIMARY KEY` con prefisso (`UNIQUE KEY (a(10))`). Le chiavi non
+  uniche con prefisso (`KEY (a(191))`) sono accettate: SQLite indicizza il valore intero e
+  `SHOW INDEX` riporta il prefisso.
 - Query su più database (join tra database).
 - `HANDLER`, `GET_LOCK`, transazioni XA, lock reali di tabella.
 - `SQL_CALC_FOUND_ROWS` / `FOUND_ROWS()`.

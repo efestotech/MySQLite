@@ -151,9 +151,11 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 	}
 	for _, ix := range t.Indexes {
 		var rest []string
-		for _, col := range ix.Columns {
+		var restSub []int
+		for i, col := range ix.Columns {
 			if !strings.EqualFold(col, c.Name) {
 				rest = append(rest, col)
+				restSub = append(restSub, ix.Prefix(i))
 			}
 		}
 		if len(rest) == len(ix.Columns) {
@@ -171,7 +173,7 @@ func dropColumn(ctx context.Context, conn *sql.Conn, t *meta.Table, name string)
 			}
 			continue
 		}
-		if err := buildIndex(ctx, conn, t, ix.SQLiteName, ix.Name, ix.Unique, rest); err != nil {
+		if err := buildIndex(ctx, conn, t, ix.SQLiteName, ix.Name, ix.Unique, rest, restSub); err != nil {
 			return err
 		}
 	}
@@ -233,7 +235,7 @@ func addIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ic *dialect.In
 	}
 	cols := make([]string, len(ic.Columns))
 	for i, c := range ic.Columns {
-		name, e := t.KeyColumn(c)
+		name, e := t.KeyColumn(c, i < len(ic.SubPart) && ic.SubPart[i] > 0)
 		if e != nil {
 			return e
 		}
@@ -250,12 +252,12 @@ func addIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ic *dialect.In
 			name = fmt.Sprintf("%s_%d", cols[0], n)
 		}
 	}
-	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, name), name, ic.Unique, cols)
+	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, name), name, ic.Unique, cols, ic.SubPart)
 }
 
-// buildIndex creates an index and its sidecar name. A UNIQUE index over duplicate
-// values is 1062 for the first duplicate.
-func buildIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, sqliteName, key string, unique bool, cols []string) error {
+// buildIndex creates an index and its sidecar name and key prefix lengths. A UNIQUE
+// index over duplicate values is 1062 for the first duplicate.
+func buildIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, sqliteName, key string, unique bool, cols []string, subPart []int) error {
 	quoted := make([]string, len(cols))
 	for i, c := range cols {
 		quoted[i] = ident(c)
@@ -274,7 +276,17 @@ func buildIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, sqliteName, 
 	if err := execSQL(ctx, conn, stmt+ident(sqliteName)+" ON "+ident(t.Name)+" ("+strings.Join(quoted, ", ")+")"); err != nil {
 		return err
 	}
-	return catalog.SetSidecarFact(ctx, conn, t.Name, catalog.SidecarFact{Column: catalog.SidecarIndex(sqliteName), Key: catalog.SidecarKeyName, Value: key})
+	// An index re-created under the same SQLite name loses the facts of the old one.
+	if err := catalog.DropSidecarColumn(ctx, conn, t.Name, catalog.SidecarIndex(sqliteName)); err != nil {
+		return err
+	}
+	if err := catalog.SetSidecarFact(ctx, conn, t.Name, catalog.SidecarFact{Column: catalog.SidecarIndex(sqliteName), Key: catalog.SidecarKeyName, Value: key}); err != nil {
+		return err
+	}
+	if s := meta.FormatSubPart(subPart); s != "" {
+		return catalog.SetSidecarFact(ctx, conn, t.Name, catalog.SidecarFact{Column: catalog.SidecarIndex(sqliteName), Key: catalog.SidecarKeySubPart, Value: s})
+	}
+	return nil
 }
 
 func dropIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, name string) error {
@@ -315,5 +327,5 @@ func moveIndex(ctx context.Context, conn *sql.Conn, t *meta.Table, ix meta.Index
 		return err
 	}
 	// The rows already satisfy the key, so its duplicate check finds nothing.
-	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, key), key, ix.Unique, ix.Columns)
+	return buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, key), key, ix.Unique, ix.Columns, ix.SubPart)
 }

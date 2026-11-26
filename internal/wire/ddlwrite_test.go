@@ -37,7 +37,7 @@ func TestCreateDropIndex(t *testing.T) {
 		{"CREATE INDEX x ON gadgets (note)", 1170, "42000", "BLOB/TEXT column 'note' used in key specification without a key length"},
 		{"CREATE INDEX x ON missing (a)", 1146, "42S02", "Table 'shop.missing' doesn't exist"},
 		{"CREATE INDEX `PRIMARY` ON gadgets (name)", 1280, "42000", "Incorrect index name 'PRIMARY'"},
-		{"CREATE INDEX x ON gadgets (name(5))", 1235, "42000", ""},
+		{"CREATE UNIQUE INDEX x ON gadgets (name(5))", 1235, "42000", ""},
 		{"CREATE FULLTEXT INDEX x ON gadgets (name)", 1235, "42000", ""},
 		{"DROP INDEX nope ON gadgets", 1091, "42000", "Can't DROP 'nope'; check that column/key exists"},
 		{"DROP INDEX `PRIMARY` ON gadgets", 1235, "42000", ""},

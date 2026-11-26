@@ -219,7 +219,7 @@ func (h *handler) rebuild(ctx context.Context, conn *sql.Conn, t *meta.Table, sp
 		return err
 	}
 	for _, k := range r.Keys {
-		if err := buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, k.Name), k.Name, k.Unique, k.Columns); err != nil {
+		if err := buildIndex(ctx, conn, t, dialect.IndexSQLiteName(t.Name, k.Name), k.Name, k.Unique, k.Columns, k.SubPart); err != nil {
 			return err
 		}
 	}

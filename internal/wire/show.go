@@ -291,7 +291,7 @@ func showIndex(t *meta.Table) ([]meta.ColumnDef, [][]any) {
 		textCol("Index_comment", 1024), textCol("Visible", 3), textCol("Expression", 64),
 	}
 	var rows [][]any
-	add := func(name string, unique bool, cols []string) {
+	add := func(name string, unique bool, cols []string, sub []int) {
 		nonUnique := int64(1)
 		if unique {
 			nonUnique = 0
@@ -301,17 +301,21 @@ func showIndex(t *meta.Table) ([]meta.ColumnDef, [][]any) {
 			if c, ok := findColumn(t, col); ok && !c.NotNull && name != "PRIMARY" {
 				null = "YES"
 			}
+			var subPart any
+			if i < len(sub) && sub[i] > 0 {
+				subPart = int64(sub[i])
+			}
 			rows = append(rows, []any{
-				t.Name, nonUnique, name, int64(i + 1), col, "A", nil, nil,
+				t.Name, nonUnique, name, int64(i + 1), col, "A", nil, subPart,
 				nil, null, "BTREE", "", "", "YES", nil,
 			})
 		}
 	}
 	if len(t.PrimaryKey) > 0 {
-		add("PRIMARY", true, t.PrimaryKey)
+		add("PRIMARY", true, t.PrimaryKey, nil)
 	}
 	for _, ix := range t.Indexes {
-		add(ix.Name, ix.Unique, ix.Columns)
+		add(ix.Name, ix.Unique, ix.Columns, ix.SubPart)
 	}
 	return defs, rows
 }

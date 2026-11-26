@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"mysqlite/internal/charset"
@@ -137,7 +138,7 @@ func CreateTableSQL(t *meta.Table, next int64) string {
 			if unique {
 				kind = "UNIQUE KEY"
 			}
-			lines = append(lines, "  "+kind+" "+quote(ix.Name)+" ("+quoteList(ix.Columns)+")")
+			lines = append(lines, "  "+kind+" "+quote(ix.Name)+" ("+keyParts(ix)+")")
 		}
 	}
 	var b strings.Builder
@@ -238,6 +239,18 @@ func charsetOf(collation string) string {
 
 func quote(name string) string {
 	return "`" + strings.ReplaceAll(name, "`", "``") + "`"
+}
+
+// keyParts is the column list of a key, with each column's prefix length: `a`,`b`(191).
+func keyParts(ix meta.Index) string {
+	q := make([]string, len(ix.Columns))
+	for i, n := range ix.Columns {
+		q[i] = quote(n)
+		if p := ix.Prefix(i); p > 0 {
+			q[i] += "(" + strconv.Itoa(p) + ")"
+		}
+	}
+	return strings.Join(q, ",")
 }
 
 func quoteList(names []string) string {

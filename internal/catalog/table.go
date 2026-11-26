@@ -170,7 +170,11 @@ func readIndexes(ctx context.Context, conn *sql.Conn, t *meta.Table, sc *sidecar
 			used[strings.ToLower(name)] = true
 		}
 		// A partial unique index does not make the column unique for every row.
-		t.Indexes = append(t.Indexes, meta.Index{Name: name, Columns: cols, Unique: ix.unique && !ix.partial, SQLiteName: ix.name})
+		mi := meta.Index{Name: name, Columns: cols, Unique: ix.unique && !ix.partial, SQLiteName: ix.name}
+		if sc != nil {
+			mi.SubPart = meta.ParseSubPart(sc.subPart[strings.ToLower(ix.name)], len(cols))
+		}
+		t.Indexes = append(t.Indexes, mi)
 	}
 	return nil
 }

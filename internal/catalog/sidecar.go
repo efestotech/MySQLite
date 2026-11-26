@@ -54,8 +54,9 @@ const (
 	// Column level: the MySQL column type when the SQLite declared type cannot spell
 	// it, COLLATE, COMMENT.
 	SidecarKeyType = "type"
-	// Index level: the MySQL key name.
-	SidecarKeyName = "name"
+	// Index level: the MySQL key name, and the key prefix lengths (meta.FormatSubPart).
+	SidecarKeyName    = "name"
+	SidecarKeySubPart = "sub_part"
 
 	sidecarIndexPrefix = "index:"
 )
@@ -128,6 +129,7 @@ type sidecar struct {
 	table   map[string]string
 	columns map[string]map[string]string // by lower-case column name
 	indexes map[string]string            // MySQL name by lower-case SQLite index name
+	subPart map[string]string            // key prefix lengths by lower-case SQLite index name
 }
 
 func readSidecar(ctx context.Context, conn *sql.Conn, table string) (*sidecar, error) {
@@ -147,14 +149,18 @@ func readSidecar(ctx context.Context, conn *sql.Conn, table string) (*sidecar, e
 			return nil, fmt.Errorf("catalog: sidecar of %s: %w", table, err)
 		}
 		if sc == nil {
-			sc = &sidecar{table: map[string]string{}, columns: map[string]map[string]string{}, indexes: map[string]string{}}
+			sc = &sidecar{table: map[string]string{}, columns: map[string]map[string]string{}, indexes: map[string]string{}, subPart: map[string]string{}}
 		}
 		switch {
 		case col == "":
 			sc.table[key] = value
 		case strings.HasPrefix(col, sidecarIndexPrefix):
-			if key == SidecarKeyName {
-				sc.indexes[strings.ToLower(strings.TrimPrefix(col, sidecarIndexPrefix))] = value
+			ix := strings.ToLower(strings.TrimPrefix(col, sidecarIndexPrefix))
+			switch key {
+			case SidecarKeyName:
+				sc.indexes[ix] = value
+			case SidecarKeySubPart:
+				sc.subPart[ix] = value
 			}
 		default:
 			lc := strings.ToLower(col)

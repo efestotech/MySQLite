@@ -438,6 +438,7 @@ type key struct {
 	unique  bool
 	primary bool
 	columns []string
+	subPart []int
 }
 
 func keysOf(t *meta.Table) []key {
@@ -446,7 +447,7 @@ func keysOf(t *meta.Table) []key {
 		out = append(out, key{name: "PRIMARY", unique: true, primary: true, columns: t.PrimaryKey})
 	}
 	for _, ix := range t.Indexes {
-		out = append(out, key{name: ix.Name, unique: ix.Unique, columns: ix.Columns})
+		out = append(out, key{name: ix.Name, unique: ix.Unique, columns: ix.Columns, subPart: ix.SubPart})
 	}
 	return out
 }
@@ -473,8 +474,12 @@ func statisticsRows(ctx context.Context, src Source) ([][]any, error) {
 						nullable = "YES"
 					}
 				}
+				var subPart any
+				if i < len(k.subPart) && k.subPart[i] > 0 {
+					subPart = int64(k.subPart[i])
+				}
 				rows = append(rows, []any{
-					"def", db, t.Name, nonUnique, db, k.name, int64(i + 1), col, "A", nil, nil, nil,
+					"def", db, t.Name, nonUnique, db, k.name, int64(i + 1), col, "A", nil, subPart, nil,
 					nullable, "BTREE", "", "", "YES", nil,
 				})
 			}

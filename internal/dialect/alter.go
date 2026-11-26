@@ -6,6 +6,7 @@ import (
 	"github.com/pingcap/tidb/pkg/parser/ast"
 
 	"mysqlite/internal/errs"
+	"mysqlite/internal/meta"
 )
 
 // ALTER TABLE (docs/05-dialect.md section 7). The specs run in order in one
@@ -256,31 +257,29 @@ func (e *emitter) addConstraint(k *ast.Constraint, table string, a *Alter) {
 		e.fail(errs.WrongIndexName(k.Name))
 		return
 	}
-	cols := e.indexParts(k.Keys)
+	cols, sub := e.indexParts(k.Keys, unique)
 	if e.err != nil {
 		return
 	}
 	e.apply(ruleCreateIndexes)
-	a.Specs = append(a.Specs, AlterSpec{Kind: AlterAddIndex, Index: &IndexChange{Table: table, Name: k.Name, Unique: unique, Columns: cols}})
+	a.Specs = append(a.Specs, AlterSpec{Kind: AlterAddIndex, Index: &IndexChange{Table: table, Name: k.Name, Unique: unique, Columns: cols, SubPart: sub}})
 }
 
-// indexParts are the columns of a key; key parts SQLite cannot index as MySQL does are
-// 1235.
-func (e *emitter) indexParts(parts []*ast.IndexPartSpecification) []string {
+// indexParts are the columns of a key and their prefix lengths (nil when no column has
+// one); key parts SQLite cannot index as MySQL does are 1235.
+func (e *emitter) indexParts(parts []*ast.IndexPartSpecification, unique bool) ([]string, []int) {
 	var cols []string
-	for _, p := range parts {
-		switch {
-		case p.Expr != nil:
-			e.unsupported("functional key part", reasonLater)
-		case p.Length > 0:
-			e.unsupported("key prefix length", "SQLite indexes whole values")
-		case p.Desc:
-			e.unsupported("descending key part", reasonLater)
-		}
+	sub := make([]int, len(parts))
+	for i, p := range parts {
+		e.keyPart(p, unique)
 		if e.err != nil {
-			return nil
+			return nil, nil
 		}
 		cols = append(cols, p.Column.Name.O)
+		sub[i] = max(p.Length, 0)
 	}
-	return cols
+	if meta.FormatSubPart(sub) == "" {
+		sub = nil
+	}
+	return cols, sub
 }

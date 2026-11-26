@@ -204,14 +204,14 @@ func sameColumns(a, b []string) bool {
 
 // KeyColumn resolves a CREATE INDEX key column: its stored name, or the error MySQL
 // reports for a missing column (1072) or a TEXT/BLOB column without a prefix (1170).
-func (t *Table) KeyColumn(name string) (string, *errs.Error) {
+func (t *Table) KeyColumn(name string, prefixed bool) (string, *errs.Error) {
 	c, ok := t.column(name)
 	if !ok {
 		return "", errs.KeyColumnMissing(name)
 	}
 	ti, ok := ParseType(c.MySQLType())
 	switch {
-	case ok && ti.Type == TypeBlob:
+	case ok && ti.Type == TypeBlob && !prefixed:
 		return "", errs.BlobKeyWithoutLength(c.Name)
 	case ok && ti.Type == TypeJSON:
 		return "", errs.Unsupported("JSON key column", "MySQL indexes JSON only through generated columns")

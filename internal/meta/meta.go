@@ -10,6 +10,7 @@ package meta
 
 import (
 	"math"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -120,6 +121,53 @@ type Index struct {
 	// SQLiteName is the index name in the database file. SQLite index names are unique
 	// per database, MySQL key names per table; the sidecar maps one to the other.
 	SQLiteName string
+	// SubPart is the key prefix length of each column, 0 for a whole column. SQLite
+	// indexes whole values; the prefix is kept for SHOW INDEX and SHOW CREATE TABLE.
+	SubPart []int
+}
+
+// FormatSubPart is the sidecar form of key prefix lengths ("191" or "0,20"); empty
+// when no column has a prefix.
+func FormatSubPart(sub []int) string {
+	has := false
+	parts := make([]string, len(sub))
+	for i, n := range sub {
+		parts[i] = strconv.Itoa(n)
+		has = has || n > 0
+	}
+	if !has {
+		return ""
+	}
+	return strings.Join(parts, ",")
+}
+
+// ParseSubPart reads FormatSubPart for a key of n columns; nil when s is empty or does
+// not match.
+func ParseSubPart(s string, n int) []int {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	if len(parts) != n {
+		return nil
+	}
+	sub := make([]int, n)
+	for i, p := range parts {
+		v, err := strconv.Atoi(p)
+		if err != nil || v < 0 {
+			return nil
+		}
+		sub[i] = v
+	}
+	return sub
+}
+
+// Prefix is the prefix length of the key's i-th column, 0 for a whole column.
+func (ix Index) Prefix(i int) int {
+	if i < len(ix.SubPart) {
+		return ix.SubPart[i]
+	}
+	return 0
 }
 
 // Item is one select-list item, as written in the query.
