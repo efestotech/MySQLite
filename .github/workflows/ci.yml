@@ -106,8 +106,7 @@ jobs:
             sh scripts/rpm.sh v0.0.0-ci "$arch" "bin/mysqlite-$arch" pkg
           done
           ls -l pkg
-          rpm -qp --qf '%{NAME} %{VERSION} %{ARCH}
-' pkg/*.rpm
+          rpm -qp --qf '%{NAME} %{VERSION} %{ARCH}\n' pkg/*.rpm
           rpm -qplv pkg/mysqlite-0.0.0~ci-1.x86_64.rpm
       - name: install (debian:12)
         run: docker run --rm -v "$PWD:/w" -w /w debian:12 sh scripts/pkgtest.sh pkg/mysqlite_0.0.0~ci_amd64.deb

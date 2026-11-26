@@ -16,7 +16,8 @@ case "$pkg" in
 	remove() { apt-get remove -y -qq mysqlite >/dev/null; }
 	;;
 *.rpm)
-	dnf install -y -q "$pkg" >/dev/null
+	# setpriv, used below, is in util-linux, not in the images' util-linux-core.
+	dnf install -y -q util-linux "$pkg" >/dev/null
 	remove() { dnf remove -y -q mysqlite >/dev/null; }
 	;;
 *) fail "unknown package type: $pkg" ;;

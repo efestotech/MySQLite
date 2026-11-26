@@ -63,6 +63,7 @@ exit 0
 %attr(0644,root,root) /usr/lib/systemd/system/mysqlite.service
 %dir %attr(0750,mysqlite,mysqlite) /var/lib/mysqlite
 %dir %attr(0750,mysqlite,mysqlite) /var/log/mysqlite
+%dir /usr/share/doc/mysqlite
 %doc /usr/share/doc/mysqlite/README.md
 %doc /usr/share/doc/mysqlite/NOTICE
 %license /usr/share/doc/mysqlite/LICENSE
