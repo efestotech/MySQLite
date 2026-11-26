@@ -10,6 +10,10 @@ Summary:        MySQL-protocol server backed by SQLite
 License:        Apache-2.0
 URL:            https://github.com/efestotech/MySQLite
 Requires(pre):  shadow-utils
+# %pre creates the mysqlite user and group that %files owns; rpm 4.19 generates
+# requirements on them from %attr, so the package states that it provides them.
+Provides:       user(mysqlite)
+Provides:       group(mysqlite)
 
 %description
 mysqlite speaks the MySQL client protocol and stores every database in a

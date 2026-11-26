@@ -91,6 +91,8 @@ func TestRPMSpec(t *testing.T) {
 		"/usr/lib/systemd/system/mysqlite.service",
 		"%dir %attr(0750,mysqlite,mysqlite) /var/lib/mysqlite",
 		"%dir %attr(0750,mysqlite,mysqlite) /var/log/mysqlite",
+		"Provides:       user(mysqlite)",
+		"Provides:       group(mysqlite)",
 	} {
 		if !strings.Contains(spec, want) {
 			t.Errorf("mysqlite.spec: no %q", want)
