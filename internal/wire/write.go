@@ -61,10 +61,12 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 	hint := st.Hint()
 	hint.KeyName = func(_ string, cols []string) string { return table.KeyName(cols) }
 
-	switch st.Op {
-	case errs.OpInsert:
+	switch {
+	case len(w.Targets) > 0:
+		return h.deleteMulti(ctx, conn, st, hint)
+	case st.Op == errs.OpInsert:
 		return h.insert(ctx, conn, st, table, hint)
-	case errs.OpUpdate:
+	case st.Op == errs.OpUpdate:
 		return h.update(ctx, conn, st, table, hint)
 	default:
 		if e := meta.CheckRefs(w.Refs, nil, meta.Single(table, w.Alias)); e != nil {
@@ -83,6 +85,92 @@ func (h *handler) write(st *dialect.Statement) (res *mysql.Result, err error) {
 		}
 		return &mysql.Result{AffectedRows: uint64(n)}, nil
 	}
+}
+
+// deleteMulti runs a multi-table DELETE: it selects the rowids of every target over the
+// join first, then deletes them, so a target's rows cannot change what another target
+// matches. A row named by several targets is deleted and counted once.
+func (h *handler) deleteMulti(ctx context.Context, conn *sql.Conn, st *dialect.Statement, hint errs.Hint) (*mysql.Result, error) {
+	w := st.Write
+	from := meta.From{Using: w.From.Using, Sources: make([]meta.Source, len(w.From.Sources))}
+	for i, s := range w.From.Sources {
+		if s.Name != "" {
+			t, err := h.catalog.Table(ctx, conn, st.Database, s.Name)
+			if err != nil {
+				return nil, h.fail(err, hint)
+			}
+			s.Table = t
+		}
+		from.Sources[i] = s
+	}
+	if e := meta.CheckRefs(w.Refs, nil, from); e != nil {
+		return nil, toMySQL(e)
+	}
+	if e := meta.CheckExprs(w.Exprs, from); e != nil {
+		return nil, toMySQL(e)
+	}
+
+	type target struct {
+		table string
+		ids   []int64
+		seen  map[int64]bool
+	}
+	var targets []*target
+	byName := map[string]*target{}
+	for _, dt := range w.Targets {
+		t, err := h.catalog.Table(ctx, conn, st.Database, dt.Table)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		tg := byName[strings.ToLower(t.Name)]
+		if tg == nil {
+			tg = &target{table: t.Name, seen: map[int64]bool{}}
+			byName[strings.ToLower(t.Name)] = tg
+			targets = append(targets, tg)
+		}
+		rows, err := conn.QueryContext(ctx, dt.SQL, dt.Args...)
+		if err != nil {
+			return nil, h.fail(err, hint)
+		}
+		for rows.Next() {
+			var id int64
+			if err := rows.Scan(&id); err != nil {
+				rows.Close()
+				return nil, h.fail(err, hint)
+			}
+			if !tg.seen[id] {
+				tg.seen[id] = true
+				tg.ids = append(tg.ids, id)
+			}
+		}
+		rows.Close()
+		if err := rows.Err(); err != nil {
+			return nil, h.fail(err, hint)
+		}
+	}
+
+	const batch = 500
+	var affected int64
+	for _, tg := range targets {
+		for start := 0; start < len(tg.ids); start += batch {
+			ids := tg.ids[start:min(start+batch, len(tg.ids))]
+			args := make([]any, len(ids))
+			for i, id := range ids {
+				args[i] = id
+			}
+			q := "DELETE FROM " + ident(tg.table) + " WHERE rowid IN (?" + strings.Repeat(", ?", len(ids)-1) + ")"
+			r, err := conn.ExecContext(ctx, q, args...)
+			if err != nil {
+				return nil, h.fail(err, hint)
+			}
+			n, err := r.RowsAffected()
+			if err != nil {
+				return nil, h.fail(err, hint)
+			}
+			affected += n
+		}
+	}
+	return &mysql.Result{AffectedRows: uint64(affected)}, nil
 }
 
 func (h *handler) insert(ctx context.Context, conn *sql.Conn, st *dialect.Statement, table *meta.Table, hint errs.Hint) (*mysql.Result, error) {

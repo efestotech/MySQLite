@@ -145,3 +145,104 @@ func TestRegexp(t *testing.T) {
 	_, err := conn.Execute("SELECT 'a' REGEXP '('")
 	requireMyError(t, err, 3685, "HY000")
 }
+
+// A multi-table DELETE deletes, from each target table, the rows the join matches; the
+// rows are chosen before any is deleted. WordPress deletes expired transients with a
+// self-join on wp_options.
+func TestMultiTableDelete(t *testing.T) {
+	conn := shopServer(t)
+	execOK(t, conn, "CREATE TABLE wp_options (option_id bigint unsigned NOT NULL auto_increment, option_name varchar(191) NOT NULL, option_value longtext NOT NULL, PRIMARY KEY (option_id), UNIQUE KEY option_name (option_name))")
+	execOK(t, conn, `INSERT INTO wp_options (option_name, option_value) VALUES
+		('_transient_old', 'x'), ('_transient_timeout_old', '100'),
+		('_transient_new', 'y'), ('_transient_timeout_new', '9999999999'),
+		('siteurl', 'http://example.test')`)
+	res := execOK(t, conn, `DELETE a, b FROM wp_options a, wp_options b
+		WHERE a.option_name LIKE '\_transient\_%'
+		AND a.option_name NOT LIKE '\_transient\_timeout\_%'
+		AND b.option_name = CONCAT( '_transient_timeout_', SUBSTRING( a.option_name, 12 ) )
+		AND b.option_value < 1000`)
+	if res.AffectedRows != 2 {
+		t.Errorf("transient cleanup affected %d rows, want 2", res.AffectedRows)
+	}
+	got := firstColumn(execOK(t, conn, "SELECT option_name FROM wp_options ORDER BY option_id"))
+	if strings.Join(got, ",") != "_transient_new,_transient_timeout_new,siteurl" {
+		t.Errorf("rows left: %v", got)
+	}
+
+	execOK(t, conn, "CREATE TABLE posts (id int PRIMARY KEY, title varchar(20))")
+	execOK(t, conn, "CREATE TABLE meta (id int PRIMARY KEY, post_id int, k varchar(20))")
+	execOK(t, conn, "INSERT INTO posts VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+	execOK(t, conn, "INSERT INTO meta VALUES (10, 1, 'x'), (11, 1, 'y'), (12, 2, 'z'), (13, 3, 'w')")
+	// Both tables; a post matched twice is deleted (and counted) once.
+	res = execOK(t, conn, "DELETE p, m FROM posts p JOIN meta m ON m.post_id = p.id WHERE p.id = 1")
+	if res.AffectedRows != 3 {
+		t.Errorf("DELETE p, m affected %d rows, want 3", res.AffectedRows)
+	}
+	// One target of a join, and the USING form.
+	res = execOK(t, conn, "DELETE m FROM meta m JOIN posts p ON p.id = m.post_id WHERE p.title = 'b'")
+	if res.AffectedRows != 1 {
+		t.Errorf("DELETE m affected %d rows, want 1", res.AffectedRows)
+	}
+	res = execOK(t, conn, "DELETE FROM meta USING meta, posts WHERE meta.post_id = posts.id AND posts.title = 'c'")
+	if res.AffectedRows != 1 {
+		t.Errorf("DELETE ... USING affected %d rows, want 1", res.AffectedRows)
+	}
+	if got := firstColumn(execOK(t, conn, "SELECT id FROM posts ORDER BY id")); strings.Join(got, ",") != "2,3" {
+		t.Errorf("posts left: %v", got)
+	}
+	if n := execOK(t, conn, "SELECT id FROM meta").RowNumber(); n != 0 {
+		t.Errorf("meta left: %d rows", n)
+	}
+
+	_, err := conn.Execute("DELETE x FROM posts p WHERE p.id = 2")
+	e := requireMyError(t, err, 1109, "42S02")
+	if e.Message != "Unknown table 'x' in MULTI DELETE" {
+		t.Errorf("message %q", e.Message)
+	}
+	_, err = conn.Execute("DELETE p FROM posts p WHERE p.nope = 2")
+	requireMyError(t, err, 1054, "42S22")
+	if n := execOK(t, conn, "SELECT id FROM posts").RowNumber(); n != 2 {
+		t.Errorf("a failed DELETE removed rows: %d left", n)
+	}
+}
+
+// String functions WordPress queries use, with MySQL's positions: 1-based, negative from
+// the end, 0 or a length below 1 is ”.
+func TestSubstringFunctions(t *testing.T) {
+	conn := shopServer(t)
+	for q, want := range map[string]string{
+		"SELECT SUBSTRING('_transient_abc', 12)":     "abc",
+		"SELECT SUBSTRING('Quadratically', 5, 6)":    "ratica",
+		"SELECT SUBSTRING('Sakila', -3)":             "ila",
+		"SELECT SUBSTRING('Sakila', -5, 3)":          "aki",
+		"SELECT SUBSTRING('Sakila', 0)":              "",
+		"SELECT SUBSTRING('Sakila', 2, 0)":           "",
+		"SELECT SUBSTRING('Sakila', 2, -1)":          "",
+		"SELECT SUBSTRING('Sakila', 10)":             "",
+		"SELECT SUBSTRING('Sakila', -10)":            "",
+		"SELECT SUBSTRING('Sakila' FROM 4)":          "ila",
+		"SELECT SUBSTRING('Sakila' FROM 2 FOR 3)":    "aki",
+		"SELECT SUBSTR('città', 4)":                  "tà",
+		"SELECT MID('Sakila', 2, 2)":                 "ak",
+		"SELECT SUBSTRING(12345, 2, 3)":              "234",
+		"SELECT SUBSTRING(NULL, 1)":                  "NULL",
+		"SELECT SUBSTRING('abc', NULL)":              "NULL",
+		"SELECT LEFT('foobarbar', 5)":                "fooba",
+		"SELECT LEFT('città', 4)":                    "citt",
+		"SELECT LEFT('abc', -1)":                     "",
+		"SELECT RIGHT('foobarbar', 4)":               "rbar",
+		"SELECT RIGHT('abc', 10)":                    "abc",
+		"SELECT RIGHT(NULL, 1)":                      "NULL",
+		"SELECT REPLACE('www.mysql.com', 'w', 'Ww')": "WwWwWw.mysql.com",
+		"SELECT REPLACE('abc', 'B', 'x')":            "abc",
+		"SELECT LTRIM('  barbar ')":                  "barbar ",
+		"SELECT RTRIM(' barbar   ')":                 " barbar",
+	} {
+		if got := column(t, execOK(t, conn, q+" AS r"), 0, "r"); got != want {
+			t.Errorf("%s = %q, want %q", q, got, want)
+		}
+	}
+	if got := column(t, execOK(t, conn, "SELECT name FROM items WHERE SUBSTRING(name, 1, 1) = 'p'"), 0, "name"); got != "pen" {
+		t.Errorf("SUBSTRING in WHERE: %s", got)
+	}
+}

@@ -22,6 +22,7 @@ const (
 	ruleCurrentDB      = "R011"
 	ruleFunction       = "R012"
 	ruleSubquery       = "R013"
+	ruleMultiDelete    = "R014"
 )
 
 var rules = []Rule{
@@ -38,6 +39,7 @@ var rules = []Rule{
 	{ruleCurrentDB, "current-database", "DATABASE() and SCHEMA() become a parameter holding the current database, or NULL"},
 	{ruleFunction, "function-table", "Function calls and % are translated from the function table: SQLite functions, mysqlite UDFs, MySQL string forms of numeric arguments"},
 	{ruleSubquery, "subquery", "Subqueries: a scalar subquery fails with 1242 on more than one row, = ANY is IN and <> ALL is NOT IN"},
+	{ruleMultiDelete, "multi-table-delete", "DELETE t1, t2 FROM <join>: a SELECT of each target's rowids over the join, run before the rows are deleted"},
 }
 
 // Rules returns the registry in application order.

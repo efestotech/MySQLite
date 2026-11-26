@@ -952,8 +952,6 @@ func valueLiteral(x ast.ExprNode) *meta.Literal {
 
 func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	switch {
-	case n.IsMultiTable || n.Tables != nil:
-		e.unsupported("multi-table DELETE", reasonLater)
 	case n.IgnoreErr:
 		e.unsupported("DELETE IGNORE", reasonLater)
 	case n.With != nil:
@@ -961,6 +959,13 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	}
 	if n.Priority != mysql.NoPriority || n.Quick || len(n.TableHints) > 0 {
 		e.apply(ruleHintStrip)
+	}
+	if e.err != nil {
+		return
+	}
+	if n.IsMultiTable || n.Tables != nil {
+		e.deleteMulti(n)
+		return
 	}
 	name, alias := e.table(n.TableRefs, "multi-table DELETE")
 	if e.err != nil {
@@ -972,6 +977,64 @@ func (e *emitter) deleteStmt(n *ast.DeleteStmt) {
 	e.write("DELETE FROM ")
 	e.writeTable(name, alias)
 	e.filter(name, alias, n.Where, n.Order, n.Limit)
+}
+
+// deleteMulti translates DELETE t1, t2 FROM <join> WHERE ... and DELETE FROM t1, t2
+// USING <join> WHERE ...: one SELECT of rowids per target over the same join. SQLite
+// has no multi-table DELETE, and a target's rows may depend on rows of another target
+// (a self-join), so the executor selects them all before deleting any.
+func (e *emitter) deleteMulti(n *ast.DeleteStmt) {
+	e.apply(ruleMultiDelete)
+	e.shape = &Shape{}
+	e.wr = &Write{}
+	e.refs = &e.wr.Refs
+	e.checks = &e.wr.Exprs
+	fromText, fromArgs := e.fromClause(n.TableRefs)
+	if e.err != nil {
+		return
+	}
+	var whereText string
+	var whereArgs []any
+	if n.Where != nil {
+		whereText, whereArgs = e.sub(func() {
+			e.clause = meta.ClauseWhere
+			e.expr(n.Where)
+			e.clause = ""
+		})
+		if e.err != nil {
+			return
+		}
+	}
+	e.wr.From = e.shape.From
+	for _, tn := range n.Tables.Tables {
+		if tn.Schema.O != "" && tn.Schema.O != e.target {
+			e.unsupported("cross-database reference", reasonM1Scope)
+			return
+		}
+		var src *meta.Source
+		for i := range e.shape.From.Sources {
+			if s := &e.shape.From.Sources[i]; strings.EqualFold(s.Visible(), tn.Name.O) {
+				src = s
+			}
+		}
+		switch {
+		case src == nil:
+			e.fail(errs.UnknownTableIn(tn.Name.O, "MULTI DELETE"))
+			return
+		case src.Derived != nil:
+			e.unsupported("DELETE from a derived table", reasonSemantics)
+			return
+		}
+		q := "SELECT " + quoteIdent(src.Visible()) + ".rowid FROM " + fromText
+		args := append([]any(nil), fromArgs...)
+		if n.Where != nil {
+			q += " WHERE " + whereText
+			args = append(args, whereArgs...)
+		}
+		e.wr.Targets = append(e.wr.Targets, DeleteTarget{Table: src.Name, SQL: q, Args: args})
+	}
+	e.wr.Table = e.wr.Targets[0].Table
+	e.wr.Meta = e.lookup(e.wr.Table)
 }
 
 // filter emits the WHERE of UPDATE and DELETE. SQLite has no UPDATE/DELETE ... ORDER BY

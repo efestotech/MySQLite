@@ -134,6 +134,12 @@ const (
 	UDFPeriodDiff    = "mysqlite_period_diff"
 	UDFStrToDate     = "mysqlite_str_to_date"
 	UDFTimeFormat    = "mysqlite_time_format"
+	// UDFSubstring(s, pos[, len]), UDFLeft(s, n), UDFRight(s, n) count characters, or
+	// bytes of a binary string, with MySQL's positions: SQLite's substr treats position
+	// 0 and negative lengths differently.
+	UDFSubstring = "mysqlite_substring"
+	UDFLeft      = "mysqlite_left"
+	UDFRight     = "mysqlite_right"
 )
 
 func rename(name string, minArgs, maxArgs int, ret meta.FuncRet) Func {
@@ -213,6 +219,16 @@ var table = map[string]Func{
 	"CONCAT":           {MinArgs: 1, MaxArgs: -1, Emit: Concat, Ret: meta.RetString, TextArgs: true},
 	// concat_ws skips NULL arguments and is NULL for a NULL separator, as in MySQL.
 	"CONCAT_WS": text(rename("concat_ws", 2, -1, meta.RetString)),
+	"SUBSTRING": text(rename(UDFSubstring, 2, 3, meta.RetString)),
+	"SUBSTR":    text(rename(UDFSubstring, 2, 3, meta.RetString)),
+	"MID":       text(rename(UDFSubstring, 3, 3, meta.RetString)),
+	"LEFT":      text(rename(UDFLeft, 2, 2, meta.RetString)),
+	"RIGHT":     text(rename(UDFRight, 2, 2, meta.RetString)),
+	// SQLite's replace, ltrim and rtrim match MySQL's: REPLACE is case-sensitive, the
+	// trims remove spaces only.
+	"REPLACE": text(rename("replace", 3, 3, meta.RetString)),
+	"LTRIM":   text(rename("ltrim", 1, 1, meta.RetString)),
+	"RTRIM":   text(rename("rtrim", 1, 1, meta.RetString)),
 
 	// Session.
 	"LAST_INSERT_ID": {MinArgs: 0, MaxArgs: 1, Emit: LastInsertID, Session: SessionLastInsertID, Ret: meta.RetUint},

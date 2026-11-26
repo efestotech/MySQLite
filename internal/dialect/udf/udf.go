@@ -58,6 +58,9 @@ func Functions() []engine.ScalarFunction {
 		{Name: functions.UDFXor, NumArgs: 2, Deterministic: true, Fn: xor},
 		{Name: functions.UDFLike, NumArgs: 4, Deterministic: true, Fn: like},
 		{Name: functions.UDFRegexp, NumArgs: 3, Deterministic: true, Fn: regexpMatch},
+		{Name: functions.UDFSubstring, NumArgs: -1, Deterministic: true, Fn: substring},
+		{Name: functions.UDFLeft, NumArgs: 2, Deterministic: true, Fn: left},
+		{Name: functions.UDFRight, NumArgs: 2, Deterministic: true, Fn: right},
 		{Name: functions.UDFCut, NumArgs: 2, Deterministic: true, Fn: cut},
 		{Name: functions.UDFRaise, NumArgs: 1, Fn: raise},
 		// Not deterministic: it writes to the sink on every call.
@@ -276,6 +279,102 @@ func compileRegexp(pattern string, binary bool) (*regexp.Regexp, error) {
 	regexps.m[k] = re
 	regexps.Unlock()
 	return re, nil
+}
+
+// pieces splits a string argument into characters, or bytes for a binary string (a
+// []byte); ok is false for NULL. join puts a slice of them back in the same form.
+func pieces(v any) (parts []string, join func([]string) any, ok bool) {
+	switch x := v.(type) {
+	case []byte:
+		parts = make([]string, len(x))
+		for i := range x {
+			parts[i] = string(x[i : i+1])
+		}
+		return parts, func(p []string) any { return []byte(strings.Join(p, "")) }, true
+	case nil:
+		return nil, nil, false
+	}
+	s, ok := text(v)
+	if !ok {
+		return nil, nil, false
+	}
+	return strings.Split(s, ""), func(p []string) any { return strings.Join(p, "") }, true
+}
+
+// intArg is an integer argument as MySQL rounds it; false for NULL.
+func intArg(v any) (int64, bool) {
+	switch x := v.(type) {
+	case int64:
+		return x, true
+	case nil:
+		return 0, false
+	}
+	s, ok := text(v)
+	if !ok {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0, true
+	}
+	return int64(math.Round(f)), true
+}
+
+// substring is SUBSTRING(s, pos[, len]): pos counts from 1, or from the end when
+// negative; pos 0, a position past either end, or len < 1 give ”.
+func substring(args []any) (any, error) {
+	if len(args) < 2 || len(args) > 3 {
+		return nil, fmt.Errorf("udf: %s takes 2 or 3 arguments", functions.UDFSubstring)
+	}
+	parts, join, ok := pieces(args[0])
+	pos, ok2 := intArg(args[1])
+	if !ok || !ok2 {
+		return nil, nil
+	}
+	n := int64(len(parts))
+	count := n
+	if len(args) == 3 {
+		c, ok := intArg(args[2])
+		if !ok {
+			return nil, nil
+		}
+		count = c
+	}
+	var start int64
+	switch {
+	case pos > 0 && pos <= n:
+		start = pos - 1
+	case pos < 0 && -pos <= n:
+		start = n + pos
+	default:
+		return join(nil), nil
+	}
+	if count < 1 {
+		return join(nil), nil
+	}
+	end := min(n, start+min(count, n))
+	return join(parts[start:end]), nil
+}
+
+// left is LEFT(s, n): the first n characters, ” for n < 1.
+func left(args []any) (any, error) {
+	parts, join, ok := pieces(args[0])
+	n, ok2 := intArg(args[1])
+	if !ok || !ok2 {
+		return nil, nil
+	}
+	return join(parts[:max(0, min(n, int64(len(parts))))]), nil
+}
+
+// right is RIGHT(s, n): the last n characters, ” for n < 1.
+func right(args []any) (any, error) {
+	parts, join, ok := pieces(args[0])
+	n, ok2 := intArg(args[1])
+	if !ok || !ok2 {
+		return nil, nil
+	}
+	k := max(0, min(n, int64(len(parts))))
+	return join(parts[int64(len(parts))-k:]), nil
 }
 
 // text is an argument's string form; false for NULL.

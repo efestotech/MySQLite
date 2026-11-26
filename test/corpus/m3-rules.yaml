@@ -242,3 +242,20 @@ cases:
     sql: SELECT (SELECT id FROM items)
     expect:
       error: {code: 1242, sqlstate: "21000"}
+
+  - id: rule.r014.001
+    tags: [rule, R014, positive]
+    milestone: m3
+    setup: *shop
+    # b is the row after a: the row deleted from a is chosen before anything is deleted.
+    sql: DELETE a FROM items a JOIN items b ON b.id = a.id + 1 WHERE b.name = 'ink'
+    expect:
+      affected_rows: 1
+
+  - id: rule.r014.002
+    tags: [rule, R014, negative]
+    milestone: m3
+    setup: *shop
+    sql: DELETE x FROM items a WHERE a.id = 1
+    expect:
+      error: {code: 1109, sqlstate: "42S02"}

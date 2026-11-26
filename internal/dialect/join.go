@@ -116,7 +116,7 @@ func (e *emitter) tableSource(ts *ast.TableSource) {
 		e.unsupported("cross-database reference", reasonM1Scope)
 		return
 	}
-	src := meta.Source{Table: e.lookup(name), Alias: alias}
+	src := meta.Source{Table: e.lookup(name), Name: name, Alias: alias}
 	visible := alias
 	if visible == "" {
 		visible = name

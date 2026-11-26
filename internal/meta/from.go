@@ -10,6 +10,8 @@ import (
 type Source struct {
 	// Table is nil when the statement was translated without a catalog.
 	Table *Table
+	// Name is the table name as written; empty for a derived table.
+	Name  string
 	Alias string
 	// Nullable marks the inner side of an outer join: its columns can be NULL.
 	Nullable bool

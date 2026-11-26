@@ -262,7 +262,6 @@ func TestUnsupported(t *testing.T) {
 		"UPDATE t SET a = 1, a = 2":                                   "column assigned twice",
 		"UPDATE t, u SET t.a = u.a":                                   "multi-table UPDATE",
 		"UPDATE IGNORE t SET a = 1":                                   "UPDATE IGNORE",
-		"DELETE t FROM t JOIN u ON t.a = u.a":                         "multi-table DELETE",
 		"DELETE IGNORE FROM t":                                        "DELETE IGNORE",
 		"SET @a = 1":                                                  "user variable",
 		"SHOW PROCEDURE STATUS":                                       "SHOW",
@@ -314,6 +313,7 @@ func TestRuleOrder(t *testing.T) {
 		"R011 current-database",
 		"R012 function-table",
 		"R013 subquery",
+		"R014 multi-table-delete",
 	}
 	var got []string
 	for _, r := range Rules() {

@@ -185,6 +185,18 @@ type Write struct {
 	// CLIENT_FOUND_ROWS the matched count is reported instead.
 	MatchSQL  string
 	MatchArgs []any
+	// Multi-table DELETE: the tables rows are deleted from, and the joined tables
+	// Refs and Exprs resolve against. Statement.SQL is empty.
+	Targets []DeleteTarget
+	From    meta.From
+}
+
+// DeleteTarget is one table of a multi-table DELETE: SQL selects the rowids of its rows
+// the join matches. Every target's rows are selected before any row is deleted.
+type DeleteTarget struct {
+	Table string // as written
+	SQL   string
+	Args  []any
 }
 
 // Shape is the select list of a single-table SELECT.
