@@ -39,6 +39,20 @@ Il servizio gira con l'utente di sistema `mysqlite`. Dopo aver cambiato la confi
 servizio; `apt purge` toglie anche configurazione e log, ma lascia i database in
 `/var/lib/mysqlite`.
 
+### Fedora, RHEL, Rocky e AlmaLinux (`.rpm`)
+
+Il pacchetto `mysqlite-<versione>-1.<arch>.rpm` (`x86_64` o `aarch64`) installa gli stessi
+file e lo stesso servizio del `.deb`, già avviato:
+
+```sh
+sudo dnf install ./mysqlite-<versione>-1.x86_64.rpm
+systemctl status mysqlite
+```
+
+Un aggiornamento conserva la configurazione modificata. `dnf remove` ferma il servizio e
+lascia i database, i log e l'utente `mysqlite`; una configurazione modificata resta come
+`/etc/mysqlite/mysqlite.yaml.rpmsave`.
+
 ### Archivi
 
 Sulle altre distribuzioni Linux, su macOS e su Windows:
@@ -52,7 +66,7 @@ cp mysqlite.example.yaml mysqlite.yaml
 
 Poi si prosegue dal punto 4 dell'avvio rapido. Su macOS il binario non è firmato: al primo
 avvio va autorizzato (`xattr -d com.apple.quarantine mysqlite`). L'archivio Linux contiene
-anche `mysqlite.service`, la unit systemd usata dal `.deb`.
+anche `mysqlite.service`, la unit systemd usata dal `.deb` e dall'`.rpm`.
 
 ## Avvio rapido (meno di 5 minuti)
 

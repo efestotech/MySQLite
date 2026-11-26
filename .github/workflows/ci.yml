@@ -87,6 +87,35 @@ jobs:
           name: mysqlite-linux-${{ matrix.goarch }}
           path: dist/mysqlite-linux-${{ matrix.goarch }}
 
+  # Linux packages: build the .deb and the .rpm of both architectures, then install the
+  # amd64 ones in Debian, Fedora and Rocky Linux containers (scripts/pkgtest.sh).
+  packages:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: rpmbuild
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq rpm
+      - name: build packages
+        run: |
+          for arch in amd64 arm64; do
+            CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath -ldflags="-s -w" -o "bin/mysqlite-$arch" ./cmd/mysqlite
+            sh scripts/deb.sh v0.0.0-ci "$arch" "bin/mysqlite-$arch" pkg
+            sh scripts/rpm.sh v0.0.0-ci "$arch" "bin/mysqlite-$arch" pkg
+          done
+          ls -l pkg
+          rpm -qp --qf '%{NAME} %{VERSION} %{ARCH}
+' pkg/*.rpm
+          rpm -qplv pkg/mysqlite-0.0.0~ci-1.x86_64.rpm
+      - name: install (debian:12)
+        run: docker run --rm -v "$PWD:/w" -w /w debian:12 sh scripts/pkgtest.sh pkg/mysqlite_0.0.0~ci_amd64.deb
+      - name: install (fedora:41)
+        run: docker run --rm -v "$PWD:/w" -w /w fedora:41 sh scripts/pkgtest.sh pkg/mysqlite-0.0.0~ci-1.x86_64.rpm
+      - name: install (rockylinux:9)
+        run: docker run --rm -v "$PWD:/w" -w /w rockylinux:9 sh scripts/pkgtest.sh pkg/mysqlite-0.0.0~ci-1.x86_64.rpm
+
   docker:
     runs-on: ubuntu-latest
     needs: [test]
