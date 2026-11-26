@@ -40,8 +40,10 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 		return nil
 	}
 	e.apply(ruleFunction)
-	value, vx := e.subExpr(n.Expr)
-	pattern, px := e.subExpr(n.Pattern)
+	valueNode, binV := unwrapBinary(n.Expr)
+	patternNode, binP := unwrapBinary(n.Pattern)
+	value, vx := e.subExpr(valueNode)
+	pattern, px := e.subExpr(patternNode)
 	x := node(meta.ExprBool, "LIKE", vx, px)
 	if x == nil {
 		return nil
@@ -56,7 +58,7 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 	}
 	mode := "0"
 	switch {
-	case e.binaryString(vx) || e.binaryString(px):
+	case binV || binP || e.binaryString(vx) || e.binaryString(px):
 		mode = "1"
 	case e.accentInsensitive0900(vx) || e.accentInsensitive0900(px):
 		mode = "2"
@@ -72,19 +74,31 @@ func (e *emitter) like(n *ast.PatternLikeOrIlikeExpr) *meta.Expr {
 	return x
 }
 
+// unwrapBinary strips the BINARY operator from an operand of LIKE or REGEXP, where it
+// only makes the comparison binary. Elsewhere BINARY is a cast mysqlite does not
+// translate: a SQLite BLOB never equals a TEXT.
+func unwrapBinary(x ast.ExprNode) (ast.ExprNode, bool) {
+	if c, ok := x.(*ast.FuncCastExpr); ok && c.FunctionType == ast.CastBinaryOperator {
+		return c.Expr, true
+	}
+	return x, false
+}
+
 // regexp emits [NOT] mysqlite_regexp(value, pattern, binary). As in MySQL the pattern
 // matches anywhere in the value, case-insensitively unless an operand is a binary
 // string. Numbers match as their MySQL string form.
 func (e *emitter) regexp(n *ast.PatternRegexpExpr) *meta.Expr {
 	e.apply(ruleFunction)
-	value, vx := e.subExpr(n.Expr)
-	pattern, px := e.subExpr(n.Pattern)
+	valueNode, binV := unwrapBinary(n.Expr)
+	patternNode, binP := unwrapBinary(n.Pattern)
+	value, vx := e.subExpr(valueNode)
+	pattern, px := e.subExpr(patternNode)
 	x := node(meta.ExprBool, "REGEXP", vx, px)
 	if x == nil {
 		return nil
 	}
 	binary := "0"
-	if e.binaryString(vx) || e.binaryString(px) {
+	if binV || binP || e.binaryString(vx) || e.binaryString(px) {
 		binary = "1"
 	}
 	if n.Not {

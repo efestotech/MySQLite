@@ -296,3 +296,29 @@ func TestFoundRows(t *testing.T) {
 		t.Error("SQL_CALC_FOUND_ROWS in a subquery must be an error")
 	}
 }
+
+// LIKE BINARY and REGEXP BINARY compare bytes: case- and accent-sensitive. WP-CLI's
+// search-replace finds rows with LIKE BINARY.
+func TestLikeBinary(t *testing.T) {
+	conn := shopServer(t)
+	for q, want := range map[string]string{
+		"SELECT 'Contenuto di prova' LIKE BINARY '%di prova%'": "1",
+		"SELECT 'Contenuto di prova' LIKE BINARY '%DI PROVA%'": "0",
+		"SELECT 'Contenuto di prova' LIKE '%DI PROVA%'":        "1",
+		"SELECT BINARY 'abc' LIKE 'ABC'":                       "0",
+		"SELECT 'città' NOT LIKE BINARY 'citta'":               "1",
+		"SELECT 'Hello' REGEXP BINARY '^hel'":                  "0",
+		"SELECT 'Hello' REGEXP BINARY '^Hel'":                  "1",
+		"SELECT NULL LIKE BINARY 'a'":                          "NULL",
+	} {
+		if got := column(t, execOK(t, conn, q+" AS r"), 0, "r"); got != want {
+			t.Errorf("%s = %s, want %s", q, got, want)
+		}
+	}
+	if n := execOK(t, conn, "SELECT id FROM items WHERE name LIKE BINARY 'Pen'").RowNumber(); n != 0 {
+		t.Errorf("LIKE BINARY 'Pen' matched %d rows", n)
+	}
+	// BINARY elsewhere is still refused.
+	_, err := conn.Execute("SELECT BINARY 'a' = 'A'")
+	requireMyError(t, err, 1235, "42000")
+}
