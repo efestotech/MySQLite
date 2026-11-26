@@ -1,0 +1,14 @@
+# mysqlite default configuration, installed by the package as /etc/mysqlite/mysqlite.yaml
+# and used by the systemd unit (systemctl status mysqlite).
+# It listens on 127.0.0.1 only, with a test user. Change the password before setting
+# listen to another address (that also needs allow_remote: true), then run
+#   sudo systemctl restart mysqlite
+listen: 127.0.0.1
+port: 3307
+data_dir: /var/lib/mysqlite
+users:
+  - name: test
+    password: test
+log:
+  level: info
+  dir: /var/log/mysqlite

@@ -1,0 +1,33 @@
+[Unit]
+Description=mysqlite, a MySQL-protocol server backed by SQLite
+Documentation=https://github.com/efestotech/MySQLite
+After=network.target
+
+[Service]
+Type=simple
+User=mysqlite
+Group=mysqlite
+ExecStart=/usr/bin/mysqlite -config /etc/mysqlite/mysqlite.yaml
+WorkingDirectory=/var/lib/mysqlite
+StateDirectory=mysqlite
+StateDirectoryMode=0750
+LogsDirectory=mysqlite
+LogsDirectoryMode=0750
+Restart=on-failure
+RestartSec=2s
+LimitNOFILE=65536
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

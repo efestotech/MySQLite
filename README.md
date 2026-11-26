@@ -16,6 +16,33 @@ pacchetto per sistema: `mysqlite-<versione>-<os>-<arch>.tar.gz` per Linux e macO
 `.zip` per Windows, ciascuno per `amd64` e `arm64`. Dentro ci sono il binario, questo
 README, `LICENSE`, `NOTICE` e `mysqlite.example.yaml`; `SHA256SUMS` ha i checksum.
 
+### Debian e Ubuntu (`.deb`)
+
+Il pacchetto `mysqlite_<versione>_<arch>.deb` installa il server come servizio systemd,
+già avviato, in ascolto su `127.0.0.1:3307` con l'utente `test` / `test`:
+
+```sh
+sudo apt install ./mysqlite_<versione>_amd64.deb
+systemctl status mysqlite
+mysql -h 127.0.0.1 -P 3307 -u test -ptest
+```
+
+| Percorso | Contenuto |
+|---|---|
+| `/etc/mysqlite/mysqlite.yaml` | Configurazione; un aggiornamento conserva le modifiche |
+| `/var/lib/mysqlite` | Database (`<nome>.db`) |
+| `/var/log/mysqlite` | Log e diario delle query |
+| `/usr/bin/mysqlite` | Binario |
+
+Il servizio gira con l'utente di sistema `mysqlite`. Dopo aver cambiato la configurazione
+(per prima cosa la password): `sudo systemctl restart mysqlite`. `apt remove` ferma il
+servizio; `apt purge` toglie anche configurazione e log, ma lascia i database in
+`/var/lib/mysqlite`.
+
+### Archivi
+
+Sulle altre distribuzioni Linux, su macOS e su Windows:
+
 ```sh
 tar xzf mysqlite-<versione>-linux-amd64.tar.gz
 cd mysqlite-<versione>-linux-amd64
@@ -24,7 +51,8 @@ cp mysqlite.example.yaml mysqlite.yaml
 ```
 
 Poi si prosegue dal punto 4 dell'avvio rapido. Su macOS il binario non è firmato: al primo
-avvio va autorizzato (`xattr -d com.apple.quarantine mysqlite`).
+avvio va autorizzato (`xattr -d com.apple.quarantine mysqlite`). L'archivio Linux contiene
+anche `mysqlite.service`, la unit systemd usata dal `.deb`.
 
 ## Avvio rapido (meno di 5 minuti)
 

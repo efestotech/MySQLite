@@ -1,0 +1,28 @@
+#!/bin/sh
+# Creates the mysqlite system user and its directories, then enables and starts the
+# service. A service that fails to start does not fail the installation.
+set -e
+
+if [ "$1" = configure ]; then
+	install -d -m 0750 /var/lib/mysqlite /var/log/mysqlite
+	if ! getent passwd mysqlite >/dev/null; then
+		adduser --system --group --home /var/lib/mysqlite --no-create-home \
+			--gecos "mysqlite server" mysqlite >/dev/null
+	fi
+	chown mysqlite:mysqlite /var/lib/mysqlite /var/log/mysqlite
+	chgrp mysqlite /etc/mysqlite/mysqlite.yaml
+	chmod 0640 /etc/mysqlite/mysqlite.yaml
+
+	if [ -d /run/systemd/system ]; then
+		systemctl daemon-reload >/dev/null || true
+		if [ -z "$2" ]; then
+			systemctl enable --now mysqlite.service >/dev/null 2>&1 ||
+				echo "mysqlite: the service did not start, see: journalctl -u mysqlite" >&2
+		else
+			systemctl try-restart mysqlite.service >/dev/null 2>&1 ||
+				echo "mysqlite: the service did not restart, see: journalctl -u mysqlite" >&2
+		fi
+	fi
+fi
+
+exit 0

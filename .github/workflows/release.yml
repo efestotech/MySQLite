@@ -1,5 +1,6 @@
 # Release: on every version tag (v1.2.3, v1.2.3-rc.1) test, build a static package per OS
-# and architecture, and publish them as a GitHub release with SHA256SUMS.
+# and architecture (plus a .deb for Linux), and publish them as a GitHub release with
+# SHA256SUMS.
 name: release
 
 on:
@@ -66,6 +67,9 @@ jobs:
         run: |
           cp README.md LICENSE NOTICE "dist/$NAME/"
           cp deploy/mysqlite.example.yaml "dist/$NAME/mysqlite.example.yaml"
+          if [ "$GOOS" = linux ]; then
+            cp deploy/linux/mysqlite.service "dist/$NAME/mysqlite.service"
+          fi
           cd dist
           if [ "$GOOS" = windows ]; then
             zip -r "$NAME.zip" "$NAME"
@@ -73,12 +77,20 @@ jobs:
             tar -czf "$NAME.tar.gz" "$NAME"
           fi
           ls -l
+      # Debian package: binary, /etc/mysqlite/mysqlite.yaml and the systemd service.
+      - name: deb (linux)
+        if: matrix.goos == 'linux'
+        run: |
+          sh scripts/deb.sh "$GITHUB_REF_NAME" "$GOARCH" "dist/$NAME/$EXE" dist
+          dpkg-deb --info dist/*.deb
+          dpkg-deb --contents dist/*.deb
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ env.NAME }}
           path: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.deb
           if-no-files-found: error
 
   release:
@@ -93,7 +105,7 @@ jobs:
       - name: checksums
         run: |
           cd dist
-          sha256sum *.tar.gz *.zip > SHA256SUMS
+          sha256sum *.tar.gz *.zip *.deb > SHA256SUMS
           cat SHA256SUMS
       # A tag with a suffix (v1.0.0-rc.1) is published as a pre-release.
       - name: publish

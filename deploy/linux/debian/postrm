@@ -1,0 +1,14 @@
+#!/bin/sh
+# On purge removes the logs. The databases in /var/lib/mysqlite and the mysqlite user
+# are kept: remove them by hand when they are no longer needed.
+set -e
+
+if [ -d /run/systemd/system ]; then
+	systemctl daemon-reload >/dev/null 2>&1 || true
+fi
+
+if [ "$1" = purge ]; then
+	rm -rf /var/log/mysqlite
+fi
+
+exit 0

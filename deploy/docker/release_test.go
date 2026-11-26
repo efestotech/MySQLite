@@ -80,6 +80,9 @@ func TestReleaseWorkflow(t *testing.T) {
 		"zip -r",
 		"SHA256SUMS",
 		"gh release create",
+		"scripts/deb.sh",
+		"*.deb",
+		"deploy/linux/mysqlite.service",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("release.yml: no step with %q", want)
